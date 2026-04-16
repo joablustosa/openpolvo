@@ -33,6 +33,7 @@ import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   onToggleSidebar: () => void;
@@ -43,6 +44,7 @@ export function AgentAppMenuToolbar({
   onToggleSidebar,
   sidebarCollapsed,
 }: Props) {
+  const navigate = useNavigate();
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { requestNewChat } = useHomeChatControls();
@@ -85,8 +87,10 @@ export function AgentAppMenuToolbar({
                   Nova conversa
                   <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  Configurações…
+                <DropdownMenuItem
+                  onClick={() => navigate("/settings/email")}
+                >
+                  Definições do agente
                   <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

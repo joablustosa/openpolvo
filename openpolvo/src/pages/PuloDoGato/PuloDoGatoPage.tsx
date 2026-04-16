@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   History,
   Loader2,
+  Mail,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -54,8 +55,17 @@ import type {
   WorkflowNode,
 } from "@/lib/workflowsApi";
 import * as wf from "@/lib/workflowsApi";
+import * as contactsApi from "@/lib/contactsApi";
 
-const WF_TYPES = ["schedule", "goto", "click", "fill", "wait", "llm"] as const;
+const WF_TYPES = [
+  "schedule",
+  "goto",
+  "click",
+  "fill",
+  "wait",
+  "llm",
+  "send_email",
+] as const;
 
 const TZ_PRESETS = [
   "UTC",
@@ -101,6 +111,9 @@ function flowToGraph(nodes: Node[], edges: Edge[]): WorkflowGraph {
       cron: (n.data as { cron?: string }).cron,
       timezone: (n.data as { timezone?: string }).timezone,
       schedule_enabled: (n.data as { schedule_enabled?: boolean }).schedule_enabled,
+      contact_id: (n.data as { contact_id?: string }).contact_id,
+      email_subject: (n.data as { email_subject?: string }).email_subject,
+      email_body: (n.data as { email_body?: string }).email_body,
     },
   }));
   const ge: WorkflowEdge[] = edges.map((e) => ({
@@ -115,6 +128,7 @@ function WfNode(props: NodeProps) {
   const data = props.data as Record<string, unknown>;
   const label = (data?.label as string) || String(props.type ?? "nó");
   const isSchedule = String(props.type) === "schedule";
+  const isSendEmail = String(props.type) === "send_email";
   return (
     <>
       <Handle
@@ -127,12 +141,17 @@ function WfNode(props: NodeProps) {
           "min-w-[160px] rounded-md border bg-card px-2 py-1.5 text-xs shadow-sm",
           isSchedule
             ? "border-violet-500/60 ring-1 ring-violet-500/25"
-            : "border-border",
+            : isSendEmail
+              ? "border-amber-500/60 ring-1 ring-amber-500/25"
+              : "border-border",
         )}
       >
         <div className="flex items-center gap-1 font-medium text-foreground">
           {isSchedule ? (
             <Clock className="size-3 shrink-0 text-violet-600 dark:text-violet-400" />
+          ) : null}
+          {isSendEmail ? (
+            <Mail className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
           ) : null}
           <span className="truncate">{label}</span>
         </div>
@@ -157,6 +176,7 @@ const nodeTypes = {
   fill: WfNode,
   wait: WfNode,
   llm: WfNode,
+  send_email: WfNode,
 };
 
 type WorkflowListItemProps = {
@@ -297,6 +317,17 @@ export function PuloDoGatoPage() {
   const [runBusy, setRunBusy] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [contactOptions, setContactOptions] = useState<
+    contactsApi.ContactDTO[]
+  >([]);
+
+  useEffect(() => {
+    if (!token) return;
+    void contactsApi
+      .listContacts(token)
+      .then(setContactOptions)
+      .catch(() => setContactOptions([]));
+  }, [token]);
 
   const { pinned: pinnedWf, recent: recentWf } = useMemo(
     () => partitionWorkflowsForNav(list),
@@ -515,7 +546,14 @@ export function PuloDoGatoPage() {
               timezone: "Europe/Lisbon",
               schedule_enabled: true,
             }
-          : { label: t };
+          : t === "send_email"
+            ? {
+                label: "Enviar e-mail",
+                contact_id: contactOptions[0]?.id ?? "",
+                email_subject: "Assunto",
+                email_body: "Corpo do e-mail",
+              }
+            : { label: t };
       setNodes((ns) => [
         ...ns,
         {
@@ -527,7 +565,7 @@ export function PuloDoGatoPage() {
       ]);
       setSelNodeId(id);
     },
-    [setNodes],
+    [setNodes, contactOptions],
   );
 
   const deleteSelected = useCallback(() => {
@@ -830,6 +868,56 @@ export function PuloDoGatoPage() {
                   )}
                   onChange={(e) => updateNodeData({ prompt: e.target.value })}
                 />
+              ) : null}
+              {String(selectedNode.type) === "send_email" ? (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Envia e-mail pela conta SMTP configurada em Definições. Escolha o
+                    contacto (UUID guardado na agenda).
+                  </p>
+                  <label className="text-[10px] text-muted-foreground">
+                    Contacto
+                  </label>
+                  <select
+                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    value={String(
+                      (selectedNode.data as { contact_id?: string }).contact_id ??
+                        "",
+                    )}
+                    onChange={(e) =>
+                      updateNodeData({ contact_id: e.target.value })
+                    }
+                  >
+                    <option value="">— seleccionar —</option>
+                    {contactOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.email})
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    placeholder="Assunto"
+                    className="h-8 text-xs"
+                    value={String(
+                      (selectedNode.data as { email_subject?: string })
+                        .email_subject ?? "",
+                    )}
+                    onChange={(e) =>
+                      updateNodeData({ email_subject: e.target.value })
+                    }
+                  />
+                  <Textarea
+                    placeholder="Corpo do e-mail"
+                    className="min-h-[80px] text-xs"
+                    value={String(
+                      (selectedNode.data as { email_body?: string }).email_body ??
+                        "",
+                    )}
+                    onChange={(e) =>
+                      updateNodeData({ email_body: e.target.value })
+                    }
+                  />
+                </div>
               ) : null}
               {String(selectedNode.type) === "schedule" ? (
                 <div className="space-y-2 border-t border-border pt-2">

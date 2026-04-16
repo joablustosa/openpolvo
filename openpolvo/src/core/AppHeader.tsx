@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { LayoutGrid } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,8 +12,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { oficialLogoSrc } from "@/components/brand/AppLogo";
 import { AppsMenuItems } from "@/core/AppsMenuItems";
 import { useAuth } from "@/auth/AuthContext";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useWorkspace } from "@/core/WorkspaceContext";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -21,11 +19,8 @@ type Props = {
 };
 
 export function AppHeader({ variant }: Props) {
+  const navigate = useNavigate();
   const { logout } = useAuth();
-  const { activeApp } = useWorkspace();
-  const [workspaceTab, setWorkspaceTab] = useState<"chat" | "cowork" | "code">(
-    "chat",
-  );
 
   return (
     <header
@@ -49,28 +44,6 @@ export function AppHeader({ variant }: Props) {
             <AppsMenuItems />
           </DropdownMenuContent>
         </DropdownMenu>
-
-        {variant === "workspace" && activeApp ? (
-          <Tabs
-            value={workspaceTab}
-            onValueChange={(v) =>
-              setWorkspaceTab(v as "chat" | "cowork" | "code")
-            }
-            className="hidden md:block"
-          >
-            <TabsList className="h-8 bg-muted/50">
-              <TabsTrigger value="chat" className="px-3 text-xs">
-                Chat
-              </TabsTrigger>
-              <TabsTrigger value="cowork" className="px-3 text-xs" disabled>
-                Cowork
-              </TabsTrigger>
-              <TabsTrigger value="code" className="px-3 text-xs" disabled>
-                Código
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        ) : null}
       </div>
 
       <div className="flex items-center gap-1">
@@ -90,9 +63,12 @@ export function AppHeader({ variant }: Props) {
               </Button>
             }
           />
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-              Conta (em breve)
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              onClick={() => navigate("/settings/email")}
+              className="text-sm"
+            >
+              Correio (SMTP)
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

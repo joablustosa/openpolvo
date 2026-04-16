@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
-import { RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { APP_LABELS, getPluginUrl, type AppId } from "@/config/apps";
 import { useWorkspace } from "@/core/WorkspaceContext";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
 
 function isElectronShell(): boolean {
@@ -28,6 +29,7 @@ export function SitePanel() {
   const { activeApp } = useWorkspace();
   const webviewRef = useRef<HTMLWebViewElement | null>(null);
   const isElectron = isElectronShell();
+  const desktopDownloadUrl = getDesktopDownloadUrl();
 
   const defaultUrl =
     activeApp != null ? getPluginUrl(activeApp) : "";
@@ -119,18 +121,45 @@ export function SitePanel() {
             }}
             src={src}
             partition="persist:smartagent"
+            allowpopups="true"
           />
         ) : (
-          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-            <p>Abra com Electron para embutir o site no painel.</p>
-            <a
-              href={src}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Abrir {title} no navegador
-            </a>
+          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 p-6 text-center">
+            <div className="max-w-sm space-y-2 text-sm text-muted-foreground">
+              <p>
+                O painel de <span className="font-medium text-foreground">{title}</span>{" "}
+                corre na aplicação <span className="font-medium text-foreground">desktop</span>{" "}
+                (Electron), com o site embutido ao lado do chat.
+              </p>
+              <p className="text-xs leading-relaxed">
+                Na versão web não é possível mostrar o plugin aqui; instale a versão desktop para
+                usar esta integração.
+              </p>
+            </div>
+            {desktopDownloadUrl ? (
+              <a
+                href={desktopDownloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  buttonVariants({ variant: "default", size: "lg" }),
+                  "gap-2 no-underline",
+                )}
+              >
+                <Download className="size-4" />
+                Baixar versão desktop
+              </a>
+            ) : (
+              <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                Para mostrar o botão de download nesta página, defina{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+                  VITE_DESKTOP_DOWNLOAD_URL
+                </code>{" "}
+                no ambiente do Vite antes do build (ver{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">.env.example</code>
+                ).
+              </p>
+            )}
           </div>
         )}
       </div>

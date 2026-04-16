@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   History,
@@ -8,6 +8,7 @@ import {
   Pin,
   PinOff,
   Trash2,
+  Users,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -18,6 +19,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/auth/AuthContext";
@@ -29,6 +36,23 @@ import { displayNameFromToken } from "@/lib/userDisplay";
 import { type ConversationDTO } from "@/lib/conversationsApi";
 import { partitionConversationsForNav } from "@/lib/conversationNavOrder";
 import { cn } from "@/lib/utils";
+
+/** Opções do menu Email — extensível para mais integrações de agente. */
+const AGENT_EMAIL_SETTINGS = [
+  { value: "email-smtp", label: "Email (SMTP)", path: "/settings/email" as const },
+  {
+    value: "calendar",
+    label: "Calendário",
+    disabled: true as const,
+    hint: "em breve",
+  },
+  {
+    value: "agent-files",
+    label: "Ficheiros do agente",
+    disabled: true as const,
+    hint: "em breve",
+  },
+] as const;
 
 type ConversationItemProps = {
   conv: ConversationDTO;
@@ -154,6 +178,8 @@ function ConversationItem({
 }
 
 export function AgentSidebar() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { requestNewChat } = useHomeChatControls();
@@ -187,6 +213,8 @@ export function AgentSidebar() {
   }, [newChat]);
 
   const displayName = displayNameFromToken(token);
+
+  const isEmailSettingsActive = location.pathname.startsWith("/settings/email");
 
   const { pinned: pinnedConvs, recent: recentConvs } = useMemo(
     () => partitionConversationsForNav(conversations),
@@ -225,9 +253,6 @@ export function AgentSidebar() {
       </div>
 
       <nav className="flex shrink-0 flex-col gap-0.5 px-2 py-2">
-        <Button variant="ghost" size="sm" className="justify-start font-normal">
-          Personalizar
-        </Button>
         <NavLink
           to="/pulo-do-gato"
           className={({ isActive }) =>
@@ -240,6 +265,50 @@ export function AgentSidebar() {
         >
           Pulo do Gato
         </NavLink>
+        <NavLink
+          to="/settings/contacts"
+          className={({ isActive }) =>
+            cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "justify-start gap-2 font-normal",
+              isActive && "bg-muted font-medium text-foreground",
+            )
+          }
+        >
+          <Users className="size-3.5 shrink-0 opacity-80" />
+          Contactos
+        </NavLink>
+        <Select
+          onValueChange={(value) => {
+            const opt = AGENT_EMAIL_SETTINGS.find((o) => o.value === value);
+            if (opt && "path" in opt) {
+              navigate(opt.path);
+            }
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "h-8 w-full border-0 bg-transparent font-normal shadow-none hover:bg-muted/80 focus-visible:ring-1 focus-visible:ring-ring/40",
+              isEmailSettingsActive && "bg-muted font-medium text-foreground",
+            )}
+            aria-label="Email — configurações para agentes"
+          >
+            <span className="flex min-w-0 flex-1 truncate text-left text-sm">Email</span>
+          </SelectTrigger>
+          <SelectContent align="start" className="min-w-[var(--anchor-width)]">
+            {AGENT_EMAIL_SETTINGS.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                disabled={"disabled" in opt && opt.disabled}
+              >
+                {"hint" in opt ? `${opt.label} (${opt.hint})` : opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </nav>
 
       <Separator className="mx-2 shrink-0 bg-border/60" />

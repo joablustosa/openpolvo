@@ -1,3 +1,8 @@
+/**
+ * Aplicativos embutidos no painel (Electron). Cada id mapeia para um URL público
+ * ou de pré-produção acordado com o integrador; o webview usa a mesma partição
+ * para manter sessões de login entre arranques.
+ */
 /** SmartBus — pré-produção (login embutido no webview). */
 export const SMARTBUS_URL =
   "https://preprod-guanabara-backoffice-smartbus.smarttravelit.com/#/login" as const;

@@ -22,6 +22,9 @@ export type WorkflowNode = {
     /** IANA, ex.: Europe/Lisbon */
     timezone?: string;
     schedule_enabled?: boolean;
+    contact_id?: string;
+    email_subject?: string;
+    email_body?: string;
   };
 };
 

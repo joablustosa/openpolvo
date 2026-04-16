@@ -14,7 +14,10 @@ export function useAppLaunch() {
 
   const openSmartBus = () => openPlugin("smartbus");
 
-  const goHome = () => setActiveApp(null);
+  const goHome = () => {
+    setTargetUrl("");
+    setActiveApp(null);
+  };
 
   return { openPlugin, openSmartBus, goHome };
 }

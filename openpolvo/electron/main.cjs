@@ -3,6 +3,8 @@ const path = require("path");
 
 const isDev = !app.isPackaged;
 
+app.setName("Open Polvo");
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,

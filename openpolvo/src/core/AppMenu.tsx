@@ -5,10 +5,10 @@ import {
   Home,
   Mail,
   MessageCircle,
-  MessageSquare,
   Navigation,
   PanelLeftClose,
   PanelLeft,
+  Settings2,
   Share2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -19,6 +19,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 const PLUGIN_ICON: Record<AppId, LucideIcon> = {
   whatsapp: MessageCircle,
@@ -32,6 +33,7 @@ const PLUGIN_ICON: Record<AppId, LucideIcon> = {
 };
 
 export function AppMenu() {
+  const navigate = useNavigate();
   const { logout } = useAuth();
   const { activeApp, sidebarCollapsed, toggleSidebar } = useWorkspace();
   const { openPlugin, goHome } = useAppLaunch();
@@ -68,7 +70,7 @@ export function AppMenu() {
         </Button>
         {!sidebarCollapsed ? (
           <span className="truncate text-sm font-semibold tracking-tight">
-            SmartAgent
+            Open Polvo
           </span>
         ) : null}
       </div>
@@ -133,7 +135,7 @@ export function AppMenu() {
             sidebarCollapsed && "sr-only",
           )}
         >
-          Sessão
+          Agente
         </p>
         <Button
           variant="ghost"
@@ -142,10 +144,11 @@ export function AppMenu() {
             "justify-start gap-2 font-normal",
             sidebarCollapsed && "justify-center px-0",
           )}
-          disabled
+          title={sidebarCollapsed ? "Definições do agente" : undefined}
+          onClick={() => navigate("/settings/email")}
         >
-          <MessageSquare className="size-4 shrink-0 opacity-90" />
-          {!sidebarCollapsed ? "Conversa atual" : null}
+          <Settings2 className="size-4 shrink-0 opacity-90" />
+          {!sidebarCollapsed ? "Definições" : null}
         </Button>
       </nav>
 
