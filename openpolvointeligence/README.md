@@ -48,3 +48,5 @@ pytest
 ## Integração com a API Go
 
 Defina na API Go `POLVO_INTELLIGENCE_BASE_URL` (ex.: `http://127.0.0.1:8090`) e `POLVO_INTELLIGENCE_INTERNAL_KEY` igual a `POLVO_INTERNAL_KEY` deste serviço. Ver [README do backend](../openpolvobackend/README.md).
+
+O corpo de `POST /v1/reply` pode incluir **`smtp_context`** (opcional): metadados do SMTP do utilizador (sem password) para o grafo alinhar respostas sobre correio e redacção de respostas; o envio real continua a ser feito pela API Go (`POST /v1/email/send`). Opcionalmente **`contacts_context`**: lista de contactos (`id`, `name`, `phone`, `email`) para o agente reconhecer destinatários pelo nome.

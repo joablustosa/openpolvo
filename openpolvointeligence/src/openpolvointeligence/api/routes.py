@@ -31,7 +31,13 @@ async def post_reply(
         raise HTTPException(status_code=400, detail="messages required")
     msgs = [m.model_dump() for m in body.messages]
     try:
-        text, meta = await run_reply(settings, msgs, body.model_provider)
+        text, meta = await run_reply(
+            settings,
+            msgs,
+            body.model_provider,
+            body.smtp_context,
+            body.contacts_context,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:

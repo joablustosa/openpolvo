@@ -14,6 +14,14 @@ class ReplyRequest(BaseModel):
     messages: list[MessagePart]
     model_provider: str = Field(default="openai", description="openai | google")
     conversation_id: str | None = None
+    smtp_context: dict[str, Any] | None = Field(
+        default=None,
+        description="Metadados SMTP do utilizador (from API Go); sem passwords.",
+    )
+    contacts_context: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Contactos guardados (id, name, phone, email) para e-mail e destinatários.",
+    )
 
 
 class ReplyResponse(BaseModel):

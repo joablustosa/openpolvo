@@ -25,6 +25,10 @@ type SendMessage struct {
 	Conversations convports.ConversationRepository
 	Messages      convports.MessageRepository
 	Agent         agentports.ChatOrchestrator
+	// Opcional: metadados SMTP do utilizador para o orquestrador Intelligence.
+	SMTPForReply func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
+	// Opcional: contactos guardados para o agente sugerir destinatários ou corresponder nomes.
+	ContactsForReply func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief
 }
 
 func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]domain.Message, error) {
@@ -58,10 +62,17 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	if err != nil {
 		return nil, err
 	}
-	assistantText, meta, err := s.Agent.Reply(ctx, agentports.ReplyInput{
+	repIn := agentports.ReplyInput{
 		Messages:      hist,
 		ModelProvider: model,
-	})
+	}
+	if s.SMTPForReply != nil {
+		repIn.SMTP = s.SMTPForReply(ctx, cmd.UserID)
+	}
+	if s.ContactsForReply != nil {
+		repIn.Contacts = s.ContactsForReply(ctx, cmd.UserID)
+	}
+	assistantText, meta, err := s.Agent.Reply(ctx, repIn)
 	if err != nil {
 		if errors.Is(err, convports.ErrModelNotConfigured) {
 			metaBytes, _ := json.Marshal(map[string]any{"error": err.Error()})
@@ -76,12 +87,17 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 			_ = s.Conversations.TouchUpdatedAt(ctx, conv.ID, time.Now().UTC())
 			return s.Messages.ListByConversation(ctx, conv.ID)
 		}
+		errMsg := err.Error()
+		if len(errMsg) > 600 {
+			errMsg = errMsg[:600] + "…"
+		}
 		metaBytes, _ := json.Marshal(map[string]any{"error": err.Error()})
+		userFacing := "Não foi possível obter resposta do agente. Verifique o serviço Open Polvo Intelligence, POLVO_INTELLIGENCE_* na API Go e as chaves LLM no Python.\n\nDetalhe: " + errMsg
 		_ = s.Messages.Create(ctx, &domain.Message{
 			ID:             uuid.New(),
 			ConversationID: conv.ID,
 			Role:           "assistant",
-			Content:        "Não foi possível obter resposta do agente. Verifique o serviço Open Polvo Intelligence, POLVO_INTELLIGENCE_* na API Go e a ligação à rede.",
+			Content:        userFacing,
 			Metadata:       metaBytes,
 			CreatedAt:      time.Now().UTC(),
 		})

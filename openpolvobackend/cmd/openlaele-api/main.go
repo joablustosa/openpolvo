@@ -11,12 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	agapp "github.com/open-polvo/open-polvo/internal/agent/application"
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	convmysql "github.com/open-polvo/open-polvo/internal/conversations/adapters/mysql"
 	convapp "github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
+	contactsmysql "github.com/open-polvo/open-polvo/internal/contacts/adapters/mysql"
+	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
 	bcryptadapter "github.com/open-polvo/open-polvo/internal/identity/adapters/bcrypt"
 	jwtissuer "github.com/open-polvo/open-polvo/internal/identity/adapters/jwtissuer"
 	idmysql "github.com/open-polvo/open-polvo/internal/identity/adapters/mysql"
@@ -24,6 +27,8 @@ import (
 	platformcfg "github.com/open-polvo/open-polvo/internal/platform/config"
 	platformdb "github.com/open-polvo/open-polvo/internal/platform/db"
 	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
+	mailmysql "github.com/open-polvo/open-polvo/internal/mail/adapters/mysql"
+	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
 	httptransport "github.com/open-polvo/open-polvo/internal/transport/http"
 	wfmysql "github.com/open-polvo/open-polvo/internal/workflows/adapters/mysql"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
@@ -204,10 +209,33 @@ func main() {
 	createConvUC := &convapp.CreateConversation{
 		Conversations: convRepo,
 	}
+	smtpRepo := &mailmysql.SMTPSettingsRepository{DB: db}
+	smtpLoader := &mailapp.SMTPContextLoader{Repo: smtpRepo}
+	contactRepo := &contactsmysql.ContactRepository{DB: db}
+	contactsReply := &contactsapp.ContactsReplyLoader{Repo: contactRepo}
+	getContactUC := &contactsapp.GetContact{Repo: contactRepo}
 	sendMsgUC := &convapp.SendMessage{
 		Conversations: convRepo,
 		Messages:      msgRepo,
 		Agent:         chatOrch,
+		SMTPForReply:  smtpLoader.ForReply,
+		ContactsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief {
+			return contactsReply.ForReply(ctx, userID)
+		},
+	}
+	sendMailUC := &mailapp.SendUserEmail{Repo: smtpRepo, Cfg: cfg}
+	mailHandlers := &httptransport.MailHandlers{
+		GetSMTP:    &mailapp.GetMySMTP{Repo: smtpRepo},
+		PutSMTP:    &mailapp.PutMySMTP{Repo: smtpRepo, Cfg: cfg},
+		Send:       sendMailUC,
+		GetContact: getContactUC,
+	}
+	contactHandlers := &httptransport.ContactHandlers{
+		List:      &contactsapp.ListContacts{Repo: contactRepo},
+		Create:    &contactsapp.CreateContact{Repo: contactRepo},
+		Get:       getContactUC,
+		Update:    &contactsapp.UpdateContact{Repo: contactRepo},
+		DeleteOne: &contactsapp.DeleteContact{Repo: contactRepo},
 	}
 	var wfHandlers *httptransport.WorkflowHandlers
 	wfRepo := wfmysql.WorkflowRepository{DB: db}
@@ -223,6 +251,8 @@ func main() {
 		LLM:          wfLLM,
 		DefaultModel: domain.ModelOpenAI,
 		RunnerCfg:    wfapp.DefaultRunnerConfig(),
+		SendEmail:    sendMailUC,
+		GetContact:   getContactUC,
 	}
 	wfHandlers = &httptransport.WorkflowHandlers{
 		Create: createWF,
@@ -268,6 +298,8 @@ func main() {
 		Agent:         agentH,
 		Conversations: convHandlers,
 		Workflows:     wfHandlers,
+		Mail:          mailHandlers,
+		Contacts:      contactHandlers,
 		TokenParser:   issuer,
 		ReadyCheck:    readyCheck,
 	})

@@ -72,6 +72,8 @@ _INTENT_ALIASES: dict[str, str] = {
     "automacao": "automacao",
     "gerencial_fallback": "geral",
     "geral": "geral",
+    "resposta_email": "criacao_email",
+    "monitorizacao_email": "criacao_email",
 }
 
 # Rota normalizada → ficheiro de prompt em prompts/{stem}.md (sem extensão)
@@ -148,6 +150,8 @@ class ZepState(TypedDict, total=False):
     messages: list[dict[str, Any]]
     model_provider: str
     conversation_id: str | None
+    smtp_context: dict[str, Any] | None
+    contacts_context: list[dict[str, Any]] | None
     plugin_hit: bool
     assistant_text: str
     metadata: dict[str, Any]
@@ -223,14 +227,57 @@ def build_zepolvinho_graph(settings: Settings):
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=False)
 
         base = route_prompts.get(routed) or route_prompts["geral"]
+        contacts_block = ""
+        cc = state.get("contacts_context")
+        if isinstance(cc, list) and len(cc) > 0:
+            lines = []
+            for row in cc[:80]:
+                if not isinstance(row, dict):
+                    continue
+                cid = str(row.get("id", "")).strip()
+                nm = str(row.get("name", "")).strip()
+                em = str(row.get("email", "")).strip()
+                ph = str(row.get("phone", "")).strip()
+                if not cid or not nm:
+                    continue
+                extra = f", tel. {ph}" if ph else ""
+                lines.append(f"- **{nm}** (id `{cid}`) — {em}{extra}")
+            if lines:
+                contacts_block = (
+                    "\n\n## Contactos guardados na plataforma\n"
+                    "O utilizador tem estes contactos na agenda. Quando pedirem para **enviar e-mail** "
+                    "a alguém pelo **nome**, corresponde ao contacto e indica o **id** e o **email** "
+                    "correctos. Para envio real, a API usa `POST /v1/email/send` com `contact_id` ou `to`.\n"
+                    + "\n".join(lines)
+                )
+        smtp_block = ""
+        sc = state.get("smtp_context")
+        if isinstance(sc, dict) and sc.get("configured"):
+            smtp_block = (
+                "\n\n## Conta de correio do utilizador (Open Polvo)\n"
+                "O utilizador configurou SMTP na aplicação. Qualquer **envio real** de e-mail usa "
+                f"esse servidor (remetente: **{sc.get('from_email', '')}**, host: `{sc.get('host', '')}:{sc.get('port', '')}`). "
+                "Tu preparas assunto, corpo e destinatários; a plataforma envia via API autenticada com a conta dele. "
+                "Se pedirem **monitorizar** ou **responder automaticamente** à caixa de entrada, explica que o envio "
+                "já usa o SMTP dele, mas **ler** correio na caixa (IMAP/polling) é uma extensão em roadmap — "
+                "por agora orienta a colar threads ou usar reencaminhamento manual se necessário.\n"
+            )
         if routed == "geral":
             sys = (
                 _system_with_formatting(base, settings)
                 + f"\n\n(Nota interna — motivo do encaminhamento geral: {analysis.get('reasoning', '')})"
             )
+            if smtp_block:
+                sys += smtp_block
+            if contacts_block:
+                sys += contacts_block
             resp = await chat.ainvoke([SystemMessage(content=sys), *_to_lc_messages(capped)])
         else:
             sys = _system_with_formatting(base, settings) + "\n\nContexto da classificação:\n" + ctx_b
+            if routed == "criacao_email" and smtp_block:
+                sys += smtp_block
+            if routed == "criacao_email" and contacts_block:
+                sys += contacts_block
             resp = await chat.ainvoke([SystemMessage(content=sys), *_to_lc_messages(capped)])
         text = str(resp.content).strip()
 
@@ -270,13 +317,21 @@ def reset_graph_cache() -> None:
     _compiled_graph = None
 
 
-async def run_reply(settings: Settings, messages: list[dict[str, Any]], model_provider: str) -> tuple[str, dict[str, Any]]:
+async def run_reply(
+    settings: Settings,
+    messages: list[dict[str, Any]],
+    model_provider: str,
+    smtp_context: dict[str, Any] | None = None,
+    contacts_context: list[dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Executa o grafo LangGraph compilado."""
     graph = get_compiled_graph(settings)
     out = await graph.ainvoke(
         {
             "messages": messages,
             "model_provider": model_provider,
+            "smtp_context": smtp_context,
+            "contacts_context": contacts_context,
         },
     )
     text = str(out.get("assistant_text", "")).strip()

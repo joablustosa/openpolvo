@@ -10,7 +10,7 @@ from openpolvointeligence.graphs.models import get_chat_model
 _WORKFLOW_SYSTEM = """És um especialista em automação web. Responde APENAS com JSON válido, sem markdown nem texto fora do JSON.
 O formato obrigatório é:
 {"nodes":[{"id":"n1","type":"goto","data":{"url":"https://..."},"position":{"x":0,"y":0}},{"id":"n2","type":"click","data":{"selector":"css..."},"position":{"x":200,"y":0}}],"edges":[{"id":"e1","source":"n1","target":"n2"}]}
-Tipos de nó permitidos: goto (data.url), click (data.selector), fill (data.selector + data.value), wait (data.selector), llm (data.prompt).
+Tipos de nó permitidos: goto (data.url), click (data.selector), fill (data.selector + data.value), wait (data.selector), llm (data.prompt), send_email (data.contact_id UUID do contacto, data.email_subject, data.email_body — envio SMTP do utilizador na API).
 IDs devem ser únicos. Inclui posições em grelha para o editor visual."""
 
 

@@ -43,12 +43,14 @@ def get_chat_model(
         return ChatOpenAI(**kw)
     if not settings.google_api_key:
         raise RuntimeError("google: no API key configured")
-    mkw: dict[str, Any] = {"response_mime_type": "application/json"} if json_mode else {}
-    return ChatGoogleGenerativeAI(
-        model=settings.google_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.1,
-        timeout=timeout,
-        max_retries=1,
-        model_kwargs=mkw,
-    )
+    # response_mime_type é parâmetro do modelo LangChain, não de model_kwargs (evita aviso e falhas 502).
+    kw_google: dict[str, Any] = {
+        "model": settings.google_model,
+        "google_api_key": settings.google_api_key,
+        "temperature": 0.1,
+        "timeout": timeout,
+        "max_retries": 1,
+    }
+    if json_mode:
+        kw_google["response_mime_type"] = "application/json"
+    return ChatGoogleGenerativeAI(**kw_google)

@@ -8,7 +8,7 @@ type GraphJSON struct {
 
 type GraphNode struct {
 	ID       string             `json:"id"`
-	Type     string             `json:"type"`               // schedule, goto, click, fill, wait, llm
+	Type     string             `json:"type"`               // schedule, goto, click, fill, wait, llm, send_email
 	Position map[string]float64 `json:"position,omitempty"` // x, y — opcional no servidor
 	Data     NodeData           `json:"data"`
 }
@@ -20,6 +20,10 @@ type NodeData struct {
 	Prompt    string `json:"prompt,omitempty"` // llm mini-prompt
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
 	Label     string `json:"label,omitempty"`
+	// Nó "send_email": UUID do contacto (laele_user_contacts) e conteúdo do e-mail.
+	ContactID    string `json:"contact_id,omitempty"`
+	EmailSubject string `json:"email_subject,omitempty"`
+	EmailBody    string `json:"email_body,omitempty"`
 	// Nó "schedule": expressão cron (5 campos, p.ex. "0 9 * * *") e fuso IANA.
 	Cron            string `json:"cron,omitempty"`
 	Timezone        string `json:"timezone,omitempty"`

@@ -55,11 +55,15 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 		Content string `json:"content"`
 	}
 	body := struct {
-		Messages       []msgPart `json:"messages"`
-		ModelProvider  string    `json:"model_provider"`
-		ConversationID string    `json:"conversation_id,omitempty"`
+		Messages         []msgPart                   `json:"messages"`
+		ModelProvider    string                      `json:"model_provider"`
+		ConversationID   string                      `json:"conversation_id,omitempty"`
+		SMTPContext      *agentports.SMTPContext     `json:"smtp_context,omitempty"`
+		ContactsContext  []agentports.ContactBrief   `json:"contacts_context,omitempty"`
 	}{
-		ModelProvider: string(in.ModelProvider),
+		ModelProvider:   string(in.ModelProvider),
+		SMTPContext:     in.SMTP,
+		ContactsContext: in.Contacts,
 	}
 	for _, m := range in.Messages {
 		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})

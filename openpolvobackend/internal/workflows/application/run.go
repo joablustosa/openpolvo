@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
+	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
+	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
 	wfdomain "github.com/open-polvo/open-polvo/internal/workflows/domain"
 	"github.com/open-polvo/open-polvo/internal/workflows/engine"
 	"github.com/open-polvo/open-polvo/internal/workflows/ports"
@@ -25,6 +27,8 @@ type RunWorkflow struct {
 	// ModelProvider usado para nós llm no grafo.
 	DefaultModel domain.ModelProvider
 	RunnerCfg    engine.RunnerConfig
+	SendEmail    *mailapp.SendUserEmail
+	GetContact   *contactsapp.GetContact
 }
 
 var runSem = make(chan struct{}, 3)
@@ -106,7 +110,8 @@ func (uc *RunWorkflow) Execute(ctx context.Context, userID, workflowID uuid.UUID
 		}
 	}
 
-	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn)
+	mailDeps := MailDepsForWorkflowUser(userID, uc.SendEmail, uc.GetContact)
+	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn, mailDeps)
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.StepLog = logs

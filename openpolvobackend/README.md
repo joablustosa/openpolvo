@@ -50,6 +50,14 @@ Com `RUN_MIGRATIONS=true`, no arranque corre-se só **`migrate up`**: aplicam-se
 | POST | `/v1/conversations/{id}/pin` | Bearer JWT | Fixar/desafixar (`{"pinned": true/false}`) |
 | GET | `/v1/conversations/{id}/messages` | Bearer JWT | Listar mensagens |
 | POST | `/v1/conversations/{id}/messages` | Bearer JWT | Enviar mensagem (`text`, `model_provider?`) |
+| GET | `/v1/me/smtp` | Bearer JWT | Definições SMTP do utilizador (sem password; `password_set`) |
+| PUT | `/v1/me/smtp` | Bearer JWT | Guardar SMTP (`host`, `port`, `username`, `password?`, `from_email`, `from_name`, `use_tls`) — password vazia mantém a anterior |
+| POST | `/v1/email/send` | Bearer JWT | Enviar e-mail pela conta SMTP (`to`, `subject`, `body` ou `contact_id` em vez de `to`) |
+| GET | `/v1/me/contacts` | Bearer JWT | Listar contactos (nome, telefone, email) |
+| POST | `/v1/me/contacts` | Bearer JWT | Criar contacto (`name`, `phone`, `email`) → 201 |
+| GET | `/v1/me/contacts/{id}` | Bearer JWT | Obter um contacto |
+| PUT | `/v1/me/contacts/{id}` | Bearer JWT | Actualizar contacto |
+| DELETE | `/v1/me/contacts/{id}` | Bearer JWT | Eliminar contacto → 204 |
 
 Login: JSON `{"email":"","password":""}` → `access_token`, `token_type`, `expires_in`.
 
@@ -82,10 +90,12 @@ Pode definir `LANGCHAIN_API_KEY` / `LANGSMITH_API_KEY` no **serviço Python**; n
 | 000005 | Criar tabela `laele_workflows` |
 | 000006 | Criar tabela `laele_workflow_runs` |
 | 000009 | Colunas de agendamento (`schedule_*`) em `laele_workflows` |
+| 000010 | Tabela `laele_user_smtp_settings` (SMTP por utilizador; password encriptada no servidor) |
+| 000011 | Tabela `laele_user_contacts` (agenda: nome, telefone, email por utilizador) |
 
 ## Front-end
 
-O cliente em [OpenLaEleFront](OpenLaEleFront) chama a API em **`http://127.0.0.1:8080`** por defeito (ou a URL em `VITE_API_BASE_URL`). O Vite faz **proxy** de `/v1`, `/health`, `/healthz`, `/ready` e `/readyz` para o mesmo host da API em dev/preview. Com **Electron**, podes usar **`OPEN_LA_ELE_API_URL`**. O backend aceita origem `null` com `CORS_ALLOW_NULL_ORIGIN=true` (ficheiro local).
+O cliente em [openpolvo](../openpolvo/) chama a API em **`http://127.0.0.1:8080`** por defeito (ou a URL em `VITE_API_BASE_URL`). O Vite faz **proxy** de `/v1`, `/health`, `/healthz`, `/ready` e `/readyz` para o mesmo host da API em dev/preview. Com **Electron**, podes usar **`OPEN_LA_ELE_API_URL`**. O backend aceita origem `null` com `CORS_ALLOW_NULL_ORIGIN=true` (ficheiro local). Na **versão web**, o painel de plugins mostra um convite a instalar a desktop: define `VITE_DESKTOP_DOWNLOAD_URL` no build do front (instalador ou página de releases; ver `openpolvo/.env.example`).
 
 ### Funcionalidades do front-end
 
@@ -95,10 +105,16 @@ O cliente em [OpenLaEleFront](OpenLaEleFront) chama a API em **`http://127.0.0.1
   - **Excluir** — soft delete (não recuperável pela UI)
 - **Chat:** usa a API Go + serviço Intelligence (OpenAI / Gemini por mensagem)
 - **Electron:** janela desktop com IPC bridge; `OPEN_LA_ELE_API_URL` sobrepõe a URL da API
+- **Correio (SMTP):** rota `/settings/email` — configurar servidor e remetente; o agente recebe metadados (sem password) para alinhar respostas sobre e-mail; envio real via `POST /v1/email/send` ou integrações futuras
+- **Contactos:** rota `/settings/contacts` (menu «Contactos» no início); a agenda é enviada ao Intelligence (`contacts_context`) para o chat sugerir destinatários; no Pulo do Gato o nó **`send_email`** usa `contact_id` + SMTP
+
+### SMTP por utilizador (backend)
+
+A password SMTP é guardada encriptada (AES-GCM). Opcionalmente define `SMTP_CREDENTIALS_KEY` (32 bytes em base64) no `.env`; se estiver vazio, deriva-se uma chave a partir de `JWT_SECRET` (menos ideal em rotação de JWT). Ver [`.env.example`](.env.example).
 
 ## Automação (Pulo do Gato / Playwright-Go)
 
-A API inclui workflows com grafo (nós `schedule`, `goto`, `click`, `fill`, `wait`, `llm`) executados com **[playwright-go](https://github.com/playwright-community/playwright-go)** (Chromium headless por defeito). O nó **`schedule`** define expressão **cron** (5 campos) e fuso IANA; o processo da API corre um **scheduler** com [robfig/cron](https://github.com/robfig/cron) e dispara `POST` interno equivalente a `POST /v1/workflows/{id}/run` quando o horário é atingido (sem necessidade de [Temporal.io](https://temporal.io) para o caso típico; Temporal continua uma opção para orquestração distribuída em grande escala). A geração de grafos (`POST /v1/workflows/generate`) e as chamadas dos nós `llm` durante o run usam o **mesmo serviço Open Polvo Intelligence** (não há LLM embutido no processo Go).
+A API inclui workflows com grafo (nós `schedule`, `goto`, `click`, `fill`, `wait`, `llm`, **`send_email`**) executados com **[playwright-go](https://github.com/playwright-community/playwright-go)** (Chromium headless por defeito). O nó **`send_email`** não usa o browser: envia e-mail via SMTP do utilizador (`data.contact_id`, `data.email_subject`, `data.email_body`). O nó **`schedule`** define expressão **cron** (5 campos) e fuso IANA; o processo da API corre um **scheduler** com [robfig/cron](https://github.com/robfig/cron) e dispara `POST` interno equivalente a `POST /v1/workflows/{id}/run` quando o horário é atingido (sem necessidade de [Temporal.io](https://temporal.io) para o caso típico; Temporal continua uma opção para orquestração distribuída em grande escala). A geração de grafos (`POST /v1/workflows/generate`) e as chamadas dos nós `llm` durante o run usam o **mesmo serviço Open Polvo Intelligence** (não há LLM embutido no processo Go).
 
 1. **Instalar browsers Playwright** (obrigatório antes de `POST .../workflows/{id}/run`; uma vez por máquina):
 

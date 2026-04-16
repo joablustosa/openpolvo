@@ -8,8 +8,10 @@ import (
 
 // ReplyInput contém o histórico já persistido (incluindo a última mensagem do utilizador).
 type ReplyInput struct {
-	Messages      []domain.Message
-	ModelProvider domain.ModelProvider
+	Messages       []domain.Message
+	ModelProvider  domain.ModelProvider
+	SMTP           *SMTPContext   // opcional: conta de envio configurada na aplicação
+	Contacts       []ContactBrief // opcional: agenda do utilizador (nome, email, telefone)
 }
 
 // ChatOrchestrator implementa o fluxo analisador → router → especialista (Zé Polvinho).

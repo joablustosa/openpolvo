@@ -19,6 +19,8 @@ type Deps struct {
 	Agent         *AgentHandlers
 	Conversations *ConversationHandlers
 	Workflows     *WorkflowHandlers
+	Mail          *MailHandlers
+	Contacts      *ContactHandlers
 	TokenParser   TokenParser
 	ReadyCheck    func(context.Context) error
 }
@@ -70,6 +72,18 @@ func NewRouter(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(BearerAuth(d.TokenParser))
 			r.Get("/auth/me", d.Auth.GetMe)
+			if d.Mail != nil {
+				r.Get("/me/smtp", d.Mail.GetMeSMTP)
+				r.Put("/me/smtp", d.Mail.PutMeSMTP)
+				r.Post("/email/send", d.Mail.PostEmailSend)
+			}
+			if d.Contacts != nil {
+				r.Get("/me/contacts", d.Contacts.GetList)
+				r.Post("/me/contacts", d.Contacts.Post)
+				r.Get("/me/contacts/{id}", d.Contacts.GetOne)
+				r.Put("/me/contacts/{id}", d.Contacts.Put)
+				r.Delete("/me/contacts/{id}", d.Contacts.Delete)
+			}
 			r.Get("/agent/status", d.Agent.GetAgentStatus)
 			r.Get("/agent/langgraph/status", d.Agent.GetLangGraphStatus)
 			r.Post("/agent/langgraph/threads", d.Agent.PostLangGraphThreads)

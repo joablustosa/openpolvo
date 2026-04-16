@@ -37,6 +37,8 @@ type Config struct {
 	GoogleModel  string
 	// Timeout para chamadas HTTP ao Intelligence e ao LLM remoto.
 	AgentLLMTimeout       time.Duration
+	// Chave opcional (string qualquer) para AES-256-GCM da password SMTP por utilizador; se vazia usa derivação a partir de JWT_SECRET.
+	SMTPCredentialsKey string
 	BootstrapDefaultAdmin bool
 	DefaultAdminEmail     string
 	DefaultAdminPassword  string
@@ -67,6 +69,7 @@ func Load() (Config, error) {
 		PolvoIntelligenceInternalKey: strings.TrimSpace(os.Getenv(
 			"POLVO_INTELLIGENCE_INTERNAL_KEY",
 		)),
+		SMTPCredentialsKey: strings.TrimSpace(os.Getenv("SMTP_CREDENTIALS_KEY")),
 		OpenAIAPIKey:          strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		GoogleAPIKey:          strings.TrimSpace(os.Getenv("GOOGLE_API_KEY")),
 		OpenAIModel:           getEnv("OPENAI_MODEL", "gpt-4o-mini"),

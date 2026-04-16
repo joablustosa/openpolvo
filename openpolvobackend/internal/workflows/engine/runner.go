@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/playwright-community/playwright-go"
 
 	"github.com/open-polvo/open-polvo/internal/workflows/domain"
@@ -23,7 +24,8 @@ type RunnerConfig struct {
 }
 
 // RunGraph executa o DAG com um único browser (headless por defeito).
-func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLMInvoker) ([]domain.StepLogEntry, error) {
+// mail pode ser nil: nós send_email falham com erro claro.
+func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLMInvoker, mail *MailDeps) ([]domain.StepLogEntry, error) {
 	if cfg.AutomationOff {
 		return nil, fmt.Errorf("automação desactivada (AUTOMATION_ENABLED=false)")
 	}
@@ -198,6 +200,64 @@ func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLM
 			} else {
 				step.Message = out
 			}
+
+		case "send_email":
+			if mail == nil || mail.LookupEmail == nil || mail.Send == nil {
+				step.Message = "envio de email não configurado no servidor"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: send_email indisponível", id)
+			}
+			cidStr := strings.TrimSpace(n.Data.ContactID)
+			if cidStr == "" {
+				step.Message = "contact_id obrigatório"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: contact_id obrigatório", id)
+			}
+			cid, err := uuid.Parse(cidStr)
+			if err != nil {
+				step.Message = "contact_id inválido"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: contact_id inválido", id)
+			}
+			to, err := mail.LookupEmail(ctx, cid)
+			if err != nil {
+				step.Message = err.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("send_email %s: %w", id, err)
+			}
+			to = strings.TrimSpace(to)
+			if to == "" {
+				step.Message = "contacto sem email"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: contacto sem email", id)
+			}
+			sub := strings.TrimSpace(n.Data.EmailSubject)
+			if sub == "" {
+				step.Message = "email_subject obrigatório"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: email_subject obrigatório", id)
+			}
+			body := strings.TrimSpace(n.Data.EmailBody)
+			if body == "" {
+				step.Message = "email_body obrigatório"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: email_body obrigatório", id)
+			}
+			if err := mail.Send(ctx, to, sub, body); err != nil {
+				step.Message = err.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("send_email %s: %w", id, err)
+			}
+			step.OK = true
+			step.Message = "email enviado para " + to
 
 		default:
 			step.Message = "tipo desconhecido: " + n.Type
