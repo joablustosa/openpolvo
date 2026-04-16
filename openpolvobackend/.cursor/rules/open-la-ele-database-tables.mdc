@@ -1,0 +1,11 @@
+---
+description: Prefixo laele_ em todas as tabelas MySQL novas (Open Polvo)
+globs: migrations/**/*.sql,internal/**/adapters/**/*.go
+alwaysApply: false
+---
+
+# Tabelas MySQL — prefixo `laele_`
+
+- Novas tabelas: nome **`laele_<snake_case>`** (ex.: `laele_users`, não `users`).
+- Migrações SQL e queries nos adaptadores devem usar sempre o nome com prefixo para objetos **novos**.
+- Alterar tabelas legado sem prefixo só com migração dedicada e atualização de todo o código que as referencia.

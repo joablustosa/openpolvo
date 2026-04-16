@@ -1,0 +1,12 @@
+---
+description: Hexagonal architecture and DDD for Open Polvo Go backend
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Open Polvo — arquitetura
+
+- Mantém **hexagonal**: handlers HTTP finos; regras em `internal/*/application`; persistência e clientes externos só em `adapters`.
+- **Portas** em `internal/*/ports` como interfaces; `cmd/` apenas compõe dependências.
+- Não coloques SQL ou chamadas HTTP diretas nos casos de uso — só através de portas.
+- Novos bounded contexts: pasta própria sob `internal/` com `domain`, `application`, `ports`, `adapters`.

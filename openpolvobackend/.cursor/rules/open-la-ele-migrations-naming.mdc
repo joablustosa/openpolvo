@@ -1,0 +1,12 @@
+---
+description: Nomes e sequência de ficheiros em migrations/ (golang-migrate)
+globs: migrations/**/*.sql
+alwaysApply: false
+---
+
+# Migrações — nome e versão
+
+- Formato: `{6 dígitos}_{snake_case}.up.sql` e o par `.down.sql` com o **mesmo** prefixo e nome.
+- Próximo número = **máximo existente em `migrations/` + 1** (ex.: `000001` → próximo `000002`). Não reutilizar versões.
+- `up`: preferir `IF NOT EXISTS` quando aplicável; `down` deste projeto: **sem** `DROP TABLE` / apagar dados (no-op + comentário).
+- Detalhes: `.cursor/skills/open-polvo-migrations-naming/SKILL.md`.

@@ -1,0 +1,10 @@
+---
+description: Manter README atualizado em alterações de funcionalidade ou execução (open source)
+alwaysApply: true
+---
+
+# README Open Polvo
+
+Este repositório é **open source**: após mudanças em funcionalidades, API, configuração (`.env.example`), migrações, front, Electron, scripts ou forma de correr o projeto, **atualiza [README.md](README.md)** na mesma entrega quando isso afetar quem clona ou executa o projeto.
+
+Segue a skill do projeto: `.cursor/skills/open-polvo-readme/SKILL.md`. Nunca incluas segredos no README — usa `.env.example` e placeholders.

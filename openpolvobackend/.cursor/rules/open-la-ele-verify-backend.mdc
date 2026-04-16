@@ -1,0 +1,14 @@
+---
+description: Após mudanças no backend Open Polvo, correr build, testes e healthchecks
+globs: "cmd/**/*.go,internal/**/*.go,migrations/**/*.sql"
+alwaysApply: false
+---
+
+# Verificação pós-implementação (backend)
+
+Quando alterares código Go, migrações ou rotas HTTP deste repo:
+
+1. `go build ./...` e `go test ./...` na raiz do módulo.
+2. Se a API puder estar em execução, pedir `GET /healthz` e `GET /readyz` na porta de `HTTP_ADDR` (ver `.env`).
+
+Detalhes: `.cursor/skills/open-polvo-verify-backend/SKILL.md`.
