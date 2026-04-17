@@ -4,6 +4,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { APP_LABELS, getPluginUrl, type AppId } from "@/config/apps";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,7 @@ function panelSubtitle(app: AppId, url: string): string {
 
 export function SitePanel() {
   const { targetUrl, token } = useAuth();
-  const { activeApp } = useWorkspace();
+  const { activeApp, dashboardData, setDashboardData } = useWorkspace();
   const webviewRef = useRef<HTMLWebViewElement | null>(null);
   const isElectron = isElectronShell();
   const desktopDownloadUrl = getDesktopDownloadUrl();
@@ -67,6 +68,11 @@ export function SitePanel() {
       el.src = src;
     }
   }, [isElectron, src]);
+
+  // Dashboard tem prioridade sobre plugin nativo
+  if (dashboardData) {
+    return <DashboardPanel data={dashboardData} onClose={() => setDashboardData(null)} />;
+  }
 
   if (!activeApp) return null;
 

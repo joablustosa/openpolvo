@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useAuth } from "@/auth/AuthContext";
 import type { AppId } from "@/config/apps";
+import type { DashboardData } from "@/lib/dashboardMetadata";
 
 const SIDEBAR_KEY = "smartagent_sidebar_collapsed";
 
@@ -19,6 +20,9 @@ type WorkspaceContextValue = {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
+  /** Dashboard gerado pelo agente; null quando nenhum está activo. */
+  dashboardData: DashboardData | null;
+  setDashboardData: (data: DashboardData | null) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -26,6 +30,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth();
   const [activeApp, setActiveAppState] = useState<AppId | null>(null);
+  const [dashboardData, setDashboardDataState] = useState<DashboardData | null>(null);
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem(SIDEBAR_KEY) === "1";
@@ -37,11 +42,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     prevTokenRef.current = token;
     if (prev && !token) {
       setActiveAppState(null);
+      setDashboardDataState(null);
     }
   }, [token]);
 
   const setActiveApp = useCallback((id: AppId | null) => {
     setActiveAppState(id);
+  }, []);
+
+  const setDashboardData = useCallback((data: DashboardData | null) => {
+    setDashboardDataState(data);
   }, []);
 
   const setSidebarCollapsed = useCallback((v: boolean) => {
@@ -64,8 +74,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       toggleSidebar,
       setSidebarCollapsed,
+      dashboardData,
+      setDashboardData,
     }),
-    [activeApp, setActiveApp, sidebarCollapsed, toggleSidebar, setSidebarCollapsed],
+    [activeApp, setActiveApp, sidebarCollapsed, toggleSidebar, setSidebarCollapsed, dashboardData, setDashboardData],
   );
 
   return (

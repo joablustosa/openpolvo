@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { AgentHomeHeader } from "@/core/AgentHomeHeader";
 import { AgentSidebar } from "@/core/AgentSidebar";
 import { ConversationWorkspaceProvider } from "@/core/ConversationWorkspaceContext";
@@ -8,7 +9,7 @@ import { HomePage } from "@/pages/Home/HomePage";
 import { WorkspacePage } from "./WorkspacePage";
 
 export function MainPage() {
-  const { activeApp } = useWorkspace();
+  const { activeApp, dashboardData, setDashboardData } = useWorkspace();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   return (
     <HomeChatProvider>
@@ -28,7 +29,16 @@ export function MainPage() {
                 sidebarCollapsed={sidebarCollapsed}
                 onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
               />
-              <HomePage />
+              {dashboardData ? (
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                  <DashboardPanel
+                    data={dashboardData}
+                    onClose={() => setDashboardData(null)}
+                  />
+                </div>
+              ) : (
+                <HomePage />
+              )}
             </div>
           </div>
         )}

@@ -64,6 +64,44 @@ def _parse_email_draft_json(raw: str) -> dict[str, Any]:
     return d if isinstance(d, dict) else {}
 
 
+def _extract_dashboard_json_from_text(text: str) -> dict[str, Any] | None:
+    """Extrai o bloco JSON de dashboard directamente do texto do assistente (sem LLM extra)."""
+    import re
+
+    # 1) Blocos ```json ... ``` — json.loads completo suporta objectos aninhados (gráficos).
+    pos = 0
+    while True:
+        m = re.search(r"```(?:json)?\s*", text[pos:], re.IGNORECASE)
+        if not m:
+            break
+        inner_start = pos + m.end()
+        fence_end = text.find("```", inner_start)
+        if fence_end == -1:
+            break
+        chunk = text[inner_start:fence_end].strip()
+        try:
+            d = json.loads(chunk)
+            if isinstance(d, dict) and "dashboard" in d:
+                return d
+        except json.JSONDecodeError:
+            pass
+        pos = fence_end + 3
+
+    # 2) Fallback legado: regex não-ganancioso (só JSON plano com "dashboard" perto do início).
+    pattern = re.compile(
+        r'```(?:json)?\s*(\{[\s\S]*?"dashboard"[\s\S]*?\})\s*```',
+        re.DOTALL,
+    )
+    for match in pattern.finditer(text):
+        try:
+            d = json.loads(match.group(1))
+            if isinstance(d, dict) and "dashboard" in d:
+                return d
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 def _contact_id_set(contacts: list[dict[str, Any]] | None) -> set[str]:
     out: set[str] = set()
     for row in contacts or []:
@@ -414,6 +452,10 @@ def build_zepolvinho_graph(settings: Settings):
                 )
             except Exception:
                 pass
+        if routed in ("pedido_dados", "analise_dados_relatorios"):
+            dashboard_json = _extract_dashboard_json_from_text(text)
+            if dashboard_json:
+                meta.update(dashboard_json)
         return {"assistant_text": text, "metadata": meta}
 
     g = StateGraph(ZepState)

@@ -24,7 +24,9 @@ import {
 import { isApiUnauthorized } from "@/lib/apiErrors";
 import { buildEmailSendPayload, parseEmailMessageMeta } from "@/lib/emailChatMetadata";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
+import { parseDashboardMeta } from "@/lib/dashboardMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
+import { useWorkspace } from "@/core/WorkspaceContext";
 import * as mail from "@/lib/mailApi";
 
 type ConversationWorkspaceValue = {
@@ -64,6 +66,7 @@ export function ConversationWorkspaceProvider({
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { openPlugin } = useAppLaunch();
+  const { setDashboardData } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
@@ -191,6 +194,8 @@ export function ConversationWorkspaceProvider({
         setMessages(msgs);
         tryOpenNativePluginFromMessages(msgs, openPlugin);
         const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+        const db = parseDashboardMeta(lastAssistant?.metadata);
+        if (db) setDashboardData(db);
         const em = parseEmailMessageMeta(lastAssistant?.metadata);
         if (em?.email_send_pending && em.email_send_draft) {
           try {
@@ -226,6 +231,7 @@ export function ConversationWorkspaceProvider({
       createNewConversation,
       openPlugin,
       onSessionUnauthorized,
+      setDashboardData,
     ],
   );
 
