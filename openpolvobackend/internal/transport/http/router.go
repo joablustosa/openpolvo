@@ -19,6 +19,7 @@ type Deps struct {
 	Agent         *AgentHandlers
 	Conversations *ConversationHandlers
 	Workflows     *WorkflowHandlers
+	TaskLists     *TaskListHandlers
 	Mail          *MailHandlers
 	Contacts      *ContactHandlers
 	TokenParser   TokenParser
@@ -108,6 +109,13 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/workflows/{id}/pin", d.Workflows.PostWorkflowPin)
 				r.Post("/workflows/{id}/run", d.Workflows.PostWorkflowRun)
 				r.Get("/workflows/{id}/runs", d.Workflows.GetWorkflowRuns)
+			}
+			if d.TaskLists != nil {
+				r.Post("/task-lists", d.TaskLists.PostTaskList)
+				r.Get("/task-lists", d.TaskLists.GetTaskLists)
+				r.Get("/task-lists/{id}", d.TaskLists.GetTaskList)
+				r.Delete("/task-lists/{id}", d.TaskLists.DeleteTaskList)
+				r.Post("/task-lists/{id}/run", d.TaskLists.PostTaskListRun)
 			}
 		})
 	})

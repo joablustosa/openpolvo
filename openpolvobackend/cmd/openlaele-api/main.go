@@ -29,6 +29,10 @@ import (
 	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
 	mailmysql "github.com/open-polvo/open-polvo/internal/mail/adapters/mysql"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
+	tasklistsmysql "github.com/open-polvo/open-polvo/internal/tasklists/adapters/mysql"
+	tasklistsintel "github.com/open-polvo/open-polvo/internal/tasklists/adapters/polvointel"
+	taskapp "github.com/open-polvo/open-polvo/internal/tasklists/application"
+	tasklistsports "github.com/open-polvo/open-polvo/internal/tasklists/ports"
 	httptransport "github.com/open-polvo/open-polvo/internal/transport/http"
 	wfmysql "github.com/open-polvo/open-polvo/internal/workflows/adapters/mysql"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
@@ -292,6 +296,25 @@ func main() {
 		ListRuns: &wfapp.ListWorkflowRuns{Runs: runRepo},
 	}
 
+	taskListRepo := tasklistsmysql.NewTaskListRepository(db)
+	taskItemRepo := tasklistsmysql.NewTaskItemRepository(db)
+	var taskExecutor tasklistsports.TaskExecutor
+	if tex := tasklistsintel.NewTaskExecutorClient(cfg.PolvoIntelligenceBaseURL, cfg.PolvoIntelligenceInternalKey, cfg.AgentLLMTimeout); tex != nil {
+		taskExecutor = tex
+	}
+	taskHandlers := &httptransport.TaskListHandlers{
+		Create: &taskapp.CreateTaskList{Lists: taskListRepo, Items: taskItemRepo},
+		Get:    &taskapp.GetTaskList{Lists: taskListRepo, Items: taskItemRepo},
+		List:   &taskapp.ListTaskLists{Lists: taskListRepo},
+		Delete: &taskapp.DeleteTaskList{Lists: taskListRepo},
+		Run: &taskapp.RunTaskList{
+			Lists:        taskListRepo,
+			Items:        taskItemRepo,
+			Executor:     taskExecutor,
+			DefaultModel: string(domain.ModelOpenAI),
+		},
+	}
+
 	convHandlers := &httptransport.ConversationHandlers{
 		CreateConversation: createConvUC,
 		ListConversations: &convapp.ListConversations{
@@ -321,6 +344,7 @@ func main() {
 		Agent:         agentH,
 		Conversations: convHandlers,
 		Workflows:     wfHandlers,
+		TaskLists:     taskHandlers,
 		Mail:          mailHandlers,
 		Contacts:      contactHandlers,
 		TokenParser:   issuer,

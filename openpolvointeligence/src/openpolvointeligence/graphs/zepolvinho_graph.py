@@ -221,6 +221,7 @@ _INTENT_ALIASES: dict[str, str] = {
     "geral": "geral",
     "resposta_email": "criacao_email",
     "monitorizacao_email": "criacao_email",
+    "criacao_app_interativa": "criacao_app_interativa",
 }
 
 # Rota normalizada → ficheiro de prompt em prompts/{stem}.md (sem extensão)
@@ -245,6 +246,9 @@ _ROUTE_TO_STEM: dict[str, str] = {
     "visao_computacional_analise": "specialist_visao_computacional_analise",
     "geracao_midia_ai": "specialist_geracao_midia_ai",
     "gestao_tarefas_calendario": "specialist_gestao_tarefas_calendario",
+    # O Builder é um sub-grafo (não um prompt de especialista), mas precisa de estar
+    # no mapa para passar pelo `route_intent`. O despacho acontece em `node_specialist`.
+    "criacao_app_interativa": "specialist_geral",
 }
 
 # Intenções válidas após normalização (chaves finais do router)
@@ -371,6 +375,48 @@ def build_zepolvinho_graph(settings: Settings):
         capped = tail_messages(msgs)
         ctx_b = _build_classification_ctx(analysis)
         mp = effective_provider(state.get("model_provider"))
+
+        # Despacho para o sub-grafo Builder (Lovable-like): gera uma app completa
+        # com preview + ficheiros e devolve tudo em metadata.builder.
+        if routed == "criacao_app_interativa":
+            try:
+                from openpolvointeligence.graphs.builder_subgraph import run_builder
+
+                user_req = last_user_text(msgs, 4000)
+                artifact = await run_builder(settings, user_req, state.get("model_provider"))
+                title = str(artifact.get("title") or "Aplicação")
+                desc = str(artifact.get("description") or "").strip()
+                msg = f"**{title}** pronta. Abre o painel à direita para ver o preview e o código."
+                if desc:
+                    msg += f"\n\n{desc}"
+                return {
+                    "assistant_text": msg,
+                    "metadata": {
+                        "model_provider": mp,
+                        "intent": str(analysis.get("intent", "")),
+                        "routed_intent": routed,
+                        "intent_confidence": float(analysis.get("confidence", 0)),
+                        "intent_reasoning": str(analysis.get("reasoning", "")),
+                        "builder": artifact,
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001 — fallback defensivo para não quebrar o chat
+                import logging as _lg
+
+                _lg.getLogger(__name__).exception("builder subgraph failed: %s", exc)
+                return {
+                    "assistant_text": (
+                        "Tentei gerar a aplicação mas o Builder falhou. "
+                        "Tenta reformular o pedido com mais detalhes sobre o que queres construir."
+                    ),
+                    "metadata": {
+                        "model_provider": mp,
+                        "intent": str(analysis.get("intent", "")),
+                        "routed_intent": routed,
+                        "builder_error": str(exc)[:400],
+                    },
+                }
+
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=False)
 
         base = route_prompts.get(routed) or route_prompts["geral"]

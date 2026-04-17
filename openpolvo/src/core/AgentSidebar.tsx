@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   History,
+  ListTodo,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -254,6 +255,19 @@ export function AgentSidebar() {
       </div>
 
       <nav className="flex shrink-0 flex-col gap-0.5 px-2 py-2">
+        <NavLink
+          to="/agente-tarefas"
+          className={({ isActive }) =>
+            cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "justify-start gap-2 font-normal",
+              isActive && "bg-muted font-medium text-foreground",
+            )
+          }
+        >
+          <ListTodo className="size-3.5 shrink-0 opacity-80" />
+          Agente de Tarefas
+        </NavLink>
         <NavLink
           to="/pulo-do-gato"
           className={({ isActive }) =>

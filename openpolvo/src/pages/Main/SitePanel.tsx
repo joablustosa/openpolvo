@@ -5,6 +5,7 @@ import { APP_LABELS, getPluginUrl, type AppId } from "@/config/apps";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
+import { BuilderPanel } from "@/components/builder/BuilderPanel";
 import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +28,7 @@ function panelSubtitle(app: AppId, url: string): string {
 
 export function SitePanel() {
   const { targetUrl, token } = useAuth();
-  const { activeApp, dashboardData, setDashboardData } = useWorkspace();
+  const { activeApp, dashboardData, setDashboardData, builderData, setBuilderData } = useWorkspace();
   const webviewRef = useRef<HTMLWebViewElement | null>(null);
   const isElectron = isElectronShell();
   const desktopDownloadUrl = getDesktopDownloadUrl();
@@ -68,6 +69,11 @@ export function SitePanel() {
       el.src = src;
     }
   }, [isElectron, src]);
+
+  // Builder (Lovable-like) tem prioridade máxima
+  if (builderData) {
+    return <BuilderPanel data={builderData} onClose={() => setBuilderData(null)} />;
+  }
 
   // Dashboard tem prioridade sobre plugin nativo
   if (dashboardData) {

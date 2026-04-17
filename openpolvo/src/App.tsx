@@ -8,6 +8,7 @@ import { PuloDoGatoPage } from "./pages/PuloDoGato/PuloDoGatoPage";
 import { SettingsEmailPage } from "./pages/Settings/SettingsEmailPage";
 import { SettingsOverviewPage } from "./pages/Settings/SettingsOverviewPage";
 import { ContactsPage } from "./pages/Settings/ContactsPage";
+import { AgenteTarefasPage } from "./pages/AgenteTarefas/AgenteTarefasPage";
 
 function AppShell() {
   const { loginModalOpen, setLoginModalOpen } = useAnonymousChat();
@@ -22,6 +23,7 @@ function AppShell() {
             <Route path="settings" element={<SettingsOverviewPage />} />
             <Route path="settings/email" element={<SettingsEmailPage />} />
             <Route path="settings/contacts" element={<ContactsPage />} />
+            <Route path="agente-tarefas" element={<AgenteTarefasPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

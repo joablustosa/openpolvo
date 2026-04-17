@@ -18,6 +18,7 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `criacao_automacao` | Desenhar, configurar ou arquitetar fluxos (RPA, estilo Zapier/Make, nós LangGraph, pipelines de dados). |
 | `execucao_automacao` | Disparar um gatilho (trigger) ou executar uma automação/job **já** configurado. |
 | `criacao_sistema_web` | Especificar requisitos, gerar boilerplate ou desenhar arquitetura de apps web, dashboards e APIs. |
+| `criacao_app_interativa` | Pedido **explícito** para **criar/gerar uma aplicação pronta** (frontend ou fullstack) — ex.: "cria uma app de tarefas", "faz um kanban", "quero um site de contactos com backend", "gera um CRUD". O agente vai executar o sub-grafo Builder (techlead → engineer → developer → tester → analyzer → integrator) e devolver código + preview no painel lateral. Usa sempre que o utilizador quer **a coisa a funcionar**, não apenas conselhos. |
 | `post_instagram` | Conteúdo para o ecossistema Instagram (Reels, Stories, Feed). |
 | `post_facebook` | Copy e estratégia para páginas ou grupos no Facebook. |
 | `post_linkedin` | Conteúdo corporativo, artigos de autoridade ou página empresarial no LinkedIn. |
