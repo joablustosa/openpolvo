@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -14,26 +13,13 @@ import (
 	platformcfg "github.com/open-polvo/open-polvo/internal/platform/config"
 )
 
-type SendUserEmail struct {
+// TestSMTPConnection verifica as credenciais SMTP do utilizador sem enviar nenhuma mensagem.
+type TestSMTPConnection struct {
 	Repo ports.SMTPSettingsRepository
 	Cfg  platformcfg.Config
 }
 
-type SendUserEmailInput struct {
-	To      string
-	Subject string
-	Body    string
-}
-
-func (uc *SendUserEmail) Execute(ctx context.Context, userID uuid.UUID, in SendUserEmailInput) error {
-	to := strings.TrimSpace(in.To)
-	if to == "" {
-		return errors.New("destinatário obrigatório")
-	}
-	sub := strings.TrimSpace(in.Subject)
-	if sub == "" {
-		return errors.New("assunto obrigatório")
-	}
+func (uc *TestSMTPConnection) Execute(ctx context.Context, userID uuid.UUID) error {
 	rec, err := uc.Repo.GetByUserID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -48,20 +34,14 @@ func (uc *SendUserEmail) Execute(ctx context.Context, userID uuid.UUID, in SendU
 	if err != nil {
 		return errors.New("falha ao ler credencial SMTP (regrave a password nas definições)")
 	}
-	pass := string(plain)
 	dial := smtpout.DialConfig{Timeout: uc.Cfg.SMTPDialTimeout, Network: uc.Cfg.SMTPDialNetwork}
-	return smtpout.SendText(
+	return smtpout.TestConnection(
 		ctx,
 		dial,
 		rec.Host,
 		rec.Port,
 		rec.Username,
-		pass,
-		rec.FromEmail,
-		rec.FromName,
+		string(plain),
 		rec.UseTLS,
-		[]string{to},
-		sub,
-		in.Body,
 	)
 }

@@ -7,6 +7,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Settings2,
   Trash2,
   Users,
 } from "lucide-react";
@@ -264,6 +265,20 @@ export function AgentSidebar() {
           }
         >
           Pulo do Gato
+        </NavLink>
+        <NavLink
+          to="/settings"
+          end
+          className={({ isActive }) =>
+            cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "justify-start gap-2 font-normal",
+              isActive && "bg-muted font-medium text-foreground",
+            )
+          }
+        >
+          <Settings2 className="size-3.5 shrink-0 opacity-80" />
+          Definições
         </NavLink>
         <NavLink
           to="/settings/contacts"

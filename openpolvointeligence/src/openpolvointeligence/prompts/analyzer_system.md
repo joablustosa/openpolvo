@@ -23,7 +23,7 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `post_linkedin` | Conteúdo corporativo, artigos de autoridade ou página empresarial no LinkedIn. |
 | `post_twitter_x` | Threads ou posts curtos para a rede X (Twitter). |
 | `planilha_estrategia_precos` | Lógica financeira, margem (markup/contribuição) e simulações em Sheets/Excel. |
-| `criacao_email` | Cold mails, newsletters, e-mails transaccionais, cadências de vendas, **resposta a um e-mail** (Re:) ou redigir resposta. |
+| `criacao_email` | Cold mails, newsletters, e-mails transaccionais, cadências de vendas, **resposta a um e-mail** (Re:) ou redigir resposta; **pedidos explícitos para enviar/mandar/disparar** e-mail para um contacto ou endereço. |
 | `resposta_email` | Sinónimo explícito de resposta a e-mail / encaminhar / “responde a este mail”. |
 | `monitorizacao_email` | Pedido para **ficar a escutar** a caixa, auto-responder ou monitorizar inbox (tratar como fluxo de e-mail + explicar limites de IMAP se aplicável). |
 | `pedido_conteudo_generico` | Textos, blogs, resumos ou código que **não** caem numa rede ou canal já listado. |

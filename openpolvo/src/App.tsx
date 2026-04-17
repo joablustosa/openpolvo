@@ -6,6 +6,7 @@ import { LoginPage } from "./pages/Login/LoginPage";
 import { MainPage } from "./pages/Main/MainPage";
 import { PuloDoGatoPage } from "./pages/PuloDoGato/PuloDoGatoPage";
 import { SettingsEmailPage } from "./pages/Settings/SettingsEmailPage";
+import { SettingsOverviewPage } from "./pages/Settings/SettingsOverviewPage";
 import { ContactsPage } from "./pages/Settings/ContactsPage";
 
 function AppShell() {
@@ -18,6 +19,7 @@ function AppShell() {
           <Route path="/" element={<Shell />}>
             <Route index element={<MainPage />} />
             <Route path="pulo-do-gato" element={<PuloDoGatoPage />} />
+            <Route path="settings" element={<SettingsOverviewPage />} />
             <Route path="settings/email" element={<SettingsEmailPage />} />
             <Route path="settings/contacts" element={<ContactsPage />} />
           </Route>

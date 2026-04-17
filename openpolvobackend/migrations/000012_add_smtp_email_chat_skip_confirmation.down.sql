@@ -1,0 +1,1 @@
+-- no-op: evitar DROP COLUMN em produção com dados; reverter manualmente se necessário.

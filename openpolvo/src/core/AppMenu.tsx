@@ -145,7 +145,7 @@ export function AppMenu() {
             sidebarCollapsed && "justify-center px-0",
           )}
           title={sidebarCollapsed ? "Definições do agente" : undefined}
-          onClick={() => navigate("/settings/email")}
+          onClick={() => navigate("/settings")}
         >
           <Settings2 className="size-4 shrink-0 opacity-90" />
           {!sidebarCollapsed ? "Definições" : null}

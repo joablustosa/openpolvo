@@ -2,6 +2,7 @@ package smtpout
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 )
 
 // SendText envia e-mail em texto simples (UTF-8) usando STARTTLS em portas típicas (587) ou TLS implícito (465).
-func SendText(host string, port int, username, password, fromEmail, fromName string, useTLS bool, to []string, subject, body string) error {
+func SendText(ctx context.Context, dial DialConfig, host string, port int, username, password, fromEmail, fromName string, useTLS bool, to []string, subject, body string) error {
 	if len(to) == 0 {
 		return fmt.Errorf("smtp: destinatário obrigatório")
 	}
@@ -31,9 +32,12 @@ func SendText(host string, port int, username, password, fromEmail, fromName str
 	addr := fmt.Sprintf("%s:%d", host, port)
 	tlsConf := &tls.Config{ServerName: host}
 	auth := smtp.PlainAuth("", username, password, host)
+	nd := dial.Normalized()
+	dialer := nd.dialer()
+	netw := nd.Network
 
 	if port == 465 {
-		conn, err := tls.Dial("tcp", addr, tlsConf)
+		conn, err := tls.DialWithDialer(dialer, netw, addr, tlsConf)
 		if err != nil {
 			return fmt.Errorf("smtp tls dial: %w", err)
 		}
@@ -41,7 +45,7 @@ func SendText(host string, port int, username, password, fromEmail, fromName str
 		return sendOnConn(conn, host, auth, fromEmail, to, buf.Bytes())
 	}
 
-	conn, err := net.Dial("tcp", addr)
+	conn, err := dialer.DialContext(ctx, netw, addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
 	}
@@ -64,7 +68,7 @@ func SendText(host string, port int, username, password, fromEmail, fromName str
 		}
 	}
 	if err := c.Mail(fromEmail); err != nil {
-		return fmt.Errorf("smtp mail: %w", err)
+		return fmt.Errorf("smtp mail from: %w", err)
 	}
 	for _, rcpt := range to {
 		if err := c.Rcpt(strings.TrimSpace(rcpt)); err != nil {

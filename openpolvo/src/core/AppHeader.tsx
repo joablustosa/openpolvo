@@ -65,7 +65,7 @@ export function AppHeader({ variant }: Props) {
           />
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem
-              onClick={() => navigate("/settings/email")}
+              onClick={() => navigate("/settings")}
               className="text-sm"
             >
               Correio (SMTP)

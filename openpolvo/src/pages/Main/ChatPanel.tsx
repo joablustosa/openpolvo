@@ -6,18 +6,26 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
+import { EmailDraftActions } from "@/components/chat/EmailDraftActions";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
+import { useAuth } from "@/auth/AuthContext";
+import { parseEmailMessageMeta } from "@/lib/emailChatMetadata";
 import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
+  const { token } = useAuth();
   const {
     messages,
     sending,
     loadingMessages,
     error,
+    emailSendNotice,
+    clearEmailSendNotice,
     modelProvider,
     setModelProvider,
     sendAuthenticatedMessage,
+    activeConversationId,
+    selectConversation,
   } = useConversationWorkspace();
 
   const [draft, setDraft] = useState("");
@@ -77,6 +85,14 @@ export function ChatPanel() {
               {error}
             </p>
           ) : null}
+          {emailSendNotice ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
+              <span>{emailSendNotice}</span>
+              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearEmailSendNotice}>
+                OK
+              </Button>
+            </div>
+          ) : null}
           {loadingMessages ? (
             <p className="text-sm text-muted-foreground">A carregar mensagens…</p>
           ) : null}
@@ -100,6 +116,18 @@ export function ChatPanel() {
                     : "plain"
                 }
               />
+              {m.role === "assistant" && token && parseEmailMessageMeta(m.metadata)?.email_send_draft ? (
+                <EmailDraftActions
+                  token={token}
+                  messageId={m.id}
+                  metadata={m.metadata}
+                  onSent={() => {
+                    if (activeConversationId) {
+                      void selectConversation(activeConversationId);
+                    }
+                  }}
+                />
+              ) : null}
             </div>
           ))}
           {sending ? <OctopusTypingLoader active /> : null}

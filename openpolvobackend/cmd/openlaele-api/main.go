@@ -117,6 +117,28 @@ func main() {
 			}
 		}
 	}
+	// Recuperação: migração 000012 pode ficar dirty se ADD COLUMN falhou depois da coluna já existir (re-execução).
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_DIRTY_V12")), "true") {
+		ctx12 := context.Background()
+		var n12 int
+		_ = db.QueryRowContext(ctx12,
+			`SELECT COUNT(*) FROM information_schema.COLUMNS
+			 WHERE TABLE_SCHEMA = DATABASE()
+			   AND TABLE_NAME   = 'laele_user_smtp_settings'
+			   AND COLUMN_NAME  = 'email_chat_skip_confirmation'`).Scan(&n12)
+		if n12 > 0 {
+			res, err := db.ExecContext(ctx12,
+				`UPDATE schema_migrations SET dirty = 0 WHERE version = 12 AND dirty = 1`)
+			if err != nil {
+				slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V12: limpar dirty falhou", "err", err)
+			} else {
+				ra, _ := res.RowsAffected()
+				if ra > 0 {
+					slog.Info("FIX_SCHEMA_MIGRATIONS_DIRTY_V12: dirty v12 limpo (coluna já existia; remova FIX_SCHEMA_MIGRATIONS_DIRTY_V12 do .env)")
+				}
+			}
+		}
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_REAPPLY_FROM_V2")), "true") {
 		var n int
 		_ = db.QueryRowContext(context.Background(),
@@ -228,6 +250,7 @@ func main() {
 		GetSMTP:    &mailapp.GetMySMTP{Repo: smtpRepo},
 		PutSMTP:    &mailapp.PutMySMTP{Repo: smtpRepo, Cfg: cfg},
 		Send:       sendMailUC,
+		TestSMTP:   &mailapp.TestSMTPConnection{Repo: smtpRepo, Cfg: cfg},
 		GetContact: getContactUC,
 	}
 	contactHandlers := &httptransport.ContactHandlers{

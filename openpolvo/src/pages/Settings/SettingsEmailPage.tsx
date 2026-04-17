@@ -21,6 +21,7 @@ export function SettingsEmailPage() {
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
   const [useTLS, setUseTLS] = useState(true);
+  const [emailChatSkipConfirmation, setEmailChatSkipConfirmation] = useState(false);
   const [hadPassword, setHadPassword] = useState(false);
 
   const load = useCallback(async () => {
@@ -35,6 +36,7 @@ export function SettingsEmailPage() {
       setFromEmail(s.from_email || "");
       setFromName(s.from_name || "");
       setUseTLS(s.use_tls !== false);
+      setEmailChatSkipConfirmation(Boolean(s.email_chat_skip_confirmation));
       setHadPassword(s.password_set);
       setPassword("");
     } catch (e) {
@@ -62,6 +64,7 @@ export function SettingsEmailPage() {
         from_email: fromEmail.trim(),
         from_name: fromName.trim(),
         use_tls: useTLS,
+        email_chat_skip_confirmation: emailChatSkipConfirmation,
       });
       setOk("Configuração guardada.");
       setPassword("");
@@ -88,11 +91,11 @@ export function SettingsEmailPage() {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto bg-background">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <Link
-          to="/"
+          to="/settings"
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-2")}
         >
           <ArrowLeft className="size-4" />
-          Chat
+          Definições
         </Link>
         <div className="h-4 w-px bg-border" />
         <Mail className="size-4 text-primary" />
@@ -113,6 +116,22 @@ export function SettingsEmailPage() {
               Os dados ficam na sua conta (password encriptada no servidor). O Zé Polvinho
               usa o remetente e servidor abaixo quando fala de e-mails; o envio real faz-se
               pela API com o seu JWT ou a partir desta página (extensão futura no chat).
+            </p>
+            <p className="text-xs leading-relaxed rounded-md border border-border bg-muted/30 p-2 text-muted-foreground">
+              <span className="font-medium text-foreground">Gmail / Google:</span> servidor{" "}
+              <span className="font-mono">smtp.gmail.com</span>, porta{" "}
+              <span className="font-mono">587</span> (STARTTLS) ou <span className="font-mono">465</span>{" "}
+              (SSL). Se a password normal da conta não funcionar para SMTP (comum com verificação
+              em duas etapas), crie uma{" "}
+              <a
+                href="https://myaccount.google.com/apppasswords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                senha de aplicação
+              </a>{" "}
+              na conta Google e use-a em «Password SMTP».
             </p>
             <div className="space-y-1">
               <label className="text-[10px] font-medium uppercase text-muted-foreground">
@@ -194,18 +213,39 @@ export function SettingsEmailPage() {
                 className="h-9 text-sm"
               />
             </div>
-            <Button
-              className="gap-2"
-              disabled={saving}
-              onClick={() => void save()}
-            >
-              {saving ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Save className="size-4" />
-              )}
-              Guardar
-            </Button>
+            <div className="space-y-2 rounded-md border border-border bg-muted/15 p-3">
+              <p className="text-[10px] font-medium uppercase text-muted-foreground">
+                Envio pelo chat
+              </p>
+              <label className="flex cursor-pointer items-start gap-2 text-xs leading-snug">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-3.5 shrink-0 rounded border-input"
+                  checked={emailChatSkipConfirmation}
+                  onChange={(e) => setEmailChatSkipConfirmation(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium text-foreground">Enviar directamente</span> — quando o Zé Polvinho
+                  preparar um e-mail com destinatário válido, a app envia logo sem pedir confirmação. Desligado (recomendado)
+                  mostra sempre um passo de confirmação antes de enviar.
+                </span>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                className="gap-2"
+                disabled={saving}
+                onClick={() => void save()}
+              >
+                {saving ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
+                Guardar
+              </Button>
+              {hadPassword && <TestConnectionButton token={token} />}
+            </div>
             {err ? (
               <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
                 {err}
@@ -216,11 +256,56 @@ export function SettingsEmailPage() {
             ) : null}
             <details className="text-xs text-muted-foreground">
               <summary className="cursor-pointer">Testar envio (opcional)</summary>
+              <p className="mt-2 leading-relaxed">
+                Se «Testar ligação» ou o envio falharem com <span className="font-mono">i/o timeout</span>, a rede ou
+                firewall podem bloquear SMTP de saída (587 ou 465). Experimente porta <strong>465</strong> com TLS
+                (Gmail), outra rede (ex. hotspot) ou abra a saída no firewall da máquina onde corre a API. O aviso{" "}
+                <span className="font-mono">SMTP_PREFER_IPV4</span> na API só ajuda quando o problema é IPv6; se o erro
+                já mostrar um endereço com quatro números (IPv4), o foco é desbloquear a porta ou mudar de rede.
+              </p>
               <TestSendBlock token={token} />
             </details>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function TestConnectionButton({ token }: { token: string }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setMsg(null);
+          try {
+            await mail.testSmtpConnection(token);
+            setMsg({ ok: true, text: "Ligação OK" });
+          } catch (e) {
+            setMsg({ ok: false, text: e instanceof Error ? e.message : "Erro" });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+        Testar ligação
+      </Button>
+      {msg ? (
+        <span
+          className={`text-xs ${msg.ok ? "text-primary" : "text-destructive"}`}
+        >
+          {msg.text}
+        </span>
+      ) : null}
     </div>
   );
 }

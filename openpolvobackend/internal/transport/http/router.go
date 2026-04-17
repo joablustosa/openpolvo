@@ -75,6 +75,7 @@ func NewRouter(d Deps) http.Handler {
 			if d.Mail != nil {
 				r.Get("/me/smtp", d.Mail.GetMeSMTP)
 				r.Put("/me/smtp", d.Mail.PutMeSMTP)
+				r.Post("/me/smtp/test", d.Mail.PostTestSMTP)
 				r.Post("/email/send", d.Mail.PostEmailSend)
 			}
 			if d.Contacts != nil {

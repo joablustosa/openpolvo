@@ -92,6 +92,7 @@ Pode definir `LANGCHAIN_API_KEY` / `LANGSMITH_API_KEY` no **serviço Python**; n
 | 000009 | Colunas de agendamento (`schedule_*`) em `laele_workflows` |
 | 000010 | Tabela `laele_user_smtp_settings` (SMTP por utilizador; password encriptada no servidor) |
 | 000011 | Tabela `laele_user_contacts` (agenda: nome, telefone, email por utilizador) |
+| 000012 | Coluna `email_chat_skip_confirmation` em `laele_user_smtp_settings` (envio directo pelo chat) |
 
 ## Front-end
 
@@ -111,6 +112,12 @@ O cliente em [openpolvo](../openpolvo/) chama a API em **`http://127.0.0.1:8080`
 ### SMTP por utilizador (backend)
 
 A password SMTP é guardada encriptada (AES-GCM). Opcionalmente define `SMTP_CREDENTIALS_KEY` (32 bytes em base64) no `.env`; se estiver vazio, deriva-se uma chave a partir de `JWT_SECRET` (menos ideal em rotação de JWT). Ver [`.env.example`](.env.example).
+
+#### Gmail (Google)
+
+- Servidor: `smtp.gmail.com`; porta **587** (STARTTLS) ou **465** (TLS implícito); utilizador = endereço Gmail completo.
+- Com **verificação em duas etapas** activa, a password normal da conta **não serve** para clientes SMTP: crie uma **senha de aplicação** em [Google Account → Senhas de início de sessão das apps](https://myaccount.google.com/apppasswords) e guarde-a no campo password SMTP da aplicação (a página pode exigir browser recente).
+- Erros do tipo `dial … i/o timeout` na porta 587 costumam ser **firewall/rede** a bloquear SMTP de saída; experimente **465**, outra rede ou regras de saída no ambiente onde corre a API.
 
 ## Automação (Pulo do Gato / Playwright-Go)
 

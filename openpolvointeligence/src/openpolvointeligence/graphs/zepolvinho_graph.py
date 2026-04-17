@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -52,6 +53,114 @@ def _parse_analysis(raw: str) -> dict[str, Any]:
         "reasoning": str(d.get("reasoning", "")),
         "entities": d.get("entities") if isinstance(d.get("entities"), dict) else {},
     }
+
+
+def _parse_email_draft_json(raw: str) -> dict[str, Any]:
+    raw = _strip_json_fence(raw)
+    try:
+        d = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _contact_id_set(contacts: list[dict[str, Any]] | None) -> set[str]:
+    out: set[str] = set()
+    for row in contacts or []:
+        if isinstance(row, dict):
+            cid = str(row.get("id", "")).strip()
+            if cid:
+                out.add(cid)
+    return out
+
+
+def _valid_uuid_str(s: str) -> bool:
+    try:
+        uuid.UUID(str(s).strip())
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return True
+
+
+def _email_send_meta_from_extractor(
+    d: dict[str, Any],
+    contacts_raw: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Campos opcionais para metadata: email_send_draft, email_send_pending, email_send_blocked."""
+    out: dict[str, Any] = {}
+    if not bool(d.get("wants_send")):
+        return out
+    subject = str(d.get("subject", "")).strip()
+    body = str(d.get("body", "")).strip()
+    needs = bool(d.get("needs_user_choice"))
+    amb_raw = d.get("ambiguity_note")
+    amb_s = str(amb_raw).strip() if amb_raw not in (None, "") else None
+    cid_s = str(d.get("contact_id") or "").strip() or None
+    to_s = str(d.get("to") or "").strip() or None
+    allowed = _contact_id_set(contacts_raw)
+    if cid_s and not _valid_uuid_str(cid_s):
+        cid_s = None
+    if cid_s and allowed and cid_s not in allowed:
+        cid_s = None
+    if cid_s and contacts_raw:
+        for row in contacts_raw:
+            if isinstance(row, dict) and str(row.get("id", "")).strip() == cid_s:
+                em = str(row.get("email", "")).strip()
+                if em and "@" in em and (not to_s):
+                    to_s = em
+                break
+    draft: dict[str, Any] = {
+        "contact_id": cid_s,
+        "to": to_s,
+        "subject": subject,
+        "body": body,
+        "needs_user_choice": needs,
+        "ambiguity_note": amb_s,
+    }
+    out["email_send_draft"] = draft
+    blocked = needs or (not subject) or (not body)
+    has_rcpt = bool(cid_s) or (bool(to_s) and "@" in to_s)
+    if not has_rcpt:
+        blocked = True
+    out["email_send_blocked"] = blocked
+    out["email_send_pending"] = bool(not blocked and has_rcpt)
+    return out
+
+
+async def _extract_email_send_draft(
+    settings: Settings,
+    model_provider: str | None,
+    assistant_markdown: str,
+    capped_msgs: list[dict[str, Any]],
+    contacts_raw: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    contacts_json = json.dumps(contacts_raw or [], ensure_ascii=False)
+    summary = conversation_summary(capped_msgs)
+    clip = assistant_markdown[:14000]
+    sys = f"""És um extrator de dados para envio de e-mail. Responde APENAS com um único objeto JSON (sem markdown).
+Chaves obrigatórias:
+- "wants_send": boolean — true só se o utilizador pediu explicitamente para **enviar**, **mandar** ou **disparar** o e-mail pela aplicação. Se só pediu para redigir ou sugerir texto, false.
+- "contact_id": string UUID ou null — id do contacto na lista JSON quando o destinatário vem da agenda.
+- "to": string ou null — e-mail do destinatário quando conhecido.
+- "subject": string — assunto em português com gramática e ortografia correctas.
+- "body": string — corpo em texto simples (usa \\n).
+- "needs_user_choice": boolean — true se houver ambiguidade entre destinatários.
+- "ambiguity_note": string ou null.
+
+Lista de contactos (JSON): {contacts_json}
+
+Resumo da conversa: {summary}
+
+Resposta do assistente a interpretar:
+---
+{clip}
+---
+Não inventes contact_id que não exista na lista."""
+    chat = get_chat_model(settings, model_provider, json_mode=True)
+    resp = await chat.ainvoke(
+        [SystemMessage(content=sys), HumanMessage(content="Extrai o JSON.")],
+    )
+    return _parse_email_draft_json(str(resp.content))
 
 
 # Aliases do analisador → chave interna de encaminhamento
@@ -281,13 +390,30 @@ def build_zepolvinho_graph(settings: Settings):
             resp = await chat.ainvoke([SystemMessage(content=sys), *_to_lc_messages(capped)])
         text = str(resp.content).strip()
 
-        meta = {
+        meta: dict[str, Any] = {
             "model_provider": mp,
             "intent": str(analysis.get("intent", "")),
             "routed_intent": routed,
             "intent_confidence": float(analysis.get("confidence", 0)),
             "intent_reasoning": str(analysis.get("reasoning", "")),
         }
+        if routed == "criacao_email" and isinstance(sc, dict) and sc.get("configured"):
+            try:
+                raw_draft = await _extract_email_send_draft(
+                    settings,
+                    state.get("model_provider"),
+                    text,
+                    capped,
+                    cc if isinstance(cc, list) else None,
+                )
+                meta.update(
+                    _email_send_meta_from_extractor(
+                        raw_draft,
+                        cc if isinstance(cc, list) else None,
+                    ),
+                )
+            except Exception:
+                pass
         return {"assistant_text": text, "metadata": meta}
 
     g = StateGraph(ZepState)

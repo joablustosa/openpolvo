@@ -19,33 +19,35 @@ type GetMySMTP struct {
 }
 
 type mySMTPDTO struct {
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
-	Username     string `json:"username"`
-	PasswordSet  bool   `json:"password_set"`
-	FromEmail    string `json:"from_email"`
-	FromName     string `json:"from_name"`
-	UseTLS       bool   `json:"use_tls"`
-	UpdatedAtISO string `json:"updated_at,omitempty"`
+	Host                        string `json:"host"`
+	Port                        int    `json:"port"`
+	Username                    string `json:"username"`
+	PasswordSet                 bool   `json:"password_set"`
+	FromEmail                   string `json:"from_email"`
+	FromName                    string `json:"from_name"`
+	UseTLS                      bool   `json:"use_tls"`
+	EmailChatSkipConfirmation   bool   `json:"email_chat_skip_confirmation"`
+	UpdatedAtISO                string `json:"updated_at,omitempty"`
 }
 
 func (uc *GetMySMTP) Execute(ctx context.Context, userID uuid.UUID) (*mySMTPDTO, error) {
 	rec, err := uc.Repo.GetByUserID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return &mySMTPDTO{Port: 587, UseTLS: true}, nil
+			return &mySMTPDTO{Port: 587, UseTLS: true, EmailChatSkipConfirmation: false}, nil
 		}
 		return nil, err
 	}
 	return &mySMTPDTO{
-		Host:         rec.Host,
-		Port:         rec.Port,
-		Username:     rec.Username,
-		PasswordSet:  len(rec.PasswordCipher) > 0,
-		FromEmail:    rec.FromEmail,
-		FromName:     rec.FromName,
-		UseTLS:       rec.UseTLS,
-		UpdatedAtISO: rec.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+		Host:                      rec.Host,
+		Port:                      rec.Port,
+		Username:                  rec.Username,
+		PasswordSet:               len(rec.PasswordCipher) > 0,
+		FromEmail:                 rec.FromEmail,
+		FromName:                  rec.FromName,
+		UseTLS:                    rec.UseTLS,
+		EmailChatSkipConfirmation: rec.EmailChatSkipConfirmation,
+		UpdatedAtISO:              rec.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
 	}, nil
 }
 
@@ -62,6 +64,8 @@ type PutMySMTPInput struct {
 	FromEmail string
 	FromName  string
 	UseTLS    bool
+	// EmailChatSkipConfirmation nil = manter valor na BD ao actualizar
+	EmailChatSkipConfirmation *bool
 }
 
 func (uc *PutMySMTP) Execute(ctx context.Context, userID uuid.UUID, in PutMySMTPInput) error {
@@ -97,15 +101,22 @@ func (uc *PutMySMTP) Execute(ctx context.Context, userID uuid.UUID, in PutMySMTP
 		}
 		enc = existing.PasswordCipher
 	}
+	skip := false
+	if in.EmailChatSkipConfirmation != nil {
+		skip = *in.EmailChatSkipConfirmation
+	} else if existing != nil {
+		skip = existing.EmailChatSkipConfirmation
+	}
 	s := &domain.UserSMTPSettings{
-		UserID:    userID.String(),
-		Host:      host,
-		Port:      in.Port,
-		Username:  strings.TrimSpace(in.Username),
-		Password:  "",
-		FromEmail: from,
-		FromName:  strings.TrimSpace(in.FromName),
-		UseTLS:    in.UseTLS,
+		UserID:                    userID.String(),
+		Host:                      host,
+		Port:                      in.Port,
+		Username:                  strings.TrimSpace(in.Username),
+		Password:                  "",
+		FromEmail:                 from,
+		FromName:                  strings.TrimSpace(in.FromName),
+		UseTLS:                    in.UseTLS,
+		EmailChatSkipConfirmation: skip,
 	}
 	return uc.Repo.Upsert(ctx, s, enc)
 }

@@ -112,7 +112,7 @@ export function ContactsPage() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
         <p>Inicie sessão para gerir contactos.</p>
-        <Link to="/" className={buttonVariants({ variant: "outline", size: "sm" })}>
+        <Link to="/settings" className={buttonVariants({ variant: "outline", size: "sm" })}>
           Voltar
         </Link>
       </div>
@@ -123,11 +123,11 @@ export function ContactsPage() {
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-auto bg-background">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <Link
-          to="/"
+          to="/settings"
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-2")}
         >
           <ArrowLeft className="size-4" />
-          Chat
+          Definições
         </Link>
         <div className="h-4 w-px bg-border" />
         <Users className="size-4 text-primary" />

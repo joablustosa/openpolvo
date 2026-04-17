@@ -22,8 +22,10 @@ import {
   renameConversation as apiRenameConversation,
 } from "@/lib/conversationsApi";
 import { isApiUnauthorized } from "@/lib/apiErrors";
+import { buildEmailSendPayload, parseEmailMessageMeta } from "@/lib/emailChatMetadata";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
+import * as mail from "@/lib/mailApi";
 
 type ConversationWorkspaceValue = {
   conversations: ConversationDTO[];
@@ -35,6 +37,9 @@ type ConversationWorkspaceValue = {
   loadingMessages: boolean;
   sending: boolean;
   error: string | null;
+  /** Aviso curto após envio automático de e-mail pelo chat (quando a opção está activa). */
+  emailSendNotice: string | null;
+  clearEmailSendNotice: () => void;
   selectConversation: (
     id: string | null,
     defaultModel?: ModelProvider,
@@ -71,11 +76,17 @@ export function ConversationWorkspaceProvider({
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailSendNotice, setEmailSendNotice] = useState<string | null>(null);
+
+  const clearEmailSendNotice = useCallback(() => {
+    setEmailSendNotice(null);
+  }, []);
 
   const onSessionUnauthorized = useCallback(() => {
     logout();
     openLoginModal();
     setError(null);
+    setEmailSendNotice(null);
   }, [logout, openLoginModal]);
 
   const refreshConversations = useCallback(async () => {
@@ -166,6 +177,7 @@ export function ConversationWorkspaceProvider({
       if (!token) return;
       setSending(true);
       setError(null);
+      setEmailSendNotice(null);
       try {
         let cid = activeConversationId;
         if (!cid) {
@@ -178,6 +190,23 @@ export function ConversationWorkspaceProvider({
         });
         setMessages(msgs);
         tryOpenNativePluginFromMessages(msgs, openPlugin);
+        const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+        const em = parseEmailMessageMeta(lastAssistant?.metadata);
+        if (em?.email_send_pending && em.email_send_draft) {
+          try {
+            const smtp = await mail.getSmtpSettings(token);
+            if (smtp.email_chat_skip_confirmation) {
+              await mail.sendEmail(token, buildEmailSendPayload(em.email_send_draft));
+              setEmailSendNotice("E-mail enviado automaticamente.");
+              const refreshed = await fetchMessages(token, cid);
+              setMessages(refreshed);
+            }
+          } catch (e) {
+            setError(
+              e instanceof Error ? e.message : "Falha no envio automático do e-mail",
+            );
+          }
+        }
         await refreshConversations();
       } catch (e) {
         if (isApiUnauthorized(e)) {
@@ -268,6 +297,7 @@ export function ConversationWorkspaceProvider({
     setActiveConversationId(null);
     setMessages([]);
     setError(null);
+    setEmailSendNotice(null);
   }, []);
 
   const value = useMemo(
@@ -281,6 +311,8 @@ export function ConversationWorkspaceProvider({
       loadingMessages,
       sending,
       error,
+      emailSendNotice,
+      clearEmailSendNotice,
       selectConversation,
       refreshConversations,
       createNewConversation,
@@ -300,6 +332,8 @@ export function ConversationWorkspaceProvider({
       loadingMessages,
       sending,
       error,
+      emailSendNotice,
+      clearEmailSendNotice,
       selectConversation,
       refreshConversations,
       createNewConversation,

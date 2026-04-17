@@ -16,7 +16,13 @@ Quando o contexto da classificação ou o bloco do sistema indicar que o utiliza
 Se o bloco do sistema listar **contactos guardados** (cada linha com `id` UUID, nome, email, telefone):
 
 - Quando o utilizador pedir para enviar e-mail **a uma pessoa pelo nome**, corresponde ao contacto correcto e indica **`contact_id`** e o **email** para o envio via `POST /v1/email/send` com `contact_id` (ou `to` com o email exacto).
-- Se houver ambiguidade (dois nomes parecidos), pergunta qual `id` usar.
+- Se o utilizador der um **endereço de e-mail explícito**, usa-o como destinatário (`to`) e confirma-o na resposta.
+- Se houver ambiguidade (dois nomes parecidos), pergunta qual `id` usar e **não** assumas um destinatário único.
+
+### Assunto e corpo (qualidade)
+
+- **Assunto**: em português (salvo pedido noutro idioma), com **gramática e ortografia correctas**; corrige erros do pedido original sem alterar o sentido.
+- **Corpo**: segue o pedido do utilizador (tom, pontos a incluir, comprimento); texto claro, pronto para colar num cliente de e-mail ou enviar pela API.
 
 ### Prioridades
 

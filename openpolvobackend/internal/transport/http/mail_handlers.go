@@ -16,6 +16,7 @@ type MailHandlers struct {
 	GetSMTP    *mailapp.GetMySMTP
 	PutSMTP    *mailapp.PutMySMTP
 	Send       *mailapp.SendUserEmail
+	TestSMTP   *mailapp.TestSMTPConnection
 	GetContact *contactsapp.GetContact
 }
 
@@ -37,13 +38,14 @@ func (h *MailHandlers) GetMeSMTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type putSMTPBody struct {
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	FromEmail string `json:"from_email"`
-	FromName  string `json:"from_name"`
-	UseTLS    *bool  `json:"use_tls"`
+	Host                        string `json:"host"`
+	Port                        int    `json:"port"`
+	Username                    string `json:"username"`
+	Password                    string `json:"password"`
+	FromEmail                   string `json:"from_email"`
+	FromName                    string `json:"from_name"`
+	UseTLS                      *bool  `json:"use_tls"`
+	EmailChatSkipConfirmation   *bool  `json:"email_chat_skip_confirmation"`
 }
 
 func (h *MailHandlers) PutMeSMTP(w http.ResponseWriter, r *http.Request) {
@@ -65,13 +67,14 @@ func (h *MailHandlers) PutMeSMTP(w http.ResponseWriter, r *http.Request) {
 		useTLS = *body.UseTLS
 	}
 	err := h.PutSMTP.Execute(r.Context(), uid, mailapp.PutMySMTPInput{
-		Host:      body.Host,
-		Port:      body.Port,
-		Username:  body.Username,
-		Password:  body.Password,
-		FromEmail: body.FromEmail,
-		FromName:  body.FromName,
-		UseTLS:    useTLS,
+		Host:                      body.Host,
+		Port:                      body.Port,
+		Username:                  body.Username,
+		Password:                  body.Password,
+		FromEmail:                 body.FromEmail,
+		FromName:                  body.FromName,
+		UseTLS:                    useTLS,
+		EmailChatSkipConfirmation: body.EmailChatSkipConfirmation,
 	})
 	if err != nil {
 		msg := strings.TrimSpace(err.Error())
@@ -90,6 +93,28 @@ type postEmailSendBody struct {
 	Subject    string `json:"subject"`
 	Body       string `json:"body"`
 	ContactID  string `json:"contact_id,omitempty"`
+}
+
+func (h *MailHandlers) PostTestSMTP(w http.ResponseWriter, r *http.Request) {
+	uid := mustUserUUID(w, r)
+	if uid == uuid.Nil {
+		return
+	}
+	if h.TestSMTP == nil {
+		writeError(w, http.StatusNotImplemented, "smtp test not configured")
+		return
+	}
+	if err := h.TestSMTP.Execute(r.Context(), uid); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "smtp não configurado") || strings.Contains(msg, "falha ao ler") {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+		// 503: falha ao contactar SMTP externo (evitar 502 "Bad Gateway", que sugere proxy mal configurado).
+		writeError(w, http.StatusServiceUnavailable, "smtp test failed: "+truncateForClientErr(smtpDialErrHint(msg), 400))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *MailHandlers) PostEmailSend(w http.ResponseWriter, r *http.Request) {
@@ -143,8 +168,49 @@ func (h *MailHandlers) PostEmailSend(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
-		writeError(w, http.StatusBadGateway, "smtp send failed: "+truncateForClientErr(msg, 200))
+		writeError(w, http.StatusServiceUnavailable, "smtp send failed: "+truncateForClientErr(smtpDialErrHint(msg), 400))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+func smtpDialErrHint(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return msg
+	}
+	l := strings.ToLower(msg)
+	if !strings.Contains(l, "smtp dial") && !strings.Contains(l, "smtp tls dial") {
+		return msg
+	}
+	if strings.Contains(l, "i/o timeout") || strings.Contains(l, "timeout") {
+		base := " — saída SMTP bloqueada ou inacessível: experimente porta 465 com TLS (ex. Gmail), outra rede (hotspot) ou regra de firewall de saída onde a API corre."
+		if smtpDialErrShowsIPv4Addr(msg) {
+			return msg + base + " O endereço no erro já é IPv4; SMTP_PREFER_IPV4 na API não altera este caso."
+		}
+		if strings.Contains(msg, "dial tcp [") {
+			return msg + base + " Se falhar só com IPv6, defina SMTP_PREFER_IPV4=true no .env da API."
+		}
+		return msg + base
+	}
+	return msg
+}
+
+// smtpDialErrShowsIPv4Addr detecta o formato típico do Go "… dial tcp w.x.y.z:porta" (já resolvido para IPv4).
+func smtpDialErrShowsIPv4Addr(msg string) bool {
+	const p = "dial tcp "
+	i := strings.Index(msg, p)
+	if i < 0 {
+		return false
+	}
+	rest := msg[i+len(p):]
+	j := strings.Index(rest, ":")
+	if j <= 0 {
+		return false
+	}
+	host := rest[:j]
+	if strings.Contains(host, "[") || strings.Contains(host, "]") {
+		return false
+	}
+	return strings.Count(host, ".") == 3 && !strings.Contains(host, ":")
 }

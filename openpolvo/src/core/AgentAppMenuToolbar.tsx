@@ -88,7 +88,7 @@ export function AgentAppMenuToolbar({
                   <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => navigate("/settings/email")}
+                  onClick={() => navigate("/settings")}
                 >
                   Definições do agente
                   <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>

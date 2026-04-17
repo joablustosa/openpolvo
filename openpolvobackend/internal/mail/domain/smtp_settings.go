@@ -12,7 +12,9 @@ type UserSMTPSettings struct {
 	FromEmail string
 	FromName  string
 	UseTLS    bool
-	UpdatedAt time.Time
+	// EmailChatSkipConfirmation quando true, o cliente pode enviar e-mail do chat sem diálogo de confirmação.
+	EmailChatSkipConfirmation bool
+	UpdatedAt                 time.Time
 }
 
 // SMTPRecord linha completa da BD (cipher da password).

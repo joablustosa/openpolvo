@@ -8,6 +8,8 @@ export type SmtpSettingsDTO = {
   from_email: string;
   from_name: string;
   use_tls: boolean;
+  /** true = enviar pelo chat sem diálogo de confirmação */
+  email_chat_skip_confirmation?: boolean;
   updated_at?: string;
 };
 
@@ -50,6 +52,7 @@ export async function putSmtpSettings(
     from_email: string;
     from_name: string;
     use_tls: boolean;
+    email_chat_skip_confirmation?: boolean;
   },
 ): Promise<void> {
   const res = await fetch(apiUrl("/v1/me/smtp"), {
@@ -73,5 +76,15 @@ export async function sendEmail(
   });
   if (!res.ok) {
     throw new Error(await readApiError(res, `email send: ${res.status}`));
+  }
+}
+
+export async function testSmtpConnection(token: string): Promise<void> {
+  const res = await fetch(apiUrl("/v1/me/smtp/test"), {
+    method: "POST",
+    headers: headersJson(token),
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `smtp test: ${res.status}`));
   }
 }

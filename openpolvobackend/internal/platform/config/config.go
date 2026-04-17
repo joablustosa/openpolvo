@@ -39,6 +39,9 @@ type Config struct {
 	AgentLLMTimeout       time.Duration
 	// Chave opcional (string qualquer) para AES-256-GCM da password SMTP por utilizador; se vazia usa derivação a partir de JWT_SECRET.
 	SMTPCredentialsKey string
+	// Ligação TCP/TLS aos servidores SMTP dos utilizadores (teste e envio).
+	SMTPDialTimeout time.Duration
+	SMTPDialNetwork string // tcp | tcp4 | tcp6
 	BootstrapDefaultAdmin bool
 	DefaultAdminEmail     string
 	DefaultAdminPassword  string
@@ -90,6 +93,25 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("AGENT_LLM_TIMEOUT: %w", err)
 	}
 	cfg.AgentLLMTimeout = llmTO
+
+	smtpDialTO, err := time.ParseDuration(getEnv("SMTP_DIAL_TIMEOUT", "30s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("SMTP_DIAL_TIMEOUT: %w", err)
+	}
+	cfg.SMTPDialTimeout = smtpDialTO
+
+	smtpNet := strings.TrimSpace(strings.ToLower(os.Getenv("SMTP_DIAL_NETWORK")))
+	if smtpNet == "" && parseBool(getEnv("SMTP_PREFER_IPV4", "false")) {
+		smtpNet = "tcp4"
+	}
+	switch smtpNet {
+	case "":
+		cfg.SMTPDialNetwork = "tcp"
+	case "tcp", "tcp4", "tcp6":
+		cfg.SMTPDialNetwork = smtpNet
+	default:
+		return Config{}, fmt.Errorf("SMTP_DIAL_NETWORK must be tcp, tcp4 or tcp6")
+	}
 
 	if cfg.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
