@@ -13,19 +13,30 @@ import {
   type ConversationDTO,
   type MessageDTO,
   type ModelProvider,
+  type StreamEvent,
   createConversation as apiCreateConversation,
   deleteConversation as apiDeleteConversation,
   fetchConversations,
   fetchMessages,
   pinConversation as apiPinConversation,
-  postMessage as apiPostMessage,
+  streamMessage as apiStreamMessage,
   renameConversation as apiRenameConversation,
 } from "@/lib/conversationsApi";
 import { isApiUnauthorized } from "@/lib/apiErrors";
 import { buildEmailSendPayload, parseEmailMessageMeta } from "@/lib/emailChatMetadata";
+import { messageIndicatesTaskListInteraction, parseTaskListMessageMeta } from "@/lib/taskListChatMetadata";
+import { applyTaskListBatch } from "@/lib/taskListsApi";
+import { parseSchedMessageMeta } from "@/lib/scheduleChatMetadata";
+import {
+  createScheduledTask,
+  updateScheduledTask,
+  deleteScheduledTask,
+  type CreateScheduledTaskInput,
+  type UpdateScheduledTaskInput,
+} from "@/lib/scheduleApi";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { parseDashboardMeta } from "@/lib/dashboardMetadata";
-import { parseBuilderMeta } from "@/lib/builderMetadata";
+import { builderDataFromAssistantMetadata } from "@/lib/builderMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import * as mail from "@/lib/mailApi";
@@ -43,6 +54,9 @@ type ConversationWorkspaceValue = {
   /** Aviso curto após envio automático de e-mail pelo chat (quando a opção está activa). */
   emailSendNotice: string | null;
   clearEmailSendNotice: () => void;
+  /** Aviso após o agente aplicar operações nas listas de tarefas. */
+  taskListNotice: string | null;
+  clearTaskListNotice: () => void;
   selectConversation: (
     id: string | null,
     defaultModel?: ModelProvider,
@@ -67,7 +81,14 @@ export function ConversationWorkspaceProvider({
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { openPlugin } = useAppLaunch();
-  const { setDashboardData, setBuilderData } = useWorkspace();
+  const {
+    setDashboardData,
+    setBuilderData,
+    setBuilderProgress,
+    setBuilderStreamFiles,
+    openTaskListsPreview,
+    closeTaskListsPreview,
+  } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
@@ -81,9 +102,14 @@ export function ConversationWorkspaceProvider({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailSendNotice, setEmailSendNotice] = useState<string | null>(null);
+  const [taskListNotice, setTaskListNotice] = useState<string | null>(null);
 
   const clearEmailSendNotice = useCallback(() => {
     setEmailSendNotice(null);
+  }, []);
+
+  const clearTaskListNotice = useCallback(() => {
+    setTaskListNotice(null);
   }, []);
 
   const onSessionUnauthorized = useCallback(() => {
@@ -91,6 +117,7 @@ export function ConversationWorkspaceProvider({
     openLoginModal();
     setError(null);
     setEmailSendNotice(null);
+    setTaskListNotice(null);
   }, [logout, openLoginModal]);
 
   const refreshConversations = useCallback(async () => {
@@ -182,23 +209,57 @@ export function ConversationWorkspaceProvider({
       setSending(true);
       setError(null);
       setEmailSendNotice(null);
+      setTaskListNotice(null);
+      setBuilderProgress(null);
+      setBuilderStreamFiles([]);
       try {
         let cid = activeConversationId;
         if (!cid) {
           cid = await createNewConversation();
           if (!cid) return;
         }
-        const msgs = await apiPostMessage(token, cid, {
-          text,
-          model_provider: modelProvider,
-        });
-        setMessages(msgs);
-        tryOpenNativePluginFromMessages(msgs, openPlugin);
+        const cidFinal = cid;
+        let finalMessages: MessageDTO[] | null = null;
+
+        await apiStreamMessage(
+          token,
+          cidFinal,
+          { text, model_provider: modelProvider },
+          (event: StreamEvent) => {
+            if (event.type === "progress") {
+              setBuilderProgress({ step: event.step, label: event.label });
+            } else if (event.type === "file") {
+              setBuilderStreamFiles((prev) => [...prev, event.file]);
+            } else if (event.type === "messages_saved") {
+              finalMessages = event.messages;
+              setMessages(event.messages);
+              tryOpenNativePluginFromMessages(event.messages, openPlugin);
+              const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
+              const db = parseDashboardMeta(lastAssistant?.metadata);
+              if (db) setDashboardData(db);
+              const bd = builderDataFromAssistantMetadata(lastAssistant?.metadata);
+              if (bd) {
+                setBuilderData(bd);
+                setBuilderStreamFiles([]);
+              }
+              if (messageIndicatesTaskListInteraction(lastAssistant?.metadata)) {
+                openTaskListsPreview();
+              }
+            } else if (event.type === "error") {
+              setError(event.detail || "Erro no agente");
+            }
+          },
+        );
+
+        // Se não recebemos messages_saved (erro ou stream vazio), recarrega mensagens.
+        if (!finalMessages) {
+          const msgs = await fetchMessages(token, cidFinal);
+          setMessages(msgs);
+        }
+
+        // Auto-envio de e-mail se aplicável.
+        const msgs = finalMessages ?? (await fetchMessages(token, cidFinal).catch(() => [] as MessageDTO[]));
         const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
-        const db = parseDashboardMeta(lastAssistant?.metadata);
-        if (db) setDashboardData(db);
-        const bd = parseBuilderMeta(lastAssistant?.metadata);
-        if (bd) setBuilderData(bd);
         const em = parseEmailMessageMeta(lastAssistant?.metadata);
         if (em?.email_send_pending && em.email_send_draft) {
           try {
@@ -206,15 +267,68 @@ export function ConversationWorkspaceProvider({
             if (smtp.email_chat_skip_confirmation) {
               await mail.sendEmail(token, buildEmailSendPayload(em.email_send_draft));
               setEmailSendNotice("E-mail enviado automaticamente.");
-              const refreshed = await fetchMessages(token, cid);
+              const refreshed = await fetchMessages(token, cidFinal);
               setMessages(refreshed);
             }
           } catch (e) {
+            setError(e instanceof Error ? e.message : "Falha no envio automático do e-mail");
+          }
+        }
+
+        const tm = parseTaskListMessageMeta(lastAssistant?.metadata);
+        if (
+          tm?.task_list_ops_pending &&
+          tm.task_list_ops &&
+          tm.task_list_ops.length > 0 &&
+          !tm.task_list_ops_blocked
+        ) {
+          try {
+            const batchRes = await applyTaskListBatch(token, tm.task_list_ops);
+            const failed = batchRes.steps.filter((s) => !s.ok);
+            if (failed.length > 0) {
+              const msg = failed.map((s) => `${s.op}: ${s.error ?? "erro"}`).join("; ");
+              setError(`Operações nas listas de tarefas: ${msg}`);
+            } else {
+              setTaskListNotice("Listas de tarefas actualizadas pelo agente.");
+              openTaskListsPreview();
+            }
+          } catch (e) {
             setError(
-              e instanceof Error ? e.message : "Falha no envio automático do e-mail",
+              e instanceof Error ? e.message : "Falha ao aplicar operações nas listas de tarefas",
             );
           }
         }
+
+        const sm = parseSchedMessageMeta(lastAssistant?.metadata);
+        if (
+          sm?.scheduled_task_ops_pending &&
+          sm.scheduled_task_ops &&
+          sm.scheduled_task_ops.length > 0 &&
+          !sm.scheduled_task_ops_blocked
+        ) {
+          const errors: string[] = [];
+          for (const op of sm.scheduled_task_ops) {
+            const opName = String(op.op ?? "");
+            try {
+              if (opName === "create") {
+                await createScheduledTask(op as unknown as CreateScheduledTaskInput);
+              } else if (opName === "update") {
+                const { op: _, id, ...rest } = op as Record<string, unknown>;
+                await updateScheduledTask(String(id), rest as UpdateScheduledTaskInput);
+              } else if (opName === "delete") {
+                await deleteScheduledTask(String(op.id));
+              } else if (opName === "toggle") {
+                await updateScheduledTask(String(op.id), { active: Boolean(op.active) });
+              }
+            } catch (e) {
+              errors.push(`${opName}: ${e instanceof Error ? e.message : "erro"}`);
+            }
+          }
+          if (errors.length > 0) {
+            setError(`Automações agendadas: ${errors.join("; ")}`);
+          }
+        }
+
         await refreshConversations();
       } catch (e) {
         if (isApiUnauthorized(e)) {
@@ -224,6 +338,7 @@ export function ConversationWorkspaceProvider({
         setError(e instanceof Error ? e.message : "Falha ao enviar");
       } finally {
         setSending(false);
+        setBuilderProgress(null);
       }
     },
     [
@@ -236,6 +351,9 @@ export function ConversationWorkspaceProvider({
       onSessionUnauthorized,
       setDashboardData,
       setBuilderData,
+      setBuilderProgress,
+      setBuilderStreamFiles,
+      openTaskListsPreview,
     ],
   );
 
@@ -308,7 +426,9 @@ export function ConversationWorkspaceProvider({
     setMessages([]);
     setError(null);
     setEmailSendNotice(null);
-  }, []);
+    setTaskListNotice(null);
+    closeTaskListsPreview();
+  }, [closeTaskListsPreview]);
 
   const value = useMemo(
     () => ({
@@ -323,6 +443,8 @@ export function ConversationWorkspaceProvider({
       error,
       emailSendNotice,
       clearEmailSendNotice,
+      taskListNotice,
+      clearTaskListNotice,
       selectConversation,
       refreshConversations,
       createNewConversation,
@@ -344,6 +466,8 @@ export function ConversationWorkspaceProvider({
       error,
       emailSendNotice,
       clearEmailSendNotice,
+      taskListNotice,
+      clearTaskListNotice,
       selectConversation,
       refreshConversations,
       createNewConversation,

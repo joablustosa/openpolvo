@@ -1,140 +1,406 @@
-# Open Polvo (backend)
+# 🐙 Open Polvo — O maior agente pessoal de IA do mundo
 
-API em Go com arquitectura hexagonal e DDD para o **Open Polvo**: autenticação (JWT + MySQL), readiness, conversas e workflows. O **agente Zé Polvinho** e os LLMs de geração de workflows correm no serviço Python [**Open Polvo Intelligence**](../openpolvointeligence/README.md) (FastAPI + LangGraph); esta API Go encaminha pedidos via HTTP (`POLVO_INTELLIGENCE_*`).
+> **Missão:** Ser o agente de IA pessoal mais completo do planeta — superando os gringos na nossa língua, com a nossa cultura e jeito brasileiro de fazer as coisas.
 
-## Requisitos
+O Open Polvo é uma plataforma open source de agente pessoal com IA que roda 100 % localmente ou na nuvem. O agente **Zé Polvinho** entende contexto real do utilizador — tarefas, finanças, e-mails, redes sociais, automações agendadas — e age. Não é só um chatbot: é um verdadeiro assistente pessoal que executa.
 
-- Go 1.24+
-- MySQL 8+
-
-## Configuração
-
-1. Copie `.env.example` para `.env` e preencha `JWT_SECRET`.
-2. **Open Polvo Intelligence:** defina `POLVO_INTELLIGENCE_BASE_URL` (ex.: `http://127.0.0.1:8090`) e `POLVO_INTELLIGENCE_INTERNAL_KEY` (igual a `POLVO_INTERNAL_KEY` no serviço Python). Arranque o serviço Python e configure lá `OPENAI_API_KEY` e/ou `GOOGLE_API_KEY`. Sem isto, o chat e a geração de workflows por LLM ficam indisponíveis.
-3. **MySQL:** ou defines `MYSQL_DSN`, ou (recomendado para **Azure** e passwords com `$`) deixas `MYSQL_DSN` vazio e defines `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_PORT` e opcionalmente `MYSQL_TLS=true` (SSL). O servidor escapa a password correctamente ao montar o DSN.
-4. No **Azure Database for MySQL**, nas regras de firewall, permite o IP público da máquina que corre a API (erro `1045` ou falha de ligação pode ser firewall ou credenciais).
-5. Cria a base de dados referida no DSN (ou usa a que já existes, ex.: `loopa_db`).
-6. Na raiz do repositório:
-
-```bash
-go run ./cmd/openlaele-api/
+```
+openpolvo/            → Frontend React + Electron (desktop/web)
+openpolvobackend/     → API Go — auth, conversas, dados, orquestração
+openpolvointeligence/ → Agente Python — LangGraph, LLMs, especialistas
 ```
 
-Com `RUN_MIGRATIONS=true`, no arranque corre-se só **`migrate up`**: aplicam-se migrações **ainda não registadas** na tabela `schema_migrations`. O caminho `MIGRATIONS_PATH` (ex.: `migrations`) é resolvido a partir do directório com **`go.mod`**, não só do cwd — podes arrancar a API mesmo com o cwd noutra pasta (ex. IDE a partir de `OpenLaEleFront`). O `.env` da **raiz do módulo** também é carregado primeiro, depois o `.env` local (Overload). Os ficheiros `.down.sql` **não** correm no startup. As migrações `up` usam `CREATE … IF NOT EXISTS` quando faz sentido; os `down` são **não destrutivos**.
+---
 
-## Primeiro utilizador
+## ⚡ Início rápido — menos de 2 minutos
 
-- **Por defeito (arranque da API):** com `BOOTSTRAP_DEFAULT_ADMIN=true` (padrão), depois das migrações é garantido um utilizador com `DEFAULT_ADMIN_EMAIL` (padrão `admin@openlaele.local`) se ainda não existir. Se `DEFAULT_ADMIN_PASSWORD` não estiver no `.env`, usa-se a password de desenvolvimento documentada em `.env.example` — **altere em produção**.
-- **Seed manual:** `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` e `go run ./cmd/openlaele-seed/`.
-- **Registo:** `AUTH_ALLOW_REGISTER=true` e `POST /v1/auth/register` (avaliar risco em produção).
+> Precisas de: **Go 1.24+**, **Node 20+**, **Python 3.11+**, **MySQL 8+** e pelo menos uma chave de API (**OpenAI** ou **Google Gemini**).
 
-## API (resumo)
+Abre **3 terminais** e executa cada bloco num:
 
-| Método | Rota | Auth | Descrição |
-|--------|------|------|-----------|
-| GET | `/health` | não | Texto `ok`; liveness mínima |
-| GET | `/healthz` | não | JSON: `status`, `service`, `version` |
-| GET | `/ready` | não | Texto; ping à BD |
-| GET | `/readyz` | não | JSON readiness; mesmas dependências que `/ready` |
-| POST | `/v1/auth/login` | não | `{"email","password"}` → `access_token` |
-| POST | `/v1/auth/register` | não | Se `AUTH_ALLOW_REGISTER=true` |
-| GET | `/v1/auth/me` | Bearer JWT | Utilizador actual |
-| GET | `/v1/agent/status` | Bearer JWT | Serviço Intelligence: `readyz` + capacidades OpenAI/Google no Python |
-| GET | `/v1/agent/langgraph/status` | Bearer JWT | Alias legado do endpoint acima |
-| POST | `/v1/agent/langgraph/threads` | Bearer JWT | Cria ID local `go-local:…` (compatibilidade) |
-| GET | `/v1/conversations` | Bearer JWT | Listar conversas (fixadas primeiro) |
-| POST | `/v1/conversations` | Bearer JWT | Criar conversa (`title?`, `default_model_provider?`) |
-| GET | `/v1/conversations/{id}` | Bearer JWT | Obter conversa |
-| PATCH | `/v1/conversations/{id}` | Bearer JWT | Renomear (`{"title": "…"}`) |
-| DELETE | `/v1/conversations/{id}` | Bearer JWT | Excluir (soft delete) → 204 |
-| POST | `/v1/conversations/{id}/pin` | Bearer JWT | Fixar/desafixar (`{"pinned": true/false}`) |
-| GET | `/v1/conversations/{id}/messages` | Bearer JWT | Listar mensagens |
-| POST | `/v1/conversations/{id}/messages` | Bearer JWT | Enviar mensagem (`text`, `model_provider?`) |
-| GET | `/v1/me/smtp` | Bearer JWT | Definições SMTP do utilizador (sem password; `password_set`) |
-| PUT | `/v1/me/smtp` | Bearer JWT | Guardar SMTP (`host`, `port`, `username`, `password?`, `from_email`, `from_name`, `use_tls`) — password vazia mantém a anterior |
-| POST | `/v1/email/send` | Bearer JWT | Enviar e-mail pela conta SMTP (`to`, `subject`, `body` ou `contact_id` em vez de `to`) |
-| GET | `/v1/me/contacts` | Bearer JWT | Listar contactos (nome, telefone, email) |
-| POST | `/v1/me/contacts` | Bearer JWT | Criar contacto (`name`, `phone`, `email`) → 201 |
-| GET | `/v1/me/contacts/{id}` | Bearer JWT | Obter um contacto |
-| PUT | `/v1/me/contacts/{id}` | Bearer JWT | Actualizar contacto |
-| DELETE | `/v1/me/contacts/{id}` | Bearer JWT | Eliminar contacto → 204 |
+### Terminal 1 — API Go (backend)
 
-Login: JSON `{"email":"","password":""}` → `access_token`, `token_type`, `expires_in`.
+```bash
+git clone https://github.com/open-polvo/open-polvo.git
+cd open-polvo/openpolvobackend
 
-### Soft delete
+cp .env.example .env
+# Edita .env: preenche JWT_SECRET, MYSQL_DSN, POLVO_INTELLIGENCE_INTERNAL_KEY
+# Exemplo mínimo (MySQL local):
+#   MYSQL_DSN=root:root@tcp(127.0.0.1:3306)/openpolvo?parseTime=true
+#   JWT_SECRET=um-segredo-longo-aqui
+#   RUN_MIGRATIONS=true
+#   POLVO_INTELLIGENCE_INTERNAL_KEY=chave-secreta-igual-ao-python
 
-Conversas eliminadas ficam na base de dados com `deleted_at` preenchido e **nunca aparecem** nas listagens nem em endpoints individuais. Isso permite auditoria e eventual restauro via SQL directo.
+go run ./cmd/openlaele-api/
+# ✅ API em http://127.0.0.1:8080
+```
 
-### Conversas fixadas
+### Terminal 2 — Agente Python (Intelligence)
 
-Ao chamar `POST /v1/conversations/{id}/pin` com `{"pinned": true}`, o campo `pinned_at` é preenchido com a data actual. Com `{"pinned": false}`, é anulado. As conversas fixadas aparecem **antes das recentes** em `GET /v1/conversations`.
+```bash
+cd open-polvo/openpolvointeligence
 
-## Agente Zé Polvinho (Open Polvo Intelligence)
+cp .env.example .env
+# Edita .env: preenche OPENAI_API_KEY e/ou GOOGLE_API_KEY
+# e POLVO_INTERNAL_KEY=chave-secreta-igual-ao-Go
 
-O fluxo **LangGraph** no Python segue o mesmo desenho que o antigo motor em Go: **analisador** (JSON com intent) → **router** (confiança abaixo de 0,4 → `geral`) → **especialistas** (LLM ou stubs). Os prompts vivem em `openpolvointeligence/src/openpolvointeligence/prompts/`. Modelos por defeito no Python: `OPENAI_MODEL` / `GOOGLE_MODEL` no `.env` do serviço.
+python -m venv .venv
+source .venv/bin/activate   # Linux/Mac
+# .venv\Scripts\activate    # Windows
 
-A coluna `langgraph_thread_id` na BD mantém-se por compatibilidade; o valor é opaco, ex.: `go-local:{uuid da conversa}`.
+pip install -e ".[dev]"
+python -m openpolvointeligence.main
+# ✅ Agente em http://127.0.0.1:8090
+```
 
-### LangSmith (opcional)
+### Terminal 3 — Frontend (web/desktop)
 
-Pode definir `LANGCHAIN_API_KEY` / `LANGSMITH_API_KEY` no **serviço Python**; não é necessário para o chat funcionar.
+```bash
+cd open-polvo/openpolvo
 
-## Migrações
+npm install
+npm run dev
+# ✅ App em http://localhost:5173
+```
 
-| Versão | Descrição |
-|--------|-----------|
-| 000001 | Criar tabela `laele_users` |
-| 000002 | Criar tabela `laele_conversations` |
-| 000003 | Criar tabela `laele_messages` |
-| 000004 | Adicionar `deleted_at` e `pinned_at` a `laele_conversations` |
-| 000005 | Criar tabela `laele_workflows` |
-| 000006 | Criar tabela `laele_workflow_runs` |
-| 000009 | Colunas de agendamento (`schedule_*`) em `laele_workflows` |
-| 000010 | Tabela `laele_user_smtp_settings` (SMTP por utilizador; password encriptada no servidor) |
-| 000011 | Tabela `laele_user_contacts` (agenda: nome, telefone, email por utilizador) |
-| 000012 | Coluna `email_chat_skip_confirmation` em `laele_user_smtp_settings` (envio directo pelo chat) |
+Abre `http://localhost:5173` e entra com o utilizador definido em `openpolvobackend/.env` (por defeito no `.env.example`: **email** `admin@openlaele.local` e **password** `DEFAULT_ADMIN_PASSWORD`; altera antes do primeiro arranque em produção).
 
-## Front-end
+> **Pronto. Em menos de 2 minutos, o Zé Polvinho tá de pé.**
 
-O cliente em [openpolvo](../openpolvo/) chama a API em **`http://127.0.0.1:8080`** por defeito (ou a URL em `VITE_API_BASE_URL`). O Vite faz **proxy** de `/v1`, `/health`, `/healthz`, `/ready` e `/readyz` para o mesmo host da API em dev/preview. Com **Electron**, podes usar **`OPEN_LA_ELE_API_URL`**. O backend aceita origem `null` com `CORS_ALLOW_NULL_ORIGIN=true` (ficheiro local). Na **versão web**, o painel de plugins mostra um convite a instalar a desktop: define `VITE_DESKTOP_DOWNLOAD_URL` no build do front (instalador ou página de releases; ver `openpolvo/.env.example`).
+---
 
-### Funcionalidades do front-end
+## 🗺️ Configuração mínima (.env)
 
-- **Sidebar de conversas:** lista conversas fixadas (topo) e recentes; cada conversa tem menu de contexto (ícone `⋯`) com opções:
-  - **Renomear** — edita o título inline
-  - **Fixar / Desafixar** — fixa ou remove da secção fixados
-  - **Excluir** — soft delete (não recuperável pela UI)
-- **Chat:** usa a API Go + serviço Intelligence (OpenAI / Gemini por mensagem)
-- **Electron:** janela desktop com IPC bridge; `OPEN_LA_ELE_API_URL` sobrepõe a URL da API
-- **Correio (SMTP):** rota `/settings/email` — configurar servidor e remetente; o agente recebe metadados (sem password) para alinhar respostas sobre e-mail; envio real via `POST /v1/email/send` ou integrações futuras
-- **Contactos:** rota `/settings/contacts` (menu «Contactos» no início); a agenda é enviada ao Intelligence (`contacts_context`) para o chat sugerir destinatários; no Pulo do Gato o nó **`send_email`** usa `contact_id` + SMTP
+### `openpolvobackend/.env`
 
-### SMTP por utilizador (backend)
+```env
+HTTP_ADDR=:8080
+JWT_SECRET=troca-isso-por-um-segredo-forte
+MYSQL_DSN=usuario:senha@tcp(127.0.0.1:3306)/openpolvo?parseTime=true&charset=utf8mb4
+RUN_MIGRATIONS=true
+BOOTSTRAP_DEFAULT_ADMIN=true
+DEFAULT_ADMIN_EMAIL=admin@openlaele.local
+DEFAULT_ADMIN_PASSWORD=uma-password-forte-so-local
+POLVO_INTELLIGENCE_BASE_URL=http://127.0.0.1:8090
+POLVO_INTELLIGENCE_INTERNAL_KEY=mesma-chave-do-python
+```
 
-A password SMTP é guardada encriptada (AES-GCM). Opcionalmente define `SMTP_CREDENTIALS_KEY` (32 bytes em base64) no `.env`; se estiver vazio, deriva-se uma chave a partir de `JWT_SECRET` (menos ideal em rotação de JWT). Ver [`.env.example`](.env.example).
+### `openpolvointeligence/.env`
 
-#### Gmail (Google)
+```env
+OPENAI_API_KEY=sk-...          # OpenAI OU Google abaixo
+# GOOGLE_API_KEY=AIza...
+POLVO_INTERNAL_KEY=mesma-chave-do-go
+HOST=127.0.0.1
+PORT=8090
+```
 
-- Servidor: `smtp.gmail.com`; porta **587** (STARTTLS) ou **465** (TLS implícito); utilizador = endereço Gmail completo.
-- Com **verificação em duas etapas** activa, a password normal da conta **não serve** para clientes SMTP: crie uma **senha de aplicação** em [Google Account → Senhas de início de sessão das apps](https://myaccount.google.com/apppasswords) e guarde-a no campo password SMTP da aplicação (a página pode exigir browser recente).
-- Erros do tipo `dial … i/o timeout` na porta 587 costumam ser **firewall/rede** a bloquear SMTP de saída; experimente **465**, outra rede ou regras de saída no ambiente onde corre a API.
+Ver `.env.example` de cada serviço para todas as opções (SMTP, Meta/WhatsApp/Instagram, automações, etc.).
 
-## Automação (Pulo do Gato / Playwright-Go)
+---
 
-A API inclui workflows com grafo (nós `schedule`, `goto`, `click`, `fill`, `wait`, `llm`, **`send_email`**) executados com **[playwright-go](https://github.com/playwright-community/playwright-go)** (Chromium headless por defeito). O nó **`send_email`** não usa o browser: envia e-mail via SMTP do utilizador (`data.contact_id`, `data.email_subject`, `data.email_body`). O nó **`schedule`** define expressão **cron** (5 campos) e fuso IANA; o processo da API corre um **scheduler** com [robfig/cron](https://github.com/robfig/cron) e dispara `POST` interno equivalente a `POST /v1/workflows/{id}/run` quando o horário é atingido (sem necessidade de [Temporal.io](https://temporal.io) para o caso típico; Temporal continua uma opção para orquestração distribuída em grande escala). A geração de grafos (`POST /v1/workflows/generate`) e as chamadas dos nós `llm` durante o run usam o **mesmo serviço Open Polvo Intelligence** (não há LLM embutido no processo Go).
+## 🏗️ Arquitetura
 
-1. **Instalar browsers Playwright** (obrigatório antes de `POST .../workflows/{id}/run`; uma vez por máquina):
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Frontend (React + Electron)               │
+│  Chat · Tarefas · Finanças · Social · Automações · Builder  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP / SSE streaming
+┌──────────────────────▼──────────────────────────────────────┐
+│              API Go — Hexagonal + DDD                        │
+│  Auth JWT · Conversas · SMTP · Contactos · Tarefas          │
+│  Finanças · Meta API · Automações agendadas · Playwright     │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP interno (POLVO_INTELLIGENCE_*)
+┌──────────────────────▼──────────────────────────────────────┐
+│         Agente Python — LangGraph + FastAPI                  │
+│  Zé Polvinho · Analisador de intenção · Especialistas        │
+│  Email · Tarefas · Finanças · Social · Agendamento · Builder │
+└─────────────────────────────────────────────────────────────┘
+               ↕ OpenAI / Google Gemini
+```
 
-   ```bash
-   go run github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install chromium
-   ```
+---
 
-   A versão `@v0.5700.1` deve coincidir com a do `go.mod`. Os binários ficam em `%LOCALAPPDATA%\ms-playwright` (Windows) ou equivalente. Sem isto, o erro é `please install the driver (v1.57.0) first`.
+## 🤝 Guia de Contribuição
 
-2. **Variáveis de ambiente** (opcional): ver [`.env.example`](.env.example) — `AUTOMATION_ENABLED`, `AUTOMATION_HEADLESS`, `AUTOMATION_ALLOWED_HOSTS`, `WORKFLOW_SCHEDULER_ENABLED`, `WORKFLOW_SCHEDULER_INTERVAL`.
+### A missão é grande. Vem junto.
 
-3. **Endpoints** (JWT): `GET/POST/PATCH/DELETE /v1/workflows`, `POST /v1/workflows/generate`, `POST /v1/workflows/{id}/run`, `GET /v1/workflows/{id}/runs`.
+O Open Polvo nasceu no Brasil para o mundo. A nossa meta é construir o agente pessoal de IA mais poderoso que existe — open source, em português, com alma brasileira. Para isso acontecer precisamos de cada desenvolvedor que topar o desafio.
 
-## Licença
+---
+
+### 📜 Regras da Comunidade
+
+1. **Respeito acima de tudo.** Crítica ao código é saudável. Crítica à pessoa, não.
+2. **Português é bem-vindo. Inglês também.** Issues, PRs e discussões podem ser em qualquer um dos dois — ou nos dois.
+3. **Zero tolerância** a discriminação de qualquer tipo.
+4. **Quem manda é o código que funciona.** Não importa se és júnior ou sênior: se o código é bom, é bom.
+5. **Documente o que fizer.** Uma feature sem doc é uma feature pela metade.
+6. **Errou? Aprende e segue.** Não existe "eu não sei" — existe "ainda não sei".
+7. **O Zé Polvinho é nosso.** Cuida dele como se fosse o teu próprio assistente.
+
+---
+
+### 🛠️ Como contribuir
+
+#### 1. Fork e clone
+
+```bash
+git clone https://github.com/SEU-USUARIO/open-polvo.git
+cd open-polvo
+git checkout -b feat/nome-da-sua-feature
+```
+
+#### 2. Configura o ambiente (ver Início Rápido acima)
+
+#### 3. Faz as tuas alterações com testes
+
+```bash
+# Go
+cd openpolvobackend && go test ./...
+
+# Python
+cd openpolvointeligence && pytest
+
+# Frontend
+cd openpolvo && npm run build
+```
+
+#### 4. Abre um Pull Request
+
+---
+
+### 🗣️ A Lei das Girias — Nomeação de Features
+
+> **Esta é a regra mais importante do Open Polvo e também a mais divertida.**
+
+Qualquer **nova funcionalidade** deve ter um nome que use pelo menos **uma gíria do estado brasileiro** de quem está contribuindo. Isso não é brincadeira — é política oficial do projeto.
+
+**O nome vai aparecer em:**
+- Nome do arquivo/módulo (ex.: `oxe_scheduler.go`)
+- Nome da feature no CHANGELOG
+- Branch do PR (ex.: `feat/uai-finance-widget`)
+
+#### Mapa de girias por estado
+
+| Estado | Gírias aceitas |
+|--------|---------------|
+| 🟡 **SP** — São Paulo | `mano`, `bagulho`, `vacilao`, `nave`, `firmeza` |
+| 🟢 **RJ** — Rio de Janeiro | `mermao`, `mano`, `zoeira`, `baile`, `treta` |
+| 🔴 **MG** — Minas Gerais | `uai`, `trem`, `so`, `oceis`, `saudade` |
+| 🔵 **RS** — Rio Grande do Sul | `bah`, `tche`, `pia`, `guri`, `tri` |
+| 🟠 **BA** — Bahia | `oxe`, `arretado`, `marvada`, `cabra`, `mainha` |
+| 🟣 **PE** — Pernambuco | `vixe`, `arretado`, `cabra`, `oxente`, `mainha` |
+| 🟤 **CE** — Ceará | `eita`, `caba`, `egua`, `fulano`, `visse` |
+| 🟡 **AM** — Amazonas | `carai`, `caboco`, `manin`, `pira` |
+| 🟢 **PA** — Pará | `ta bom`, `uhu`, `manito`, `aruera` |
+| 🔴 **PR** — Paraná | `bah`, `capaz`, `nois`, `tchê` |
+| 🔵 **SC** — Santa Catarina | `bah`, `baita`, `namorido`, `tri` |
+| 🟠 **GO** — Goiás | `sô`, `um trem`, `vei`, `afe` |
+| 🟣 **MT/MS** — Mato Grosso | `fia`, `trem`, `cuiabano`, `peão` |
+| 🌎 **Fora do Brasil** | Qualquer gíria de português europeu, africano ou a palavra `gringo` como prefixo |
+
+#### Exemplos de nomes válidos
+
+```
+feat/uai-scheduled-tasks      → dev de MG criando automações agendadas
+feat/oxe-instagram-publisher  → dev da BA publicando posts
+feat/bah-finance-dashboard    → dev do RS criando painel de finanças
+feat/mermao-chat-streaming    → dev do RJ melhorando o streaming do chat
+feat/eita-builder-preview     → dev do CE melhorando o preview do Builder
+feat/vixe-email-templates     → dev de PE criando templates de e-mail
+feat/bagulho-voice-input      → dev de SP adicionando entrada de voz
+feat/gringo-openai-streaming  → dev de fora do Brasil
+```
+
+> Se não sabes de onde é o dev, usa a gíria do estado onde o PR foi mergeado — e o revisor tá autorizado a sugerir uma gíria melhor nos comentários.
+
+---
+
+### 📋 Template de Pull Request
+
+Ao abrir um PR, usa este template:
+
+```markdown
+## O que esse PR faz? (explica como se fosse pro Zé Polvinho)
+<!-- Descreve o que muda e por quê -->
+
+## Tipo de mudança
+- [ ] Bug fix (não quebra nada existente)
+- [ ] Nova feature (não quebra nada existente)
+- [ ] Breaking change (quebra algo existente)
+- [ ] Documentação
+
+## Gíria usada e estado de origem
+<!-- Ex.: "uai" — Minas Gerais -->
+
+## Como testar
+<!-- Passo a passo para revisar e validar -->
+
+## Checklist
+- [ ] Código funciona localmente
+- [ ] Testes passando (`go test ./...` / `pytest` / `npm run build`)
+- [ ] Não commitei `.env` nem segredos
+- [ ] Documentação atualizada (se aplicável)
+- [ ] Nome da feature usa gíria regional
+```
+
+---
+
+### 🚀 Roadmap e como entrar
+
+Olha as issues abertas com as labels:
+
+| Label | Significado |
+|-------|-------------|
+| `bom-primeiro-pr` | Ótimo para quem tá chegando agora |
+| `precisa-de-ajuda` | Temos o problema, precisamos de quem bote a mão |
+| `missao-critica` | Features que definem se a gente supera os gringos |
+| `gringos-ja-tem` | Paridade com ferramentas internacionais |
+| `so-nos-temos` | Features exclusivas do Open Polvo |
+
+---
+
+## 🧱 Estrutura do projeto
+
+### Backend (Go) — arquitetura hexagonal
+
+```
+openpolvobackend/
+├── cmd/openlaele-api/    → entrypoint, wiring de dependências
+├── internal/
+│   ├── agent/            → ports + adapter para o serviço Python
+│   ├── auth/             → JWT, login, registro
+│   ├── conversations/    → domínio de conversas + mensagens
+│   ├── workflows/        → automações Playwright (Pulo do Gato)
+│   ├── scheduledtasks/   → automações agendadas (CRON nativo)
+│   ├── finance/          → finanças pessoais
+│   ├── meta/             → WhatsApp, Facebook, Instagram
+│   ├── social/           → automação de posts sociais
+│   ├── transport/http/   → handlers e router Chi
+│   └── platform/         → config, MySQL, migrations
+└── migrations/           → arquivos SQL versionados
+```
+
+### Agente Python — LangGraph
+
+```
+openpolvointeligence/src/openpolvointeligence/
+├── graphs/
+│   ├── zepolvinho_graph.py   → grafo principal (analisador → especialista)
+│   ├── builder_subgraph.py   → sub-grafo Builder (Lovable-like)
+│   ├── *_metadata.py         → extratores de operações do chat
+│   └── models.py             → OpenAI / Gemini
+└── prompts/
+    ├── analyzer_system.md    → classificador de intenções
+    └── specialist_*.md       → 20+ especialistas por domínio
+```
+
+### Frontend — React + Electron
+
+```
+openpolvo/src/
+├── pages/
+│   ├── Main/             → chat principal + painéis
+│   ├── Financas/         → painel de finanças pessoais
+│   ├── Automacoes/       → automações agendadas
+│   ├── Social/           → automação de redes sociais
+│   └── Settings/         → plugins (SMTP, Meta, WhatsApp...)
+├── core/                 → contextos, sidebar, workspace
+└── lib/                  → API clients (scheduleApi, metaApi...)
+```
+
+---
+
+## 🌐 Capacidades do Zé Polvinho
+
+| Domínio | O que ele faz |
+|---------|---------------|
+| 💬 **Chat** | Conversa com contexto completo do utilizador |
+| 📧 **E-mail** | Redige, envia e monitora via SMTP próprio |
+| ✅ **Tarefas** | Cria, organiza e executa listas com o agente |
+| 💰 **Finanças** | Gastos, receitas, categorias, assinaturas |
+| ⏰ **Automações** | CRON nativo: "todo dia às 20h, envia resumo por email" |
+| 📱 **Redes Sociais** | Posts para Instagram, Facebook, LinkedIn, X |
+| 🤖 **Builder** | Gera apps React/fullstack completas com preview |
+| 🌐 **Pulo do Gato** | Automação web com Playwright (RPA) |
+| 📊 **Dashboards** | Gráficos gerados dinamicamente pelo agente |
+| 🎙️ **Voz** | Transcrição (Whisper / Gemini) |
+| 🔔 **WhatsApp** | Envia e recebe mensagens via Meta API |
+
+---
+
+## 🔧 Funcionalidades avançadas
+
+### Automações agendadas (CRON nativo)
+
+Diga para o Zé Polvinho no chat: *"Envia um email de resumo de tudo que fiz hoje todo dia às 20h"* — ele cria a automação automaticamente. Ou gerencie em `/automacoes`.
+
+```env
+# Ativar o runner (padrão: true)
+SCHED_TASKS_ENABLED=true
+SCHED_TASKS_INTERVAL=1m
+```
+
+### Playwright / Pulo do Gato (RPA)
+
+```bash
+# Uma vez por máquina (antes do primeiro run de workflow)
+go run github.com/playwright-community/playwright-go/cmd/playwright@v0.5700.1 install chromium
+```
+
+### Builder (apps geradas por IA)
+
+Diga: *"Faz um kanban em React com drag and drop"* — o Builder gera o projeto completo com preview ao vivo usando WebContainer no browser.
+
+### Meta API (WhatsApp, Instagram, Facebook)
+
+Configure em `/settings/plugins` → tokens Meta. Webhook: `GET/POST /meta/webhook`.
+
+```env
+META_WEBHOOK_VERIFY_TOKEN=token-configurado-no-painel-meta
+```
+
+---
+
+## 📦 Migrações do banco
+
+As migrações rodam automaticamente com `RUN_MIGRATIONS=true`. Para rodar manualmente:
+
+```bash
+# Aplicar todas
+go run ./cmd/openlaele-api/ -migrate-only
+
+# Verificar estado
+go run github.com/golang-migrate/migrate/v4/cmd/migrate@latest \
+  -database "mysql://..." -path migrations version
+```
+
+---
+
+## 🐳 Docker (em breve)
+
+`docker-compose.yml` está no roadmap (`missao-critica`). Contribuições são muito bem-vindas!
+
+---
+
+## 📄 Licença
 
 MIT — ver [LICENSE](LICENSE).
+
+Este projeto é livre para uso pessoal e comercial. A única coisa que pedimos: **se o Zé Polvinho te ajudou, manda um PR de volta.**
+
+---
+
+<div align="center">
+
+**Feito no Brasil 🇧🇷 para o mundo 🌍**
+
+*"Mano, a gente vai superar os gringos. Pode apostar."*
+
+[Issues](https://github.com/open-polvo/open-polvo/issues) · [Discussions](https://github.com/open-polvo/open-polvo/discussions) · [Roadmap](https://github.com/open-polvo/open-polvo/projects)
+
+</div>

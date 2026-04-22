@@ -18,7 +18,7 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `criacao_automacao` | Desenhar, configurar ou arquitetar fluxos (RPA, estilo Zapier/Make, nós LangGraph, pipelines de dados). |
 | `execucao_automacao` | Disparar um gatilho (trigger) ou executar uma automação/job **já** configurado. |
 | `criacao_sistema_web` | Especificar requisitos, gerar boilerplate ou desenhar arquitetura de apps web, dashboards e APIs. |
-| `criacao_app_interativa` | Pedido **explícito** para **criar/gerar uma aplicação pronta** (frontend ou fullstack) — ex.: "cria uma app de tarefas", "faz um kanban", "quero um site de contactos com backend", "gera um CRUD". O agente vai executar o sub-grafo Builder (techlead → engineer → developer → tester → analyzer → integrator) e devolver código + preview no painel lateral. Usa sempre que o utilizador quer **a coisa a funcionar**, não apenas conselhos. |
+| `criacao_app_interativa` | Pedido **explícito** para **criar/gerar código ou uma aplicação web executável** (frontend, fullstack, site, API, protótipo com ficheiros) — ex.: "faz um kanban em React", "quero um site de contactos com backend", "gera um CRUD em Next". **Não uses** esta etiqueta para **criar/editar uma tarefa ou item nas listas persistidas do Open Polvo** ("adiciona uma tarefa", "marca como feito", "cria uma tarefa na minha lista") — isso é `gestao_tarefas_calendario`. A frase "cria uma **app** de tarefas" (aplicação de software) é Builder; "cria **uma** tarefa" / "nova tarefa na lista" é gestão de listas. |
 | `post_instagram` | Conteúdo para o ecossistema Instagram (Reels, Stories, Feed). |
 | `post_facebook` | Copy e estratégia para páginas ou grupos no Facebook. |
 | `post_linkedin` | Conteúdo corporativo, artigos de autoridade ou página empresarial no LinkedIn. |
@@ -32,7 +32,9 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `pesquisa_web_tempo_real` | Informação actualizada na Web (notícias, preços, documentação técnica). |
 | `visao_computacional_analise` | Imagem ou vídeo enviado: descrever, OCR ou identificar elementos. |
 | `geracao_midia_ai` | Gerar imagens, vídeo curto ou áudio/música (estilo modelo generativo). |
-| `gestao_tarefas_calendario` | Agendar reuniões, lembretes ou organizar backlog de tarefas. |
+| `agendamento` | Criar, editar, listar, activar, desactivar ou apagar **tarefas agendadas recorrentes** (automações com CRON): "envia email todo dia às 20h", "executa a minha lista todas as manhãs", "cria uma automação que…". **Prioridade máxima** quando o utilizador menciona horários recorrentes, frequências ("todo dia", "toda segunda", "a cada hora") combinadas com uma acção automatizada. |
+| `gestao_tarefas_calendario` | Agendar reuniões, lembretes, organizar backlog **e** pedidos sobre as **listas de tarefas persistidas na aplicação Open Polvo** (criar/editar/apagar listas ou items, contar, resumir estado, executar a lista com o agente). **Prioridade** sobre `criacao_app_interativa` quando o utilizador fala em tarefas/itens/listas sem pedir código ou site. |
+| `financas_pessoais` | Orçamento **pessoal** na app Open Polvo: **gastos, receitas, categorias, transacções, assinaturas**, digest diário, «quanto gastei», «registar um gasto», Netflix/Spotify como despesa recorrente. **Não** uses para margem de loja ou simulações em Excel/Sheets (`planilha_estrategia_precos`). |
 | `duvida_tecnica_tutorial` | “Como fazer”, explicações de conceitos ou aprendizagem guiada. |
 | `suporte_erro_feedback` | Bugs no agente, integração ou reclamações de desempenho. |
 | `configuracao_perfil` | Preferências do sistema, chaves de API, idioma ou tom do agente. |
@@ -62,6 +64,7 @@ Se preferir equivalências mais curtas, pode usar em `intent`:
 - `config` — equivalente a `configuracao_perfil`
 - `pedido_conteudo` — equivalente a `pedido_conteudo_generico`
 - `pedido_dados` — equivalente a `analise_dados_relatorios`
+- `agendar` — equivalente a `agendamento`
 - `automacao` — equivalente a `execucao_automacao`
 - `resposta_email` — equivalente a `criacao_email` quando o foco é responder a um fio de correio.
 - `monitorizacao_email` — equivalente a `criacao_email` quando o foco é escuta/monitorização da caixa.

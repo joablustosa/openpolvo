@@ -46,4 +46,5 @@ type TaskItem struct {
 	ErrorMsg    *string
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
+	DueAt       *time.Time
 }

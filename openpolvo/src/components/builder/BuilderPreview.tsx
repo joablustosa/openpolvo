@@ -31,13 +31,27 @@ export function BuilderPreview({ data }: Props) {
     );
   }
 
+  const looksLikeHtmlFragment =
+    !/<\s*html[\s>]/i.test(html) && !/<\s*script/i.test(html) && html.length < 4000;
+
   return (
-    <iframe
-      key={iframeKey}
-      title={`Preview: ${data.title}`}
-      srcDoc={html}
-      sandbox="allow-scripts allow-forms allow-modals allow-popups"
-      className="h-full w-full border-0 bg-white"
-    />
+    <div className="flex h-full min-h-[min(40vh,360px)] min-h-0 w-full flex-1 flex-col">
+      {looksLikeHtmlFragment ? (
+        <p className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+          Este HTML parece um fragmento (sem{" "}
+          <code className="rounded bg-background px-1">&lt;script&gt;</code> nem documento completo), por isso o
+          iframe pode ficar em branco. Prefere{" "}
+          <strong className="text-foreground">Visualizar → Pré-visualização ao vivo (npm)</strong> quando o
+          projecto tiver Vite/React.
+        </p>
+      ) : null}
+      <iframe
+        key={iframeKey}
+        title={`Preview: ${data.title}`}
+        srcDoc={html}
+        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
+        className="min-h-0 flex-1 border-0 bg-white"
+      />
+    </div>
   );
 }

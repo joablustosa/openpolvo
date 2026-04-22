@@ -1,6 +1,7 @@
 import {
   Bus,
   Camera,
+  Clock,
   Globe2,
   Home,
   Mail,
@@ -144,8 +145,34 @@ export function AppMenu() {
             "justify-start gap-2 font-normal",
             sidebarCollapsed && "justify-center px-0",
           )}
+          title={sidebarCollapsed ? "Automação social" : undefined}
+          onClick={() => navigate("/social")}
+        >
+          <Share2 className="size-4 shrink-0 opacity-90" />
+          {!sidebarCollapsed ? "Social" : null}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "justify-start gap-2 font-normal",
+            sidebarCollapsed && "justify-center px-0",
+          )}
+          title={sidebarCollapsed ? "Automações agendadas" : undefined}
+          onClick={() => navigate("/automacoes")}
+        >
+          <Clock className="size-4 shrink-0 opacity-90" />
+          {!sidebarCollapsed ? "Automações" : null}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "justify-start gap-2 font-normal",
+            sidebarCollapsed && "justify-center px-0",
+          )}
           title={sidebarCollapsed ? "Definições do agente" : undefined}
-          onClick={() => navigate("/settings")}
+          onClick={() => navigate("/settings/plugins")}
         >
           <Settings2 className="size-4 shrink-0 opacity-90" />
           {!sidebarCollapsed ? "Definições" : null}

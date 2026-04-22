@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
     google_model: str = Field(default="gemini-2.0-flash", validation_alias="GOOGLE_MODEL")
     agent_llm_timeout_s: float = Field(default=120.0, validation_alias="AGENT_LLM_TIMEOUT_S")
+    # Timeout dedicado para o sub-grafo Builder (cada node pode produzir ficheiros grandes).
+    builder_llm_timeout_s: float = Field(default=180.0, validation_alias="BUILDER_LLM_TIMEOUT_S")
     port: int = Field(default=8090, validation_alias="PORT")
     host: str = Field(default="0.0.0.0", validation_alias="HOST")
 

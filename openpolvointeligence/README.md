@@ -49,4 +49,17 @@ pytest
 
 Defina na API Go `POLVO_INTELLIGENCE_BASE_URL` (ex.: `http://127.0.0.1:8090`) e `POLVO_INTELLIGENCE_INTERNAL_KEY` igual a `POLVO_INTERNAL_KEY` deste serviço. Ver [README do backend](../openpolvobackend/README.md).
 
-O corpo de `POST /v1/reply` pode incluir **`smtp_context`** (opcional): metadados do SMTP do utilizador (sem password) para o grafo alinhar respostas sobre correio e redacção de respostas; o envio real continua a ser feito pela API Go (`POST /v1/email/send`). Opcionalmente **`contacts_context`**: lista de contactos (`id`, `name`, `phone`, `email`) para o agente reconhecer destinatários pelo nome.
+O corpo de `POST /v1/reply` e `POST /v1/reply/stream` pode incluir:
+
+- **`smtp_context`** (opcional): metadados do SMTP do utilizador (sem password); o envio real continua a ser feito pela API Go (`POST /v1/email/send`).
+- **`contacts_context`** (opcional): contactos (`id`, `name`, `phone`, `email`) para o agente reconhecer destinatários pelo nome.
+- **`task_lists_context`** (opcional): listas de tarefas persistidas (`id`, `title`, `status`, `items[]` com `id`, `position`, `title`, `status`, `description?`, `result_preview?`) para o especialista `gestao_tarefas_calendario` contar, resumir ou planear mutações.
+
+Na resposta, quando a intenção encaminhada for **`gestao_tarefas_calendario`**, o serviço pode incluir em **`metadata`** (objecto JSON junto de `assistant_text`):
+
+- `task_list_ops_pending` (boolean) — se a UI deve aplicar operações com a sessão do utilizador.
+- `task_list_ops_blocked` (boolean) — se algo impediu a aplicação automática.
+- `task_list_ops_errors` (array de strings, opcional) — erros de validação (ex.: UUID desconhecido).
+- `task_list_ops` (array) — operações no formato esperado por `POST /v1/task-lists/batch` na API Go (`op`, `list_id`, `item_id`, `title`, `items`, `ids`, etc.).
+
+O cliente **não** deve executar operações se `task_list_ops_blocked` for verdadeiro ou se `task_list_ops_pending` for falso.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  CalendarDays,
   ChevronDown,
   History,
   ListTodo,
@@ -11,6 +12,7 @@ import {
   Settings2,
   Trash2,
   Users,
+  Wallet,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -33,6 +35,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
+import { useWorkspace } from "@/core/WorkspaceContext";
 import { AppLogo } from "@/components/brand/AppLogo";
 import { displayNameFromToken } from "@/lib/userDisplay";
 import { type ConversationDTO } from "@/lib/conversationsApi";
@@ -217,6 +220,11 @@ export function AgentSidebar() {
   const displayName = displayNameFromToken(token);
 
   const isEmailSettingsActive = location.pathname.startsWith("/settings/email");
+  const { taskListsPreviewOpen, openTaskListsPreview, resetShellLayout } = useWorkspace();
+
+  const taskListsSplitActive =
+    taskListsPreviewOpen &&
+    (location.pathname === "/" || location.pathname === "/agente-tarefas");
 
   const { pinned: pinnedConvs, recent: recentConvs } = useMemo(
     () => partitionConversationsForNav(conversations),
@@ -245,29 +253,46 @@ export function AgentSidebar() {
         "flex w-[min(100%,280px)] shrink-0 flex-col border-r border-border/80 bg-muted/25",
       )}
     >
-      {/* Brand */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
+      {/* Brand — clique volta à página inicial (chat) */}
+      <button
+        type="button"
+        className="flex w-full shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2 text-left transition-colors hover:bg-muted/50"
+        onClick={() => {
+          resetShellLayout();
+          if (token) {
+            clearWorkspace();
+          } else {
+            requestNewChat();
+          }
+          navigate("/");
+        }}
+        title="Ir à página inicial"
+      >
         <AppLogo className="size-9 shrink-0 rounded-md ring-1 ring-border/60" />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">Open Polvo</p>
           <p className="truncate text-[11px] text-muted-foreground">Zé Polvinho · Open Polvo</p>
         </div>
-      </div>
+      </button>
 
       <nav className="flex shrink-0 flex-col gap-0.5 px-2 py-2">
-        <NavLink
-          to="/agente-tarefas"
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start gap-2 font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
+        <button
+          type="button"
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "w-full justify-start gap-2 font-normal",
+            taskListsSplitActive && "bg-muted font-medium text-foreground",
+          )}
+          onClick={() => {
+            if (location.pathname !== "/") {
+              navigate("/", { replace: location.pathname === "/agente-tarefas" });
+            }
+            openTaskListsPreview();
+          }}
         >
           <ListTodo className="size-3.5 shrink-0 opacity-80" />
           Agente de Tarefas
-        </NavLink>
+        </button>
         <NavLink
           to="/pulo-do-gato"
           className={({ isActive }) =>
@@ -279,6 +304,32 @@ export function AgentSidebar() {
           }
         >
           Pulo do Gato
+        </NavLink>
+        <NavLink
+          to="/agenda"
+          className={({ isActive }) =>
+            cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "justify-start gap-2 font-normal",
+              isActive && "bg-muted font-medium text-foreground",
+            )
+          }
+        >
+          <CalendarDays className="size-3.5 shrink-0 opacity-80" />
+          Agenda
+        </NavLink>
+        <NavLink
+          to="/financas"
+          className={({ isActive }) =>
+            cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "justify-start gap-2 font-normal",
+              isActive && "bg-muted font-medium text-foreground",
+            )
+          }
+        >
+          <Wallet className="size-3.5 shrink-0 opacity-80" />
+          Finanças
         </NavLink>
         <NavLink
           to="/settings"

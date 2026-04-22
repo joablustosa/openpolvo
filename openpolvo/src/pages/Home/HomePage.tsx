@@ -1,15 +1,19 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Paperclip, Plus, Sparkles } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Eye, Mic, MicOff, Paperclip, Plus, Sparkles } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
+import { useWorkspace } from "@/core/WorkspaceContext";
+import { findLatestBuilderDataInMessages } from "@/lib/builderMetadata";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
+import { transcribeAudio } from "@/lib/audioApi";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { displayNameFromToken } from "@/lib/userDisplay";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +42,7 @@ export function HomePage() {
   const { canSendAsAnonymous, afterAnonymousUserMessage } = useAnonymousChat();
   const workspace = useConversationWorkspace();
   const { clearWorkspace } = workspace;
+  const { setBuilderData } = useWorkspace();
 
   const [guestMessages, setGuestMessages] = useState<GuestMsg[]>(
     initialGuestMessages,
@@ -65,6 +70,22 @@ export function HomePage() {
 
   const displayName = displayNameFromToken(token);
   const greeting = token ? `${displayName} está de volta!` : "Bem-vindo!";
+
+  const savedConversationProject = useMemo(() => {
+    if (
+      !token ||
+      !workspace.activeConversationId ||
+      workspace.loadingMessages
+    ) {
+      return null;
+    }
+    return findLatestBuilderDataInMessages(workspace.messages);
+  }, [
+    token,
+    workspace.activeConversationId,
+    workspace.loadingMessages,
+    workspace.messages,
+  ]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -97,6 +118,17 @@ export function HomePage() {
 
   const submitting = token ? workspace.sending : false;
 
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const transcribe = useCallback(
+    (blob: Blob) => transcribeAudio(tokenRef.current, blob, workspace.modelProvider),
+    [workspace.modelProvider],
+  );
+  const { state: micState, error: micError, toggle: toggleMic } = useAudioRecorder({
+    transcribe,
+    onTranscriptAutoSend: (text) => workspace.sendAuthenticatedMessage(text),
+  });
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <ScrollArea className="min-h-0 flex-1">
@@ -119,6 +151,35 @@ export function HomePage() {
             <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {workspace.error}
             </p>
+          ) : null}
+
+          {token && savedConversationProject ? (
+            <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-left shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium uppercase tracking-wide text-primary/90">
+                    Projecto nesta conversa
+                  </p>
+                  <p className="truncate font-medium text-foreground">
+                    {savedConversationProject.title}
+                  </p>
+                  {savedConversationProject.description ? (
+                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                      {savedConversationProject.description}
+                    </p>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => setBuilderData(savedConversationProject)}
+                >
+                  <Eye className="size-3.5" aria-hidden />
+                  Abrir preview
+                </Button>
+              </div>
+            </div>
           ) : null}
 
           <div className="flex flex-col gap-3 pb-4" role="log">
@@ -193,10 +254,19 @@ export function HomePage() {
           className="mx-auto w-full max-w-3xl rounded-2xl border border-border/80 bg-card/80 p-2 shadow-lg ring-1 ring-foreground/5 backdrop-blur-sm"
         >
           <div className="relative rounded-xl bg-muted/30">
+            {micError ? (
+              <p className="px-4 pt-2 text-xs text-destructive">{micError}</p>
+            ) : null}
             <Textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Como posso ajudar você hoje?"
+              placeholder={
+                micState === "recording"
+                  ? "A ouvir… fale; ao calar ou ao clicar no microfone a mensagem é enviada"
+                  : micState === "processing"
+                    ? "A transcrever…"
+                    : "Como posso ajudar você hoje?"
+              }
               disabled={submitting}
               className={cn(
                 "min-h-[100px] resize-none border-0 bg-transparent px-12 py-4 text-base shadow-none focus-visible:ring-0",
@@ -264,16 +334,39 @@ export function HomePage() {
                 <Paperclip className="size-3.5 opacity-70" />
                 Anexos
               </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                className="text-muted-foreground"
-                aria-label="Voz"
-                disabled
-              >
-                <Mic className="size-4" />
-              </Button>
+              {token ? (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={micState === "recording" ? "destructive" : "ghost"}
+                  className={cn(micState !== "recording" && "text-muted-foreground")}
+                  aria-label={micState === "recording" ? "Parar gravação" : "Gravar voz (Jarvis)"}
+                  disabled={submitting || micState === "processing"}
+                  onClick={toggleMic}
+                  title={
+                    micState === "recording"
+                      ? "Parar e enviar transcrição"
+                      : "Falar: termina ao silêncio ou ao clicar de novo"
+                  }
+                >
+                  {micState === "recording" ? (
+                    <MicOff className="size-4" />
+                  ) : (
+                    <Mic className="size-4" />
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  aria-label="Voz"
+                  disabled
+                >
+                  <Mic className="size-4" />
+                </Button>
+              )}
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">

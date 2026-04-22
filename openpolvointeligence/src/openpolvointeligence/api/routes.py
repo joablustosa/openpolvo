@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from openpolvointeligence.api.deps import verify_internal_key
 from openpolvointeligence.api.schemas import (
@@ -9,12 +12,15 @@ from openpolvointeligence.api.schemas import (
     LLMTextResponse,
     ReplyRequest,
     ReplyResponse,
+    SocialGenerateRequest,
+    SocialGenerateResponse,
     WorkflowGenerateRequest,
     WorkflowGenerateResponse,
 )
 from openpolvointeligence.core.config import get_settings
+from openpolvointeligence.graphs.social_generator import generate_social_post
 from openpolvointeligence.graphs.workflow_llm import generate_graph_json, generate_text
-from openpolvointeligence.graphs.zepolvinho_graph import run_reply
+from openpolvointeligence.graphs.zepolvinho_graph import run_reply, run_reply_stream
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -31,18 +37,89 @@ async def post_reply(
         raise HTTPException(status_code=400, detail="messages required")
     msgs = [m.model_dump() for m in body.messages]
     try:
+        tl_ctx = body.task_lists_context
+        if tl_ctx is not None and not isinstance(tl_ctx, list):
+            tl_ctx = None
+        fin_ctx = body.finance_context
+        if fin_ctx is not None and not isinstance(fin_ctx, dict):
+            fin_ctx = None
+        sc_ctx = body.scheduled_tasks_context
+        if sc_ctx is not None and not isinstance(sc_ctx, list):
+            sc_ctx = None
         text, meta = await run_reply(
             settings,
             msgs,
             body.model_provider,
             body.smtp_context,
             body.contacts_context,
+            tl_ctx,
+            fin_ctx,
+            body.meta_context,
+            sc_ctx,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"agent error: {e!s}") from e
     return ReplyResponse(assistant_text=text, metadata=meta)
+
+
+@router.post("/reply/stream")
+async def post_reply_stream(
+    body: ReplyRequest,
+    _: None = Depends(verify_internal_key),
+) -> StreamingResponse:
+    """Endpoint SSE para streaming do agente.
+
+    Emite eventos `data: {json}\\n\\n` à medida que o grafo avança.
+    Elimina o timeout HTTP para o sub-grafo Builder (Lovable-like) que pode
+    levar vários minutos.
+    """
+    settings = get_settings()
+    if not settings.has_any_llm_key:
+        raise HTTPException(status_code=503, detail="no LLM API keys configured")
+    if not body.messages:
+        raise HTTPException(status_code=400, detail="messages required")
+    msgs = [m.model_dump() for m in body.messages]
+    tl_ctx = body.task_lists_context
+    if tl_ctx is not None and not isinstance(tl_ctx, list):
+        tl_ctx = None
+    fin_ctx = body.finance_context
+    if fin_ctx is not None and not isinstance(fin_ctx, dict):
+        fin_ctx = None
+    meta_ctx = body.meta_context
+    if meta_ctx is not None and not isinstance(meta_ctx, dict):
+        meta_ctx = None
+    sc_ctx = body.scheduled_tasks_context
+    if sc_ctx is not None and not isinstance(sc_ctx, list):
+        sc_ctx = None
+
+    async def event_gen():
+        try:
+            async for event in run_reply_stream(
+                settings,
+                msgs,
+                body.model_provider,
+                body.smtp_context,
+                body.contacts_context,
+                tl_ctx,
+                fin_ctx,
+                meta_ctx,
+                sc_ctx,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)[:400]})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.post("/workflows/generate", response_model=WorkflowGenerateResponse)
@@ -87,6 +164,27 @@ async def post_llm_generate_text(
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return LLMTextResponse(text=text)
+
+
+@router.post("/social/generate-post", response_model=SocialGenerateResponse)
+async def post_social_generate(
+    body: SocialGenerateRequest,
+    _: None = Depends(verify_internal_key),
+) -> SocialGenerateResponse:
+    settings = get_settings()
+    if not settings.has_any_llm_key:
+        raise HTTPException(status_code=503, detail="no LLM API keys configured")
+    try:
+        result = await generate_social_post(
+            settings,
+            body.sites,
+            body.platform,
+            body.model_provider,
+            body.generate_image,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"social generate error: {e!s}") from e
+    return SocialGenerateResponse(**result)
 
 
 @router.get("/capabilities", response_model=CapabilitiesResponse)

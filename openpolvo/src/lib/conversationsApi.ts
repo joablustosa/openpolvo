@@ -110,6 +110,83 @@ export async function renameConversation(
   return res.json() as Promise<ConversationDTO>;
 }
 
+// ── Streaming SSE ─────────────────────────────────────────────────────────────
+
+export type StreamEventProgress = {
+  type: "progress";
+  step: string;
+  label: string;
+};
+export type StreamEventFile = {
+  type: "file";
+  file: { path: string; language: string; content: string };
+};
+export type StreamEventDone = {
+  type: "done";
+  assistant_text: string;
+  metadata: Record<string, unknown>;
+};
+export type StreamEventError = {
+  type: "error";
+  detail: string;
+};
+export type StreamEventMessagesSaved = {
+  type: "messages_saved";
+  messages: MessageDTO[];
+};
+export type StreamEvent =
+  | StreamEventProgress
+  | StreamEventFile
+  | StreamEventDone
+  | StreamEventError
+  | StreamEventMessagesSaved;
+
+export async function streamMessage(
+  token: string,
+  conversationId: string,
+  body: { text: string; model_provider?: ModelProvider },
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    apiUrl(`/v1/conversations/${conversationId}/messages/stream`),
+    {
+      method: "POST",
+      headers: {
+        ...headersJson(token),
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(body),
+      signal,
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { error?: string }).error?.trim();
+    throw new ApiError(res.status, msg && msg.length > 0 ? msg : `stream ${res.status}`);
+  }
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (!payload) continue;
+      try {
+        onEvent(JSON.parse(payload) as StreamEvent);
+      } catch {
+        // linha malformada — ignorar
+      }
+    }
+  }
+}
+
 export async function pinConversation(
   token: string,
   conversationId: string,

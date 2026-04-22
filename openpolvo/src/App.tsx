@@ -6,9 +6,15 @@ import { LoginPage } from "./pages/Login/LoginPage";
 import { MainPage } from "./pages/Main/MainPage";
 import { PuloDoGatoPage } from "./pages/PuloDoGato/PuloDoGatoPage";
 import { SettingsEmailPage } from "./pages/Settings/SettingsEmailPage";
+import { SettingsMetaPage } from "./pages/Settings/SettingsMetaPage";
+import { SettingsPluginsPage } from "./pages/Settings/SettingsPluginsPage";
 import { SettingsOverviewPage } from "./pages/Settings/SettingsOverviewPage";
 import { ContactsPage } from "./pages/Settings/ContactsPage";
 import { AgenteTarefasPage } from "./pages/AgenteTarefas/AgenteTarefasPage";
+import { AgendaPage } from "./pages/Agenda/AgendaPage";
+import { FinancasPage } from "./pages/Financas/FinancasPage";
+import { SocialAutomationPage } from "./pages/Social/SocialAutomationPage";
+import { AutomacoesPage } from "./pages/Automacoes/AutomacoesPage";
 
 function AppShell() {
   const { loginModalOpen, setLoginModalOpen } = useAnonymousChat();
@@ -22,8 +28,14 @@ function AppShell() {
             <Route path="pulo-do-gato" element={<PuloDoGatoPage />} />
             <Route path="settings" element={<SettingsOverviewPage />} />
             <Route path="settings/email" element={<SettingsEmailPage />} />
+            <Route path="settings/meta" element={<SettingsMetaPage />} />
+            <Route path="settings/plugins" element={<SettingsPluginsPage />} />
             <Route path="settings/contacts" element={<ContactsPage />} />
             <Route path="agente-tarefas" element={<AgenteTarefasPage />} />
+            <Route path="agenda" element={<AgendaPage />} />
+            <Route path="financas" element={<FinancasPage />} />
+            <Route path="social" element={<SocialAutomationPage />} />
+            <Route path="automacoes" element={<AutomacoesPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

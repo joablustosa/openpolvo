@@ -174,3 +174,27 @@
     filter: brightness(1.2);
   }
 }
+
+/* Loader pequeno, estilo Claude: polvo a respirar/flutuar gentilmente. */
+@keyframes polvo-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1.5deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(1.5deg);
+  }
+}
+
+@keyframes polvo-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}

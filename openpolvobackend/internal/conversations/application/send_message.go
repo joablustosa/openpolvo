@@ -29,6 +29,14 @@ type SendMessage struct {
 	SMTPForReply func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
 	// Opcional: contactos guardados para o agente sugerir destinatários ou corresponder nomes.
 	ContactsForReply func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief
+	// Opcional: listas de tarefas persistidas (Agente Tarefas) para o Intelligence.
+	TaskListsForReply func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief
+	// Opcional: finanças pessoais (transacções, categorias, assinaturas).
+	FinanceForReply func(ctx context.Context, userID uuid.UUID) *agentports.FinanceContext
+	// Opcional: integração Meta (WhatsApp, Facebook, Instagram).
+	MetaForReply func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext
+	// Opcional: tarefas agendadas do utilizador para o agente sugerir ou criar automações.
+	ScheduledTasksForReply func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief
 }
 
 func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]domain.Message, error) {
@@ -71,6 +79,18 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	}
 	if s.ContactsForReply != nil {
 		repIn.Contacts = s.ContactsForReply(ctx, cmd.UserID)
+	}
+	if s.TaskListsForReply != nil {
+		repIn.TaskLists = s.TaskListsForReply(ctx, cmd.UserID)
+	}
+	if s.FinanceForReply != nil {
+		repIn.Finance = s.FinanceForReply(ctx, cmd.UserID)
+	}
+	if s.MetaForReply != nil {
+		repIn.Meta = s.MetaForReply(ctx, cmd.UserID)
+	}
+	if s.ScheduledTasksForReply != nil {
+		repIn.ScheduledTasks = s.ScheduledTasksForReply(ctx, cmd.UserID)
 	}
 	assistantText, meta, err := s.Agent.Reply(ctx, repIn)
 	if err != nil {

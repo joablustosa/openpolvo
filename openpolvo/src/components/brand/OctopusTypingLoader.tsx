@@ -1,38 +1,45 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { AppLogo } from "./AppLogo";
-
-const PHRASES = [
-  "A afundar os tentáculos no teclado…",
-  "A preparar uma resposta bem profunda…",
-  "O Zé Polvinho está a servir — com todo o cuidado.",
-  "A mexer nas teclas certas para si…",
-  "Quase lá — falta só o último toque.",
-  "A processar o seu pedido com dedicação.",
-  "O polvo está a aquecer o motor… mental.",
-  "A escrever devagar para não borrar o ecrã.",
-  "A puxar fios… digo, contexto, no motor Go.",
-  "A regar as ideias antes de as servir.",
-] as const;
 
 type Props = {
   active: boolean;
 };
 
-/** Loader retro no corpo do chat (estilo bolha do assistente), sem modal. */
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) {
+    // Mostra décimas no primeiro minuto para dar sensação de progresso.
+    const tenths = Math.floor((ms % 1000) / 100);
+    return `${totalSeconds}.${tenths}s`;
+  }
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Loader minimalista estilo Claude: polvo pequeno a flutuar + 3 pontinhos
+ * + contador de tempo decorrido. Aparece inline como bolha do assistente.
+ */
 export function OctopusTypingLoader({ active }: Props) {
-  const [phraseIndex, setPhraseIndex] = useState(0);
+  const startRef = useRef<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      startRef.current = null;
+      setElapsed(0);
+      return;
+    }
+    startRef.current = performance.now();
+    setElapsed(0);
     const id = window.setInterval(() => {
-      setPhraseIndex((i) => (i + 1) % PHRASES.length);
-    }, 2800);
+      if (startRef.current != null) {
+        setElapsed(performance.now() - startRef.current);
+      }
+    }, 100);
     return () => window.clearInterval(id);
-  }, [active]);
-
-  useEffect(() => {
-    if (active) setPhraseIndex(0);
   }, [active]);
 
   if (!active) return null;
@@ -40,54 +47,40 @@ export function OctopusTypingLoader({ active }: Props) {
   return (
     <div
       className={cn(
-        "max-w-[min(92%,560px)] self-start overflow-hidden rounded-2xl border-2 border-border",
-        "bg-[#0d0d0d] p-4 font-mono text-xs text-[#9fdf9f] shadow-md",
-        "before:pointer-events-none before:absolute before:inset-0 before:opacity-[0.06] before:content-['']",
-        "before:bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.5)_2px,rgba(0,0,0,0.5)_4px)]",
-        "relative",
+        "inline-flex max-w-fit items-center gap-2 self-start",
+        "rounded-full border border-border bg-card/70 px-3 py-1.5",
+        "text-xs text-muted-foreground shadow-sm backdrop-blur-sm",
       )}
       role="status"
       aria-live="polite"
       aria-busy="true"
-      aria-label="A aguardar resposta do Zé Polvinho"
+      aria-label="O Zé Polvinho está a pensar"
     >
-      <p className="mb-3 border-b border-[#c45c4a]/40 pb-2 text-[10px] uppercase tracking-[0.2em] text-[#e8a090]">
-        Zé Polvinho · a digitar
-      </p>
+      <AppLogo
+        className="size-6 shrink-0"
+        style={{
+          animation: "polvo-float 1.8s ease-in-out infinite",
+          transformOrigin: "center",
+        }}
+        alt=""
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-        <div className="flex shrink-0 flex-col items-center">
-          <AppLogo
-            className="h-24 w-24 [transform-origin:center_bottom] drop-shadow-[0_3px_0_#000] sm:h-28 sm:w-28"
+      <span className="flex items-center gap-0.5" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="inline-block size-1 rounded-full bg-foreground/70"
             style={{
-              animation: "retro-octopus-body 0.75s ease-in-out infinite",
+              animation: "polvo-dot 1.2s ease-in-out infinite",
+              animationDelay: `${i * 0.15}s`,
             }}
-            alt=""
           />
-          <div
-            className="-mt-1 flex gap-0.5 rounded-b border border-t-0 border-[#6b6b6b] bg-[#4a4a4a] px-2 py-1 shadow-[0_3px_0_#222]"
-            aria-hidden
-          >
-            {Array.from({ length: 8 }, (_, k) => (
-              <span
-                key={k}
-                className="h-2 w-2.5 rounded-[1px] bg-[#2a2a2a] shadow-[inset_0_-1px_0_#111] sm:h-2.5 sm:w-3"
-                style={{
-                  animation: "retro-key-hit 0.5s ease-in-out infinite",
-                  animationDelay: `${k * 0.07}s`,
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        ))}
+      </span>
 
-        <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-[11px] text-[#6c6]">
-            <span className="inline-block animate-pulse">▓</span> a processar…
-          </p>
-          <p className="leading-relaxed text-[#b8e8b8]">{PHRASES[phraseIndex]}</p>
-        </div>
-      </div>
+      <span className="tabular-nums text-[11px] text-muted-foreground/80">
+        {formatElapsed(elapsed)}
+      </span>
     </div>
   );
 }

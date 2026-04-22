@@ -32,6 +32,7 @@ import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
+import { useWorkspace } from "@/core/WorkspaceContext";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -50,8 +51,26 @@ export function AgentAppMenuToolbar({
   const { requestNewChat } = useHomeChatControls();
   const { clearWorkspace } = useConversationWorkspace();
   const { openPlugin } = useAppLaunch();
+  const { builderData } = useWorkspace();
 
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const canOpenBuilderPreview =
+    typeof builderData?.preview_html === "string" &&
+    builderData.preview_html.trim().length > 0;
+
+  const openBuilderPreviewInNewWindow = () => {
+    const html = builderData?.preview_html;
+    if (typeof html !== "string" || !html.trim()) return;
+    const blob = new Blob([html], { type: "text/html; charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank", "noopener,noreferrer");
+    if (win) {
+      win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
+    } else {
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    }
+  };
 
   const newChat = () => {
     if (token) {
@@ -133,6 +152,17 @@ export function AgentAppMenuToolbar({
               <DropdownMenuSubContent className="w-48">
                 <DropdownMenuItem onClick={onToggleSidebar}>
                   {sidebarCollapsed ? "Mostrar barra lateral" : "Ocultar barra lateral"}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canOpenBuilderPreview}
+                  onClick={openBuilderPreviewInNewWindow}
+                  title={
+                    canOpenBuilderPreview
+                      ? "Abre o HTML de preview numa nova janela do browser"
+                      : "Disponível após gerar uma aplicação com preview no painel Builder"
+                  }
+                >
+                  Visualizar preview
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>Tema</DropdownMenuItem>
               </DropdownMenuSubContent>

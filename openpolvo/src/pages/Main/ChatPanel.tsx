@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useRef } from "react";
-import { SendHorizontal } from "lucide-react";
-import { useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Mic, MicOff, Radio, SendHorizontal } from "lucide-react";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
+import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,10 +10,20 @@ import { EmailDraftActions } from "@/components/chat/EmailDraftActions";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
 import { useAuth } from "@/auth/AuthContext";
 import { parseEmailMessageMeta } from "@/lib/emailChatMetadata";
+import { transcribeAudio } from "@/lib/audioApi";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import {
+  readVoiceWakePreference,
+  useJowWakeListener,
+  writeVoiceWakePreference,
+  type WakePayload,
+} from "@/hooks/useJowWakeListener";
+import { useRecordUntilSilence } from "@/hooks/useRecordUntilSilence";
 import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
   const { token } = useAuth();
+  const { taskListsPreviewOpen } = useWorkspace();
   const {
     messages,
     sending,
@@ -21,6 +31,8 @@ export function ChatPanel() {
     error,
     emailSendNotice,
     clearEmailSendNotice,
+    taskListNotice,
+    clearTaskListNotice,
     modelProvider,
     setModelProvider,
     sendAuthenticatedMessage,
@@ -29,7 +41,14 @@ export function ChatPanel() {
   } = useConversationWorkspace();
 
   const [draft, setDraft] = useState("");
+  const [voiceWakeEnabled, setVoiceWakeEnabled] = useState(readVoiceWakePreference);
+  const [wakeBusy, setWakeBusy] = useState(false);
+  const [wakeError, setWakeError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    writeVoiceWakePreference(voiceWakeEnabled);
+  }, [voiceWakeEnabled]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,6 +62,65 @@ export function ChatPanel() {
     void sendAuthenticatedMessage(t);
   }
 
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const transcribe = useCallback(
+    (blob: Blob) => transcribeAudio(tokenRef.current, blob, modelProvider),
+    [modelProvider],
+  );
+  const { state: micState, error: micError, toggle: toggleMic } = useAudioRecorder({
+    transcribe,
+    onTranscriptAutoSend: sendAuthenticatedMessage,
+  });
+
+  const { record: recordUntilSilence, abort: abortWakeRecord } = useRecordUntilSilence();
+
+  const wakeActive = Boolean(
+    token &&
+      voiceWakeEnabled &&
+      !sending &&
+      !wakeBusy &&
+      micState === "idle" &&
+      !loadingMessages &&
+      !taskListsPreviewOpen,
+  );
+
+  const onWake = useCallback(
+    (p: WakePayload) => {
+      if (!token || sending) return;
+      setWakeBusy(true);
+      setWakeError(null);
+      void (async () => {
+        try {
+          if (p.kind === "inline") {
+            const t = p.text.trim();
+            if (t) await sendAuthenticatedMessage(t);
+            return;
+          }
+          const blob = await recordUntilSilence();
+          const text = (await transcribe(blob)).trim();
+          if (text) await sendAuthenticatedMessage(text);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Erro no pedido por voz";
+          if (msg !== "Gravação cancelada") setWakeError(msg);
+        } finally {
+          setWakeBusy(false);
+        }
+      })();
+    },
+    [token, sending, recordUntilSilence, transcribe, sendAuthenticatedMessage],
+  );
+
+  const { supported: wakeSupported, listening: wakeListening, speechError: wakeSpeechError } =
+    useJowWakeListener({
+      active: wakeActive,
+      onWake,
+    });
+
+  useEffect(() => {
+    return () => abortWakeRecord();
+  }, [abortWakeRecord]);
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col bg-background"
@@ -50,7 +128,7 @@ export function ChatPanel() {
     >
       <header className="shrink-0 border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight">Zé Polvinho</h2>
-        <div className="mt-1 flex gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setModelProvider("openai")}
@@ -75,6 +153,32 @@ export function ChatPanel() {
           >
             Gemini
           </button>
+          <button
+            type="button"
+            disabled={!token || !wakeSupported}
+            title={
+              !wakeSupported
+                ? "Reconhecimento de voz não disponível neste ambiente"
+                : voiceWakeEnabled
+                  ? "Desligar escuta contínua «jow na escuta?»"
+                  : "Ligar escuta contínua «jow na escuta?»"
+            }
+            onClick={() => setVoiceWakeEnabled((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              !token || !wakeSupported
+                ? "cursor-not-allowed opacity-50"
+                : voiceWakeEnabled
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Radio className={cn("size-3", wakeListening && voiceWakeEnabled && "animate-pulse")} />
+            Jow na escuta
+          </button>
+          {wakeListening && voiceWakeEnabled && wakeSupported ? (
+            <span className="text-[10px] text-muted-foreground">a ouvir…</span>
+          ) : null}
         </div>
       </header>
 
@@ -89,6 +193,14 @@ export function ChatPanel() {
             <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
               <span>{emailSendNotice}</span>
               <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearEmailSendNotice}>
+                OK
+              </Button>
+            </div>
+          ) : null}
+          {taskListNotice ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
+              <span>{taskListNotice}</span>
+              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearTaskListNotice}>
                 OK
               </Button>
             </div>
@@ -139,12 +251,25 @@ export function ChatPanel() {
         className="shrink-0 border-t border-border bg-card/50 p-3"
         onSubmit={send}
       >
+        {micError || wakeSpeechError || wakeError ? (
+          <p className="mb-2 text-xs text-destructive">
+            {[micError, wakeSpeechError, wakeError].filter(Boolean).join(" · ")}
+          </p>
+        ) : null}
         <div className="flex gap-2">
           <Textarea
             rows={2}
-            placeholder="Responder…"
+            placeholder={
+              wakeBusy
+                ? "Pedido por voz…"
+                : micState === "recording"
+                  ? "A ouvir… fale; ao calar ou ao clicar no microfone a mensagem é enviada"
+                  : micState === "processing"
+                    ? "A transcrever…"
+                    : "Responder…"
+            }
             value={draft}
-            disabled={sending}
+            disabled={sending || wakeBusy}
             onChange={(e) => setDraft(e.target.value)}
             className="min-h-[52px] resize-none border-border/80 bg-background"
             onKeyDown={(e) => {
@@ -154,15 +279,36 @@ export function ChatPanel() {
               }
             }}
           />
-          <Button
-            type="submit"
-            size="icon"
-            className="h-[52px] w-11 shrink-0"
-            disabled={sending || !draft.trim()}
-          >
-            <SendHorizontal className="size-4" />
-            <span className="sr-only">Enviar</span>
-          </Button>
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <Button
+              type="button"
+              size="icon"
+              variant={micState === "recording" ? "destructive" : "outline"}
+              className="h-[24px] w-11"
+              disabled={sending || micState === "processing" || wakeBusy}
+              onClick={toggleMic}
+              title={
+                micState === "recording"
+                  ? "Parar e enviar transcrição"
+                  : "Falar: termina ao silêncio ou ao clicar de novo"
+              }
+            >
+              {micState === "recording" ? (
+                <MicOff className="size-3.5" />
+              ) : (
+                <Mic className="size-3.5" />
+              )}
+            </Button>
+            <Button
+              type="submit"
+              size="icon"
+              className="h-[24px] w-11"
+              disabled={sending || !draft.trim()}
+            >
+              <SendHorizontal className="size-4" />
+              <span className="sr-only">Enviar</span>
+            </Button>
+          </div>
         </div>
       </form>
     </section>

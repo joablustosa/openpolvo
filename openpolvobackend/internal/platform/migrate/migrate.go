@@ -100,6 +100,21 @@ func fileSourceURI(abs string) string {
 	return "file:///" + s
 }
 
+// ensureMultiStatements garante que o DSN permite vários statements por ficheiro
+// de migração (ex.: vários CREATE TABLE no mesmo .up.sql), como esperado pelo
+// golang-migrate com MySQL.
+func ensureMultiStatements(dsn string) string {
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" || strings.Contains(dsn, "multiStatements=true") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "multiStatements=true"
+}
+
 // Apply executa migrate up. Abre uma ligação MySQL dedicada e fecha-a no fim: o
 // golang-migrate chama Close() no driver, o que fecha o *sql.DB passado a
 // WithInstance — não usar a pool da aplicação.
@@ -108,7 +123,7 @@ func Apply(mysqlDSN string, absoluteMigrationsDir string) error {
 	if err := verifyMigrationsDir(abs); err != nil {
 		return err
 	}
-	db, err := platformdb.Open(mysqlDSN)
+	db, err := platformdb.Open(ensureMultiStatements(mysqlDSN))
 	if err != nil {
 		return fmt.Errorf("migrate: connect: %w", err)
 	}

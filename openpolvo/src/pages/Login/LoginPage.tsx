@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { apiBaseUrl, apiUrl } from "@/lib/api";
@@ -12,6 +12,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AppLogo } from "@/components/brand/AppLogo";
+import { PasswordFieldWithToggle } from "@/components/auth/PasswordFieldWithToggle";
+import {
+  clearSavedCredentials,
+  isCredentialStorageAvailable,
+  isElectronShell,
+  loadSavedCredentials,
+  saveCredentialsToDisk,
+} from "@/lib/electronCredentials";
 
 export function LoginPage() {
   const { token, setSession } = useAuth();
@@ -20,6 +28,27 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [rememberDesktop, setRememberDesktop] = useState(false);
+  const [canStoreCreds, setCanStoreCreds] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!isElectronShell()) return;
+      const ok = await isCredentialStorageAvailable();
+      if (cancelled) return;
+      setCanStoreCreds(ok);
+      if (!ok) return;
+      const saved = await loadSavedCredentials();
+      if (cancelled || !saved) return;
+      setEmail(saved.email);
+      setPassword(saved.password);
+      setRememberDesktop(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (token) return <Navigate to="/" replace />;
 
@@ -46,6 +75,18 @@ export function LoginPage() {
         return;
       }
       setSession(data.access_token);
+
+      if (isElectronShell() && canStoreCreds) {
+        if (rememberDesktop) {
+          const r = await saveCredentialsToDisk({ email, password });
+          if (!r.ok) {
+            console.warn("[Open Polvo] Não foi possível guardar credenciais:", r.error);
+          }
+        } else {
+          await clearSavedCredentials();
+        }
+      }
+
       navigate("/", { replace: true });
     } catch {
       setError(
@@ -55,6 +96,8 @@ export function LoginPage() {
       setLoading(false);
     }
   }
+
+  const showRememberOption = isElectronShell();
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background px-4 py-12">
@@ -86,21 +129,39 @@ export function LoginPage() {
                 placeholder="voce@empresa.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
               />
             </div>
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm text-muted-foreground">
-                Senha
-              </label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+            <PasswordFieldWithToggle
+              id="password"
+              label="Senha"
+              value={password}
+              onChange={setPassword}
+              autoComplete="current-password"
+              disabled={loading}
+            />
+            {showRememberOption ? (
+              <div className="space-y-1">
+                <label className="flex cursor-pointer items-start gap-2 text-sm leading-snug text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 shrink-0 rounded border-border accent-primary"
+                    checked={rememberDesktop}
+                    disabled={loading || !canStoreCreds}
+                    onChange={(e) => setRememberDesktop(e.target.checked)}
+                  />
+                  <span>
+                    Guardar utilizador e senha neste computador
+                    {!canStoreCreds ? (
+                      <span className="mt-1 block text-xs text-amber-600 dark:text-amber-500">
+                        Neste sistema a cifra do SO não está disponível; as credenciais não
+                        serão guardadas.
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              </div>
+            ) : null}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "A entrar…" : "Entrar"}
             </Button>

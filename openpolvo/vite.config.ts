@@ -8,6 +8,11 @@ export default defineConfig(({ mode }) => {
   const apiTarget =
     env.VITE_API_BASE_URL?.trim() || "http://127.0.0.1:8080";
 
+  const crossOriginIsolationHeaders = {
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+  };
+
   return {
     plugins: [react(), tailwindcss()],
     base: "./",
@@ -19,6 +24,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
+      headers: crossOriginIsolationHeaders,
       proxy: {
         "/v1": { target: apiTarget, changeOrigin: true },
         "/health": { target: apiTarget, changeOrigin: true },
@@ -30,6 +36,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       port: 4173,
       strictPort: true,
+      headers: crossOriginIsolationHeaders,
       proxy: {
         "/v1": { target: apiTarget, changeOrigin: true },
         "/health": { target: apiTarget, changeOrigin: true },

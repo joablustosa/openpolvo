@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthContext";
 import { apiBaseUrl, apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AppLogo } from "@/components/brand/AppLogo";
+import { PasswordFieldWithToggle } from "@/components/auth/PasswordFieldWithToggle";
+import {
+  clearSavedCredentials,
+  isCredentialStorageAvailable,
+  isElectronShell,
+  loadSavedCredentials,
+  saveCredentialsToDisk,
+} from "@/lib/electronCredentials";
 
 type Props = {
   open: boolean;
@@ -24,6 +32,31 @@ export function LoginDialog({ open, onOpenChange }: Props) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [rememberDesktop, setRememberDesktop] = useState(false);
+  const [canStoreCreds, setCanStoreCreds] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      if (!isElectronShell()) {
+        setCanStoreCreds(false);
+        return;
+      }
+      const ok = await isCredentialStorageAvailable();
+      if (cancelled) return;
+      setCanStoreCreds(ok);
+      if (!ok) return;
+      const saved = await loadSavedCredentials();
+      if (cancelled || !saved) return;
+      setEmail(saved.email);
+      setPassword(saved.password);
+      setRememberDesktop(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -51,9 +84,22 @@ export function LoginDialog({ open, onOpenChange }: Props) {
         return;
       }
       setSession(data.access_token);
+
+      if (isElectronShell() && canStoreCreds) {
+        if (rememberDesktop) {
+          const r = await saveCredentialsToDisk({ email, password });
+          if (!r.ok) {
+            console.warn("[Open Polvo] Não foi possível guardar credenciais:", r.error);
+          }
+        } else {
+          await clearSavedCredentials();
+        }
+      }
+
       onOpenChange(false);
       setEmail("");
       setPassword("");
+      setRememberDesktop(false);
     } catch {
       setError(
         `Não foi possível contactar o servidor (API: ${apiBaseUrl()}). Confirme que o backend está a correr ou ajuste VITE_API_BASE_URL.`,
@@ -62,6 +108,8 @@ export function LoginDialog({ open, onOpenChange }: Props) {
       setLoading(false);
     }
   }
+
+  const showRememberOption = isElectronShell();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,21 +141,36 @@ export function LoginDialog({ open, onOpenChange }: Props) {
               placeholder="voce@empresa.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
             />
           </div>
-          <div className="space-y-2">
-            <label htmlFor="login-dialog-password" className="text-sm text-muted-foreground">
-              Senha
+          <PasswordFieldWithToggle
+            id="login-dialog-password"
+            label="Senha"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+            disabled={loading}
+          />
+          {showRememberOption ? (
+            <label className="flex cursor-pointer items-start gap-2 text-sm leading-snug text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 rounded border-border accent-primary"
+                checked={rememberDesktop}
+                disabled={loading || !canStoreCreds}
+                onChange={(e) => setRememberDesktop(e.target.checked)}
+              />
+              <span>
+                Guardar utilizador e senha neste computador
+                {!canStoreCreds ? (
+                  <span className="mt-1 block text-xs text-amber-600 dark:text-amber-500">
+                    Neste sistema a cifra do SO não está disponível.
+                  </span>
+                ) : null}
+              </span>
             </label>
-            <Input
-              id="login-dialog-password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          ) : null}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"

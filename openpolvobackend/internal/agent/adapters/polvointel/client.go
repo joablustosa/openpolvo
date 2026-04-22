@@ -55,15 +55,23 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 		Content string `json:"content"`
 	}
 	body := struct {
-		Messages         []msgPart                   `json:"messages"`
-		ModelProvider    string                      `json:"model_provider"`
-		ConversationID   string                      `json:"conversation_id,omitempty"`
-		SMTPContext      *agentports.SMTPContext     `json:"smtp_context,omitempty"`
-		ContactsContext  []agentports.ContactBrief   `json:"contacts_context,omitempty"`
+		Messages               []msgPart                        `json:"messages"`
+		ModelProvider          string                           `json:"model_provider"`
+		ConversationID         string                           `json:"conversation_id,omitempty"`
+		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
+		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
+		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
+		FinanceContext         *agentports.FinanceContext        `json:"finance_context,omitempty"`
+		MetaContext            *agentports.MetaContext           `json:"meta_context,omitempty"`
+		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
 	}{
-		ModelProvider:   string(in.ModelProvider),
-		SMTPContext:     in.SMTP,
-		ContactsContext: in.Contacts,
+		ModelProvider:          string(in.ModelProvider),
+		SMTPContext:            in.SMTP,
+		ContactsContext:        in.Contacts,
+		TaskListsContext:       in.TaskLists,
+		FinanceContext:         in.Finance,
+		MetaContext:            in.Meta,
+		ScheduledTasksContext:  in.ScheduledTasks,
 	}
 	for _, m := range in.Messages {
 		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
@@ -182,6 +190,65 @@ func (c *Client) GenerateText(ctx context.Context, provider domain.ModelProvider
 		return "", err
 	}
 	return out.Text, nil
+}
+
+// ReplyStream abre uma ligação SSE ao Python /v1/reply/stream e devolve o
+// corpo da resposta para proxy. Usa um cliente HTTP sem timeout para suportar
+// streams de longa duração (sub-grafo Builder pode levar vários minutos).
+// O caller é responsável por fechar o ReadCloser devolvido.
+func (c *Client) ReplyStream(ctx context.Context, in agentports.ReplyInput) (io.ReadCloser, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("polvointel: client not configured")
+	}
+	type msgPart struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	body := struct {
+		Messages               []msgPart                        `json:"messages"`
+		ModelProvider          string                           `json:"model_provider"`
+		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
+		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
+		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
+		FinanceContext         *agentports.FinanceContext        `json:"finance_context,omitempty"`
+		MetaContext            *agentports.MetaContext           `json:"meta_context,omitempty"`
+		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
+	}{
+		ModelProvider:          string(in.ModelProvider),
+		SMTPContext:            in.SMTP,
+		ContactsContext:        in.Contacts,
+		TaskListsContext:       in.TaskLists,
+		FinanceContext:         in.Finance,
+		MetaContext:            in.Meta,
+		ScheduledTasksContext:  in.ScheduledTasks,
+	}
+	for _, m := range in.Messages {
+		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/reply/stream", bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Open-Polvo-Internal-Key", c.internalKey)
+
+	// Cliente sem timeout: a ligação SSE pode durar vários minutos.
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("polvointel: stream %d: %s", resp.StatusCode, truncate(string(b), 500))
+	}
+	return resp.Body, nil
 }
 
 // Readyz chama GET /readyz.

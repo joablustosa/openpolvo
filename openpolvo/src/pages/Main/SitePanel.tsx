@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, X } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { APP_LABELS, getPluginUrl, type AppId } from "@/config/apps";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { BuilderPanel } from "@/components/builder/BuilderPanel";
+import { BuilderStreamingPanel } from "@/components/builder/BuilderStreamingPanel";
+import { TaskListsWorkspaceBody } from "@/pages/AgenteTarefas/TaskListsWorkspaceBody";
 import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +30,16 @@ function panelSubtitle(app: AppId, url: string): string {
 
 export function SitePanel() {
   const { targetUrl, token } = useAuth();
-  const { activeApp, dashboardData, setDashboardData, builderData, setBuilderData } = useWorkspace();
+  const {
+    activeApp,
+    dashboardData, setDashboardData,
+    builderData, setBuilderData,
+    builderProgress, builderStreamFiles,
+    taskListsPreviewOpen,
+    taskListsPreviewNonce,
+    closeTaskListsPreview,
+    refreshTaskListsPreview,
+  } = useWorkspace();
   const webviewRef = useRef<HTMLWebViewElement | null>(null);
   const isElectron = isElectronShell();
   const desktopDownloadUrl = getDesktopDownloadUrl();
@@ -75,9 +86,57 @@ export function SitePanel() {
     return <BuilderPanel data={builderData} onClose={() => setBuilderData(null)} />;
   }
 
+  // Painel de progresso durante o stream do Builder
+  if (builderProgress || builderStreamFiles.length > 0) {
+    return (
+      <BuilderStreamingPanel
+        progress={builderProgress}
+        files={builderStreamFiles}
+      />
+    );
+  }
+
   // Dashboard tem prioridade sobre plugin nativo
   if (dashboardData) {
     return <DashboardPanel data={dashboardData} onClose={() => setDashboardData(null)} />;
+  }
+
+  // Listas de tarefas — barra mínima (logo/menu ficam no AgentHomeHeader da MainPage)
+  if (taskListsPreviewOpen) {
+    return (
+      <section
+        className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-muted/20"
+        aria-label="Listas de tarefas"
+      >
+        <header className="flex h-9 shrink-0 items-center justify-end gap-0.5 border-b border-border/60 bg-background/90 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full text-muted-foreground"
+            onClick={() => refreshTaskListsPreview()}
+            title="Recarregar listas"
+            aria-label="Recarregar listas"
+          >
+            <RefreshCw className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-full text-muted-foreground"
+            onClick={() => closeTaskListsPreview()}
+            title="Fechar painel de listas"
+            aria-label="Fechar painel de listas"
+          >
+            <X className="size-4" />
+          </Button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-hidden bg-background">
+          <TaskListsWorkspaceBody refreshKey={taskListsPreviewNonce} />
+        </div>
+      </section>
+    );
   }
 
   if (!activeApp) return null;

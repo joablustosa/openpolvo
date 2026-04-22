@@ -89,3 +89,95 @@ export async function runTaskList(
   if (!res.ok) throw new Error(`run task-list: ${res.status}`);
   return res.json() as Promise<TaskListDTO>;
 }
+
+export type TaskListBatchStep = {
+  op: string;
+  ok: boolean;
+  error?: string;
+  list?: unknown;
+};
+
+export type TaskListBatchResponse = {
+  steps: TaskListBatchStep[];
+};
+
+/** Aplica operações devolvidas pelo agente (corpo igual ao esperado pela API Go). */
+export async function applyTaskListBatch(
+  token: string,
+  operations: unknown[],
+): Promise<TaskListBatchResponse> {
+  const res = await fetch(apiUrl("/v1/task-lists/batch"), {
+    method: "POST",
+    headers: headersJson(token),
+    body: JSON.stringify({ operations }),
+  });
+  if (!res.ok) throw new Error(`task-lists batch: ${res.status}`);
+  return res.json() as Promise<TaskListBatchResponse>;
+}
+
+export async function patchTaskListTitle(
+  token: string,
+  id: string,
+  title: string,
+): Promise<TaskListDTO> {
+  const res = await fetch(apiUrl(`/v1/task-lists/${id}`), {
+    method: "PATCH",
+    headers: headersJson(token),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`patch task-list: ${res.status}`);
+  return res.json() as Promise<TaskListDTO>;
+}
+
+export async function appendTaskListItems(
+  token: string,
+  id: string,
+  items: { title: string; description?: string }[],
+): Promise<TaskListDTO> {
+  const res = await fetch(apiUrl(`/v1/task-lists/${id}/items`), {
+    method: "POST",
+    headers: headersJson(token),
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error(`append task-list items: ${res.status}`);
+  return res.json() as Promise<TaskListDTO>;
+}
+
+export async function patchTaskListItem(
+  token: string,
+  listId: string,
+  itemId: string,
+  body: {
+    title?: string;
+    description?: string | null;
+    position?: number;
+    due_at?: string | null;
+  },
+): Promise<TaskListDTO> {
+  const res = await fetch(
+    apiUrl(`/v1/task-lists/${listId}/items/${itemId}`),
+    {
+      method: "PATCH",
+      headers: headersJson(token),
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error(`patch task item: ${res.status}`);
+  return res.json() as Promise<TaskListDTO>;
+}
+
+export async function deleteTaskListItem(
+  token: string,
+  listId: string,
+  itemId: string,
+): Promise<TaskListDTO> {
+  const res = await fetch(
+    apiUrl(`/v1/task-lists/${listId}/items/${itemId}`),
+    {
+      method: "DELETE",
+      headers: headersJson(token),
+    },
+  );
+  if (!res.ok) throw new Error(`delete task item: ${res.status}`);
+  return res.json() as Promise<TaskListDTO>;
+}

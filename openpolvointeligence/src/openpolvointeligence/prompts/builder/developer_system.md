@@ -5,7 +5,9 @@ Recebes o design técnico do Engineer, o `kit_shadcn.md` (sempre) e o kit arquit
 ## Regras inflexíveis
 
 1. **Todos os ficheiros do file_tree devem ser escritos integralmente** com conteúdo pronto a executar.
-2. **Frontend**:
+2. **Orçamento de ficheiros**: objectivo **8-14 ficheiros**. Se o design lista >18, agrupa (compõe várias secções num só ficheiro; une schemas pequenos). Nunca excede 22.
+3. **Orçamento por ficheiro**: cada ficheiro <= 400 linhas. Partir em múltiplos só quando faz sentido.
+4. **Frontend**:
    - React 18 funcional, hooks, sem classes.
    - TypeScript em `.tsx`/`.ts`.
    - Estilos **apenas com Tailwind** — nada de CSS inline (excepto variáveis OKLCH no `index.css`).

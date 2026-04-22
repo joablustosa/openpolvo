@@ -7,3 +7,11 @@ __pycache__/
 dist/
 *.egg-info/
 .env
+**/.env
+.env.*
+!.env.example
+.env.local
+*.pem
+*.p12
+*.pfx
+*.key

@@ -64,6 +64,7 @@ func scanTaskItem(
 	status string,
 	result, errorMsg *string,
 	startedAt, finishedAt *time.Time,
+	dueAt *time.Time,
 ) (*domain.TaskItem, error) {
 	iid, err := uuid.Parse(id)
 	if err != nil {
@@ -89,6 +90,7 @@ func scanTaskItem(
 		ErrorMsg:    errorMsg,
 		StartedAt:   startedAt,
 		FinishedAt:  finishedAt,
+		DueAt:       dueAt,
 	}, nil
 }
 
@@ -101,14 +103,15 @@ func scanTaskItemRows(rows *sql.Rows) (*domain.TaskItem, error) {
 		status                 string
 		result, errorMsg       *string
 		startedAt, finishedAt  *time.Time
+		dueAt                  *time.Time
 	)
 	if err := rows.Scan(
 		&id, &taskListID, &userID,
 		&position, &title, &description,
 		&status, &result, &errorMsg,
-		&startedAt, &finishedAt,
+		&startedAt, &finishedAt, &dueAt,
 	); err != nil {
 		return nil, err
 	}
-	return scanTaskItem(id, taskListID, userID, position, title, description, status, result, errorMsg, startedAt, finishedAt)
+	return scanTaskItem(id, taskListID, userID, position, title, description, status, result, errorMsg, startedAt, finishedAt, dueAt)
 }

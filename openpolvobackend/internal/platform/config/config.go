@@ -35,10 +35,17 @@ type Config struct {
 	GoogleAPIKey string
 	OpenAIModel  string
 	GoogleModel  string
+	// Modelos dedicados a POST /v1/audio/transcribe (multimodal / Whisper).
+	OpenAITranscribeModel  string
+	GeminiTranscribeModel  string
 	// Timeout para chamadas HTTP ao Intelligence e ao LLM remoto.
 	AgentLLMTimeout       time.Duration
 	// Chave opcional (string qualquer) para AES-256-GCM da password SMTP por utilizador; se vazia usa derivação a partir de JWT_SECRET.
 	SMTPCredentialsKey string
+	// Chave opcional para AES-256-GCM dos tokens Meta; se vazia usa derivação a partir de JWT_SECRET.
+	MetaCredentialsKey string
+	// Token de verificação de webhook Meta (hub.verify_token); configurado no painel da Meta App.
+	MetaWebhookVerifyToken string
 	// Ligação TCP/TLS aos servidores SMTP dos utilizadores (teste e envio).
 	SMTPDialTimeout time.Duration
 	SMTPDialNetwork string // tcp | tcp4 | tcp6
@@ -72,11 +79,15 @@ func Load() (Config, error) {
 		PolvoIntelligenceInternalKey: strings.TrimSpace(os.Getenv(
 			"POLVO_INTELLIGENCE_INTERNAL_KEY",
 		)),
-		SMTPCredentialsKey: strings.TrimSpace(os.Getenv("SMTP_CREDENTIALS_KEY")),
+		SMTPCredentialsKey:     strings.TrimSpace(os.Getenv("SMTP_CREDENTIALS_KEY")),
+		MetaCredentialsKey:     strings.TrimSpace(os.Getenv("META_CREDENTIALS_KEY")),
+		MetaWebhookVerifyToken: strings.TrimSpace(os.Getenv("META_WEBHOOK_VERIFY_TOKEN")),
 		OpenAIAPIKey:          strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		GoogleAPIKey:          strings.TrimSpace(os.Getenv("GOOGLE_API_KEY")),
 		OpenAIModel:           getEnv("OPENAI_MODEL", "gpt-4o-mini"),
 		GoogleModel:           getEnv("GOOGLE_MODEL", "gemini-2.0-flash"),
+		OpenAITranscribeModel: getEnv("OPENAI_TRANSCRIBE_MODEL", "whisper-1"),
+		GeminiTranscribeModel: getEnv("GEMINI_TRANSCRIBE_MODEL", "gemini-2.5-flash"),
 		BootstrapDefaultAdmin: parseBool(getEnv("BOOTSTRAP_DEFAULT_ADMIN", "true")),
 		DefaultAdminEmail:     getEnv("DEFAULT_ADMIN_EMAIL", "admin@openlaele.local"),
 		DefaultAdminPassword:  defaultAdminPasswordFromEnv(),
@@ -88,7 +99,9 @@ func Load() (Config, error) {
 	}
 	cfg.JWTAccessTTL = ttl
 
-	llmTO, err := time.ParseDuration(getEnv("AGENT_LLM_TIMEOUT", "120s"))
+	// O sub-grafo Builder (Lovable-like) pode correr 4 LLM calls encadeadas com
+	// outputs grandes; 120s é curto demais. 600s cobre o pior caso com margem.
+	llmTO, err := time.ParseDuration(getEnv("AGENT_LLM_TIMEOUT", "600s"))
 	if err != nil {
 		return Config{}, fmt.Errorf("AGENT_LLM_TIMEOUT: %w", err)
 	}
@@ -138,9 +151,6 @@ func getEnv(key, def string) string {
 }
 
 func defaultAdminPasswordFromEnv() string {
-	if _, set := os.LookupEnv("DEFAULT_ADMIN_PASSWORD"); !set {
-		return "OpenLaEleAdmin123!"
-	}
 	return strings.TrimSpace(os.Getenv("DEFAULT_ADMIN_PASSWORD"))
 }
 

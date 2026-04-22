@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -29,10 +30,21 @@ import (
 	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
 	mailmysql "github.com/open-polvo/open-polvo/internal/mail/adapters/mysql"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
+	metamysql "github.com/open-polvo/open-polvo/internal/meta/adapters/mysql"
+	metaapp "github.com/open-polvo/open-polvo/internal/meta/application"
+	"github.com/open-polvo/open-polvo/internal/meta/metaapi"
+	schedmysql "github.com/open-polvo/open-polvo/internal/scheduledtasks/adapters/mysql"
+	schedapp "github.com/open-polvo/open-polvo/internal/scheduledtasks/application"
+	socialmysql "github.com/open-polvo/open-polvo/internal/social/adapters/mysql"
+	socialapp "github.com/open-polvo/open-polvo/internal/social/application"
+	"github.com/open-polvo/open-polvo/internal/social/scheduler"
+	financemysql "github.com/open-polvo/open-polvo/internal/finance/adapters/mysql"
+	financeapp "github.com/open-polvo/open-polvo/internal/finance/application"
 	tasklistsmysql "github.com/open-polvo/open-polvo/internal/tasklists/adapters/mysql"
 	tasklistsintel "github.com/open-polvo/open-polvo/internal/tasklists/adapters/polvointel"
 	taskapp "github.com/open-polvo/open-polvo/internal/tasklists/application"
 	tasklistsports "github.com/open-polvo/open-polvo/internal/tasklists/ports"
+	"github.com/open-polvo/open-polvo/internal/schedule"
 	httptransport "github.com/open-polvo/open-polvo/internal/transport/http"
 	wfmysql "github.com/open-polvo/open-polvo/internal/workflows/adapters/mysql"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
@@ -156,6 +168,11 @@ func main() {
 		}
 	}
 
+	// Recuperação: v15 dirty após falha com ficheiro .up.sql multi-statement sem multiStatements no DSN.
+	if err := fixSchemaMigrationDirtyV15(context.Background(), db); err != nil {
+		slog.Warn("fix_schema_migrations_dirty_v15", "err", err)
+	}
+
 	if cfg.RunMigrations {
 		migDir, err := platformmigrate.ResolveMigrationsDir(cfg.MigrationsPath)
 		if err != nil {
@@ -174,6 +191,10 @@ func main() {
 	hasher := bcryptadapter.Hasher{}
 
 	if cfg.BootstrapDefaultAdmin {
+		if strings.TrimSpace(cfg.DefaultAdminPassword) == "" {
+			slog.Error("BOOTSTRAP_DEFAULT_ADMIN=true exige DEFAULT_ADMIN_PASSWORD no ambiente (defina em .env; não commite valores reais)")
+			os.Exit(1)
+		}
 		boot := idapp.DefaultAdminBootstrap{Users: userRepo, Hasher: hasher}
 		created, err := boot.Ensure(context.Background(), cfg.DefaultAdminEmail, cfg.DefaultAdminPassword)
 		if err != nil {
@@ -209,8 +230,10 @@ func main() {
 		cfg.AgentLLMTimeout,
 	)
 	var chatOrch agentports.ChatOrchestrator
+	var chatStream agentports.ChatStreamer
 	if intel != nil {
 		chatOrch = intel
+		chatStream = intel
 	} else {
 		slog.Warn("Open Polvo Intelligence not configured (POLVO_INTELLIGENCE_BASE_URL + POLVO_INTELLIGENCE_INTERNAL_KEY)")
 	}
@@ -237,9 +260,21 @@ func main() {
 	}
 	smtpRepo := &mailmysql.SMTPSettingsRepository{DB: db}
 	smtpLoader := &mailapp.SMTPContextLoader{Repo: smtpRepo}
+	metaRepo := &metamysql.MetaSettingsRepository{DB: db}
+	metaClient := metaapi.New()
+	metaContextLoader := &metaapp.MetaContextLoader{Repo: metaRepo}
 	contactRepo := &contactsmysql.ContactRepository{DB: db}
 	contactsReply := &contactsapp.ContactsReplyLoader{Repo: contactRepo}
 	getContactUC := &contactsapp.GetContact{Repo: contactRepo}
+	taskListRepo := tasklistsmysql.NewTaskListRepository(db)
+	taskItemRepo := tasklistsmysql.NewTaskItemRepository(db)
+	taskListsReplyLoader := &taskapp.TaskListsReplyLoader{Lists: taskListRepo, Items: taskItemRepo}
+	financeStore := financemysql.NewStore(db)
+	financeReplyLoader := &financeapp.FinanceReplyLoader{
+		Categories:    financeStore,
+		Transactions:  financeStore,
+		Subscriptions: financeStore,
+	}
 	sendMsgUC := &convapp.SendMessage{
 		Conversations: convRepo,
 		Messages:      msgRepo,
@@ -248,6 +283,16 @@ func main() {
 		ContactsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief {
 			return contactsReply.ForReply(ctx, userID)
 		},
+		TaskListsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief {
+			return taskListsReplyLoader.ForReply(ctx, userID)
+		},
+		FinanceForReply: func(ctx context.Context, userID uuid.UUID) *agentports.FinanceContext {
+			return financeReplyLoader.ForReply(ctx, userID)
+		},
+		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
+			return metaContextLoader.ForReply(ctx, userID)
+		},
+		// ScheduledTasksForReply será ligado abaixo após criar schedTaskRepo.
 	}
 	sendMailUC := &mailapp.SendUserEmail{Repo: smtpRepo, Cfg: cfg}
 	mailHandlers := &httptransport.MailHandlers{
@@ -296,25 +341,63 @@ func main() {
 		ListRuns: &wfapp.ListWorkflowRuns{Runs: runRepo},
 	}
 
-	taskListRepo := tasklistsmysql.NewTaskListRepository(db)
-	taskItemRepo := tasklistsmysql.NewTaskItemRepository(db)
 	var taskExecutor tasklistsports.TaskExecutor
 	if tex := tasklistsintel.NewTaskExecutorClient(cfg.PolvoIntelligenceBaseURL, cfg.PolvoIntelligenceInternalKey, cfg.AgentLLMTimeout); tex != nil {
 		taskExecutor = tex
 	}
+	createTL := &taskapp.CreateTaskList{Lists: taskListRepo, Items: taskItemRepo}
+	deleteTL := &taskapp.DeleteTaskList{Lists: taskListRepo}
+	runTL := &taskapp.RunTaskList{
+		Lists:        taskListRepo,
+		Items:        taskItemRepo,
+		Executor:     taskExecutor,
+		DefaultModel: string(domain.ModelOpenAI),
+	}
+	patchTitleTL := &taskapp.PatchTaskListTitle{Lists: taskListRepo}
+	appendTL := &taskapp.AppendTaskItems{Lists: taskListRepo, Items: taskItemRepo}
+	patchItemTL := &taskapp.PatchTaskItem{Lists: taskListRepo, Items: taskItemRepo}
+	deleteItemTL := &taskapp.DeleteTaskItem{Lists: taskListRepo, Items: taskItemRepo}
+	batchTL := &taskapp.ApplyTaskListBatch{
+		PatchListTitle: patchTitleTL,
+		AppendItems:    appendTL,
+		PatchItem:      patchItemTL,
+		DeleteItem:     deleteItemTL,
+		CreateList:     createTL,
+		DeleteList:     deleteTL,
+		RunList:        runTL,
+	}
 	taskHandlers := &httptransport.TaskListHandlers{
-		Create: &taskapp.CreateTaskList{Lists: taskListRepo, Items: taskItemRepo},
-		Get:    &taskapp.GetTaskList{Lists: taskListRepo, Items: taskItemRepo},
-		List:   &taskapp.ListTaskLists{Lists: taskListRepo},
-		Delete: &taskapp.DeleteTaskList{Lists: taskListRepo},
-		Run: &taskapp.RunTaskList{
-			Lists:        taskListRepo,
-			Items:        taskItemRepo,
-			Executor:     taskExecutor,
-			DefaultModel: string(domain.ModelOpenAI),
-		},
+		Create:     createTL,
+		Get:        &taskapp.GetTaskList{Lists: taskListRepo, Items: taskItemRepo},
+		List:       &taskapp.ListTaskLists{Lists: taskListRepo},
+		Delete:     deleteTL,
+		Run:        runTL,
+		PatchTitle: patchTitleTL,
+		Append:     appendTL,
+		PatchItem:  patchItemTL,
+		DeleteItem: deleteItemTL,
+		Batch:      batchTL,
 	}
 
+	streamMsgUC := &convapp.StreamMessage{
+		Conversations: convRepo,
+		Messages:      msgRepo,
+		Streamer:      chatStream,
+		SMTPForReply:  smtpLoader.ForReply,
+		ContactsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief {
+			return contactsReply.ForReply(ctx, userID)
+		},
+		TaskListsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief {
+			return taskListsReplyLoader.ForReply(ctx, userID)
+		},
+		FinanceForReply: func(ctx context.Context, userID uuid.UUID) *agentports.FinanceContext {
+			return financeReplyLoader.ForReply(ctx, userID)
+		},
+		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
+			return metaContextLoader.ForReply(ctx, userID)
+		},
+		// ScheduledTasksForReply ligado abaixo.
+	}
 	convHandlers := &httptransport.ConversationHandlers{
 		CreateConversation: createConvUC,
 		ListConversations: &convapp.ListConversations{
@@ -326,6 +409,7 @@ func main() {
 			Messages:      msgRepo,
 		},
 		SendMessage:        sendMsgUC,
+		StreamMsg:          streamMsgUC,
 		DeleteConversation: &convapp.DeleteConversation{Conversations: convRepo},
 		PinConversation:    &convapp.PinConversation{Conversations: convRepo},
 		RenameConversation: &convapp.RenameConversation{Conversations: convRepo},
@@ -338,6 +422,91 @@ func main() {
 		return nil
 	}
 
+	audioH := &httptransport.AudioHandlers{
+		OpenAIAPIKey:          cfg.OpenAIAPIKey,
+		GoogleAPIKey:          cfg.GoogleAPIKey,
+		OpenAITranscribeModel: cfg.OpenAITranscribeModel,
+		GeminiTranscribeModel: cfg.GeminiTranscribeModel,
+	}
+
+	socialConfigRepo := &socialmysql.AutomationConfigRepository{DB: db}
+	socialPostRepo := &socialmysql.SocialPostRepository{DB: db}
+	socialGenerator := &socialapp.GenerateAndStore{
+		Posts:           socialPostRepo,
+		IntelligenceURL: cfg.PolvoIntelligenceBaseURL,
+		IntelligenceKey: cfg.PolvoIntelligenceInternalKey,
+		HTTPTimeout:     cfg.AgentLLMTimeout,
+	}
+	socialPublisher := &socialapp.PublishPost{
+		Posts:      socialPostRepo,
+		MetaRepo:   metaRepo,
+		MetaClient: metaClient,
+		Cfg:        cfg,
+	}
+	socialApproval := &socialapp.SendApprovalWhatsApp{
+		Posts:      socialPostRepo,
+		MetaRepo:   metaRepo,
+		MetaClient: metaClient,
+		Cfg:        cfg,
+	}
+	socialReplyHandler := &socialapp.HandleWhatsAppReply{
+		Posts:     socialPostRepo,
+		Publisher: socialPublisher,
+	}
+	socialHandlers := &httptransport.SocialHandlers{
+		GetConfig: &socialapp.GetSocialConfig{Repo: socialConfigRepo},
+		PutConfig: &socialapp.PutSocialConfig{Repo: socialConfigRepo},
+		Generate:  socialGenerator,
+		Approval:  socialApproval,
+		Publisher: socialPublisher,
+		ListPosts: &socialapp.ListSocialPosts{Posts: socialPostRepo},
+	}
+	metaHandlers := &httptransport.MetaHandlers{
+		GetMeta:             &metaapp.GetMyMeta{Repo: metaRepo},
+		PutMeta:             &metaapp.PutMyMeta{Repo: metaRepo, Cfg: cfg},
+		TestMeta:            &metaapp.TestMetaConnection{Repo: metaRepo, Cfg: cfg, Client: metaClient},
+		PostContent:         &metaapp.PostMetaContent{Repo: metaRepo, Cfg: cfg, Client: metaClient},
+		SendMessage:         &metaapp.SendMetaMessage{Repo: metaRepo, Cfg: cfg, Client: metaClient},
+		WebhookVerifyToken:  cfg.MetaWebhookVerifyToken,
+		AppSecretForWebhook:  cfg.MetaCredentialsKey,
+		SocialReplyHandler:   socialReplyHandler,
+		SocialConfigRepo:     socialConfigRepo,
+	}
+	financeHandlers := &httptransport.FinanceHandlers{
+		Repo:      financeStore,
+		TaskItems: taskItemRepo,
+	}
+
+	// Scheduled tasks
+	schedTaskRepo := &schedmysql.ScheduledTaskRepository{DB: db}
+	schedLoader := func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief {
+		tasks, err := schedTaskRepo.ListByUser(ctx, userID)
+		if err != nil || len(tasks) == 0 {
+			return nil
+		}
+		briefs := make([]agentports.ScheduledTaskBrief, len(tasks))
+		for i, t := range tasks {
+			briefs[i] = agentports.ScheduledTaskBrief{
+				ID:       t.ID.String(),
+				Name:     t.Name,
+				TaskType: string(t.TaskType),
+				CronExpr: t.CronExpr,
+				Timezone: t.Timezone,
+				Active:   t.Active,
+			}
+		}
+		return briefs
+	}
+	sendMsgUC.ScheduledTasksForReply = schedLoader
+	streamMsgUC.ScheduledTasksForReply = schedLoader
+	schedHandlers := &httptransport.ScheduleHandlers{
+		Create: &schedapp.CreateScheduledTask{Repo: schedTaskRepo},
+		Get:    &schedapp.GetScheduledTask{Repo: schedTaskRepo},
+		List:   &schedapp.ListScheduledTasks{Repo: schedTaskRepo},
+		Update: &schedapp.UpdateScheduledTask{Repo: schedTaskRepo},
+		Delete: &schedapp.DeleteScheduledTask{Repo: schedTaskRepo},
+	}
+
 	handler := httptransport.NewRouter(httptransport.Deps{
 		Config:        cfg,
 		Auth:          authH,
@@ -347,6 +516,11 @@ func main() {
 		TaskLists:     taskHandlers,
 		Mail:          mailHandlers,
 		Contacts:      contactHandlers,
+		Finance:       financeHandlers,
+		Meta:          metaHandlers,
+		Social:        socialHandlers,
+		Schedule:      schedHandlers,
+		Audio:         audioH,
 		TokenParser:   issuer,
 		ReadyCheck:    readyCheck,
 	})
@@ -375,6 +549,54 @@ func main() {
 		}
 		go wfapp.StartWorkflowScheduler(schedCtx, interval, &wfRepo, runWfUC, slog.Default())
 	}
+	if socialSchedulerEnabled() {
+		interval := 15 * time.Minute
+		if s := strings.TrimSpace(os.Getenv("SOCIAL_SCHEDULER_INTERVAL")); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
+				interval = d
+			}
+		}
+		socialRunner := &scheduler.Runner{
+			Configs:       socialConfigRepo,
+			Generator:     socialGenerator,
+			Approval:      socialApproval,
+			ModelProvider: "openai",
+			Log:           slog.Default(),
+		}
+		go socialRunner.Start(schedCtx, interval)
+	}
+	if scheduledTasksRunnerEnabled() {
+		interval := time.Minute
+		if s := strings.TrimSpace(os.Getenv("SCHED_TASKS_INTERVAL")); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d >= 30*time.Second {
+				interval = d
+			}
+		}
+		schedRunner := &schedapp.Runner{
+			Repo:        schedTaskRepo,
+			Agent:       chatOrch,
+			Mail:        sendMailUC,
+			RunTaskList: runTL,
+			Loaders: schedapp.ContextLoaders{
+				SMTP:      smtpLoader.ForReply,
+				Contacts:  func(ctx context.Context, uid uuid.UUID) []agentports.ContactBrief { return contactsReply.ForReply(ctx, uid) },
+				TaskLists: func(ctx context.Context, uid uuid.UUID) []agentports.TaskListBrief { return taskListsReplyLoader.ForReply(ctx, uid) },
+				Finance:   financeReplyLoader.ForReply,
+				Meta:      metaContextLoader.ForReply,
+			},
+			Log: slog.Default(),
+		}
+		go schedRunner.Start(schedCtx, interval)
+	}
+	if digestSchedulerEnabled() {
+		interval := time.Hour
+		if s := strings.TrimSpace(os.Getenv("DIGEST_SCHEDULER_INTERVAL")); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
+				interval = d
+			}
+		}
+		schedule.StartFinanceJobs(schedCtx, interval, financeStore, sendMailUC, userRepo, taskItemRepo, slog.Default())
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -394,4 +616,49 @@ func workflowSchedulerEnabled() bool {
 		return true
 	}
 	return v == "1" || v == "true" || v == "yes"
+}
+
+func socialSchedulerEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("SOCIAL_SCHEDULER_ENABLED")))
+	if v == "" {
+		return true
+	}
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func scheduledTasksRunnerEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("SCHED_TASKS_ENABLED")))
+	if v == "" {
+		return true
+	}
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func digestSchedulerEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("DIGEST_SCHEDULER_ENABLED")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// fixSchemaMigrationDirtyV15 limpa dirty na v15 quando a migração falhou antes de criar tabelas,
+// ou marca limpo se as tabelas de finanças já existirem (estado coerente).
+func fixSchemaMigrationDirtyV15(ctx context.Context, db *sql.DB) error {
+	var ver int
+	var dirty bool
+	err := db.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&ver, &dirty)
+	if err != nil {
+		return err
+	}
+	if ver != 15 || !dirty {
+		return nil
+	}
+	var n int
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'laele_finance_categories'`,
+	).Scan(&n)
+	if n == 0 {
+		_, err := db.ExecContext(ctx, `UPDATE schema_migrations SET version = 14, dirty = 0 WHERE version = 15 AND dirty = 1`)
+		return err
+	}
+	_, err = db.ExecContext(ctx, `UPDATE schema_migrations SET dirty = 0 WHERE version = 15`)
+	return err
 }
