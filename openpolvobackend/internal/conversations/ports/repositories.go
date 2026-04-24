@@ -23,3 +23,9 @@ type MessageRepository interface {
 	Create(ctx context.Context, m *domain.Message) error
 	ListByConversation(ctx context.Context, conversationID uuid.UUID) ([]domain.Message, error)
 }
+
+// AgentMemoryRepository memória híbrida (prompt + SQLite) por conversa.
+type AgentMemoryRepository interface {
+	Get(ctx context.Context, conversationID uuid.UUID) (domain.AgentMemory, error)
+	Upsert(ctx context.Context, conversationID uuid.UUID, mem domain.AgentMemory) error
+}

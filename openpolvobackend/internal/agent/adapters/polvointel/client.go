@@ -12,6 +12,7 @@ import (
 
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
+	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 // Client chama o serviço Python Open Polvo Intelligence (FastAPI + LangGraph).
@@ -57,7 +58,12 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 	body := struct {
 		Messages               []msgPart                        `json:"messages"`
 		ModelProvider          string                           `json:"model_provider"`
+		OpenAIAPIKey           string                           `json:"openai_api_key,omitempty"`
+		GoogleAPIKey           string                           `json:"google_api_key,omitempty"`
+		OpenAIModel            string                           `json:"openai_model,omitempty"`
+		GoogleModel            string                           `json:"google_model,omitempty"`
 		ConversationID         string                           `json:"conversation_id,omitempty"`
+		AgentMemory            map[string]string                `json:"agent_memory,omitempty"`
 		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
 		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
 		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
@@ -66,12 +72,23 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
 	}{
 		ModelProvider:          string(in.ModelProvider),
+		OpenAIAPIKey:           in.OpenAIAPIKey,
+		GoogleAPIKey:           in.GoogleAPIKey,
+		OpenAIModel:            in.OpenAIModel,
+		GoogleModel:            in.GoogleModel,
+		ConversationID:         strings.TrimSpace(in.ConversationID),
 		SMTPContext:            in.SMTP,
 		ContactsContext:        in.Contacts,
 		TaskListsContext:       in.TaskLists,
 		FinanceContext:         in.Finance,
 		MetaContext:            in.Meta,
 		ScheduledTasksContext:  in.ScheduledTasks,
+	}
+	if in.AgentMemory != nil {
+		body.AgentMemory = map[string]string{
+			"global":  in.AgentMemory.Global,
+			"builder": in.AgentMemory.Builder,
+		}
 	}
 	for _, m := range in.Messages {
 		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
@@ -117,14 +134,18 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 }
 
 // GenerateGraphJSON gera texto bruto JSON do grafo (Go faz o parse).
-func (c *Client) GenerateGraphJSON(ctx context.Context, provider domain.ModelProvider, userRequest, recordingJSON string) (string, error) {
+func (c *Client) GenerateGraphJSON(ctx context.Context, provider domain.ModelProvider, ov wfports.LLMOverrides, userRequest, recordingJSON string) (string, error) {
 	if !c.Configured() {
 		return "", fmt.Errorf("polvointel: client not configured")
 	}
 	body, err := json.Marshal(map[string]string{
-		"model_provider": string(provider),
-		"prompt":         userRequest,
-		"recording_json": recordingJSON,
+		"model_provider":   string(provider),
+		"prompt":           userRequest,
+		"recording_json":   recordingJSON,
+		"openai_api_key":   ov.OpenAIAPIKey,
+		"google_api_key":   ov.GoogleAPIKey,
+		"openai_model":     ov.OpenAIModel,
+		"google_model":     ov.GoogleModel,
 	})
 	if err != nil {
 		return "", err
@@ -155,7 +176,7 @@ func (c *Client) GenerateGraphJSON(ctx context.Context, provider domain.ModelPro
 }
 
 // GenerateText uma chamada LLM simples (nós llm no runner de workflows).
-func (c *Client) GenerateText(ctx context.Context, provider domain.ModelProvider, system, user string) (string, error) {
+func (c *Client) GenerateText(ctx context.Context, provider domain.ModelProvider, ov wfports.LLMOverrides, system, user string) (string, error) {
 	if !c.Configured() {
 		return "", fmt.Errorf("polvointel: client not configured")
 	}
@@ -163,6 +184,10 @@ func (c *Client) GenerateText(ctx context.Context, provider domain.ModelProvider
 		"model_provider": string(provider),
 		"system":         system,
 		"user":           user,
+		"openai_api_key": ov.OpenAIAPIKey,
+		"google_api_key": ov.GoogleAPIKey,
+		"openai_model":   ov.OpenAIModel,
+		"google_model":   ov.GoogleModel,
 	})
 	if err != nil {
 		return "", err
@@ -207,6 +232,12 @@ func (c *Client) ReplyStream(ctx context.Context, in agentports.ReplyInput) (io.
 	body := struct {
 		Messages               []msgPart                        `json:"messages"`
 		ModelProvider          string                           `json:"model_provider"`
+		OpenAIAPIKey           string                           `json:"openai_api_key,omitempty"`
+		GoogleAPIKey           string                           `json:"google_api_key,omitempty"`
+		OpenAIModel            string                           `json:"openai_model,omitempty"`
+		GoogleModel            string                           `json:"google_model,omitempty"`
+		ConversationID         string                           `json:"conversation_id,omitempty"`
+		AgentMemory            map[string]string                `json:"agent_memory,omitempty"`
 		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
 		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
 		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
@@ -215,12 +246,23 @@ func (c *Client) ReplyStream(ctx context.Context, in agentports.ReplyInput) (io.
 		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
 	}{
 		ModelProvider:          string(in.ModelProvider),
+		OpenAIAPIKey:           in.OpenAIAPIKey,
+		GoogleAPIKey:           in.GoogleAPIKey,
+		OpenAIModel:            in.OpenAIModel,
+		GoogleModel:            in.GoogleModel,
+		ConversationID:         strings.TrimSpace(in.ConversationID),
 		SMTPContext:            in.SMTP,
 		ContactsContext:        in.Contacts,
 		TaskListsContext:       in.TaskLists,
 		FinanceContext:         in.Finance,
 		MetaContext:            in.Meta,
 		ScheduledTasksContext:  in.ScheduledTasks,
+	}
+	if in.AgentMemory != nil {
+		body.AgentMemory = map[string]string{
+			"global":  in.AgentMemory.Global,
+			"builder": in.AgentMemory.Builder,
+		}
 	}
 	for _, m := range in.Messages {
 		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})

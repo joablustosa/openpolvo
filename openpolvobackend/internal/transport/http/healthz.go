@@ -17,7 +17,7 @@ func (d Deps) GetHealthz(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetReadyz readiness: verifica dependências (ex.: ping MySQL).
+// GetReadyz readiness: verifica dependências (ex.: ping à base de dados).
 func (d Deps) GetReadyz(w http.ResponseWriter, r *http.Request) {
 	checks := map[string]string{"http": "ok"}
 

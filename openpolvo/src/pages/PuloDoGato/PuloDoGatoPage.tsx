@@ -45,8 +45,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/auth/AuthContext";
+import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
 import { cn } from "@/lib/utils";
-import type { ModelProvider } from "@/lib/conversationsApi";
+import { fetchLlmProfiles, type LlmProfileDTO } from "@/lib/llmProfilesApi";
+import { parseLlmRoutingSelect } from "@/lib/llmRouting";
 import { partitionWorkflowsForNav } from "@/lib/workflowsNavOrder";
 import type {
   WorkflowDTO,
@@ -312,7 +314,8 @@ export function PuloDoGatoPage() {
   const [selNodeId, setSelNodeId] = useState<string | null>(null);
   const [genPrompt, setGenPrompt] = useState("");
   const [recording, setRecording] = useState("");
-  const [modelProvider, setModelProvider] = useState<ModelProvider>("openai");
+  const [llmSelectValue, setLlmSelectValue] = useState("auto");
+  const [llmProfiles, setLlmProfiles] = useState<LlmProfileDTO[]>([]);
   const [genBusy, setGenBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
@@ -327,6 +330,13 @@ export function PuloDoGatoPage() {
       .listContacts(token)
       .then(setContactOptions)
       .catch(() => setContactOptions([]));
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    void fetchLlmProfiles(token)
+      .then(setLlmProfiles)
+      .catch(() => setLlmProfiles([]));
   }, [token]);
 
   const { pinned: pinnedWf, recent: recentWf } = useMemo(
@@ -517,10 +527,12 @@ export function PuloDoGatoPage() {
     setGenBusy(true);
     setErr(null);
     try {
+      const { model, profileId } = parseLlmRoutingSelect(llmSelectValue);
       const res = await wf.generateWorkflow(token, {
         prompt: genPrompt,
         recording_json: recording.trim() || undefined,
-        model_provider: modelProvider,
+        model_provider: model,
+        llm_profile_id: profileId ?? undefined,
       });
       const { nodes: ns, edges: es } = graphToFlow(res.graph);
       setNodes(ns);
@@ -533,7 +545,7 @@ export function PuloDoGatoPage() {
     } finally {
       setGenBusy(false);
     }
-  }, [token, genPrompt, recording, modelProvider, title, setNodes, setEdges]);
+  }, [token, genPrompt, recording, llmSelectValue, title, setNodes, setEdges]);
 
   const addNode = useCallback(
     (t: (typeof WF_TYPES)[number]) => {
@@ -702,7 +714,7 @@ export function PuloDoGatoPage() {
         </aside>
 
         {/* Canvas */}
-        <div className="relative h-full min-h-0 min-w-0 w-full flex-1 pulo-do-gato-flow">
+        <div className="relative z-0 h-full min-h-0 min-w-0 w-full flex-1 overflow-hidden pulo-do-gato-flow">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -713,6 +725,10 @@ export function PuloDoGatoPage() {
             fitView
             onNodeClick={(_, n) => setSelNodeId(n.id)}
             onPaneClick={() => setSelNodeId(null)}
+            deleteKeyCode={null}
+            disableKeyboardA11y
+            nodesFocusable={false}
+            edgesFocusable={false}
             className="h-full w-full bg-muted/10 [&_.react-flow__edge-path]:stroke-border [&_.react-flow__connectionline]:stroke-border"
           >
             <Background gap={16} size={1} className="opacity-40" />
@@ -742,7 +758,7 @@ export function PuloDoGatoPage() {
         </div>
 
         {/* Inspector + LLM */}
-        <aside className="flex w-[min(100%,320px)] shrink-0 flex-col gap-3 overflow-auto border-l border-border bg-card/40 p-3">
+        <aside className="nokey relative z-20 flex w-[min(100%,320px)] shrink-0 flex-col gap-3 overflow-auto border-l border-border bg-card/40 p-3">
           <div>
             <label className="text-[10px] font-medium uppercase text-muted-foreground">
               Título
@@ -1018,16 +1034,24 @@ export function PuloDoGatoPage() {
             <p className="text-[10px] font-medium uppercase text-muted-foreground">
               Pedir à LLM (workflow)
             </p>
-            <select
-              className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={modelProvider}
-              onChange={(e) =>
-                setModelProvider(e.target.value as ModelProvider)
-              }
-            >
-              <option value="openai">OpenAI</option>
-              <option value="google">Google</option>
-            </select>
+            <ChatLlmRoutingSelect
+              value={llmSelectValue}
+              onValueChange={setLlmSelectValue}
+              profiles={llmProfiles}
+              className="w-full max-w-none"
+            />
+            {!llmProfiles.some((p) => p.has_api_key) ? (
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Sem perfis com chave na base local. Configure em{" "}
+                <Link
+                  to="/settings/llm"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  Modelos LLM
+                </Link>{" "}
+                (ou use variáveis no serviço Intelligence).
+              </p>
+            ) : null}
             <Textarea
               placeholder="Descreve a automação que queres (ex.: abrir SmartBus e clicar em login)…"
               className="min-h-[80px] text-xs"

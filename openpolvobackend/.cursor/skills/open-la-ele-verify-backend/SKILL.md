@@ -38,7 +38,7 @@ curl -sSf "http://127.0.0.1:PORTA/readyz"
 ```
 
 - `200` + `"status":"ready"` + `"checks"."dependencies":"ok"` → pronto para tráfego.
-- `503` + `"status":"not_ready"` → rever MySQL ou firewall.
+- `503` + `"status":"not_ready"` → rever SQLite (`DB_PATH`), migrações ou disco.
 
 Em **PowerShell** podes usar `Invoke-WebRequest -Uri ... -UseBasicParsing` e inspecionar `.StatusCode` e `.Content`.
 
@@ -50,7 +50,7 @@ Em **PowerShell** podes usar `Invoke-WebRequest -Uri ... -UseBasicParsing` e ins
 ## 4. O que não fazer
 
 - Não commits com output de `/healthz` que inclua dados sensíveis (o endpoint atual não expõe segredos).
-- Se a API não arrancar por erro de BD, o healthcheck **só funciona depois** da ligação MySQL estar corrigida.
+- Se a API não arrancar por erro de BD, o healthcheck **só funciona depois** do ficheiro SQLite / migrações estarem corrigidos.
 
 ## Relação com outras regras
 

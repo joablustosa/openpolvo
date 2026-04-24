@@ -9,14 +9,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	financemysql "github.com/open-polvo/open-polvo/internal/finance/adapters/mysql"
+	financesqlite "github.com/open-polvo/open-polvo/internal/finance/adapters/sqlite"
 	"github.com/open-polvo/open-polvo/internal/finance/domain"
 	tasklistsports "github.com/open-polvo/open-polvo/internal/tasklists/ports"
 )
 
 // FinanceHandlers expõe finanças pessoais, digest e agenda unificada.
 type FinanceHandlers struct {
-	Repo      *financemysql.Store
+	Repo      *financesqlite.Store
 	TaskItems tasklistsports.TaskItemRepository
 }
 

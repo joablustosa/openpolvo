@@ -1,5 +1,16 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Mic, MicOff, Paperclip, Plus, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Eye,
+  Image as ImageIcon,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Paperclip,
+  Plus,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
@@ -8,22 +19,41 @@ import { useWorkspace } from "@/core/WorkspaceContext";
 import { findLatestBuilderDataInMessages } from "@/lib/builderMetadata";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
+import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
 import { transcribeAudio } from "@/lib/audioApi";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { displayNameFromToken } from "@/lib/userDisplay";
 import { cn } from "@/lib/utils";
 
-const pills = [
-  { label: "Código", icon: "⌘" },
-  { label: "Criar", icon: "✦" },
-  { label: "Escrever", icon: "✎" },
-  { label: "Aprender", icon: "◇" },
-  { label: "Destaques", icon: "★" },
-] as const;
+type HomePillId = "conversa" | "criar_automacao" | "criar_imagem" | "enviar_imagem";
+
+const HOME_PILLS: {
+  id: HomePillId;
+  label: string;
+  icon: typeof MessageCircle;
+  disabled?: boolean;
+  title?: string;
+}[] = [
+  { id: "conversa", label: "Conversa", icon: MessageCircle },
+  { id: "criar_automacao", label: "Criar automação", icon: Zap },
+  {
+    id: "criar_imagem",
+    label: "Criar imagem (em andamento)",
+    icon: Sparkles,
+    disabled: true,
+    title: "Em breve",
+  },
+  {
+    id: "enviar_imagem",
+    label: "Enviar imagem",
+    icon: ImageIcon,
+    disabled: true,
+    title: "Em breve",
+  },
+];
 
 type GuestMsg = { id: string; role: "user" | "assistant"; text: string };
 
@@ -37,7 +67,9 @@ const initialGuestMessages = (): GuestMsg[] => [
 ];
 
 export function HomePage() {
+  const navigate = useNavigate();
   const { token } = useAuth();
+  const [activePill, setActivePill] = useState<HomePillId>("conversa");
   const { registerReset } = useHomeChatControls();
   const { canSendAsAnonymous, afterAnonymousUserMessage } = useAnonymousChat();
   const workspace = useConversationWorkspace();
@@ -54,13 +86,14 @@ export function HomePage() {
     registerReset(() => {
       setGuestMessages(initialGuestMessages());
       setDraft("");
+      setActivePill("conversa");
       clearWorkspace();
     });
   }, [registerReset, clearWorkspace]);
 
   const authWelcomeText = useMemo(
     () =>
-      "Conversa com **Zé Polvinho** (motor Go). Escolha **OpenAI** ou **Gemini**. A primeira mensagem cria a conversa se ainda não houver uma activa.\n\nAs respostas usam **Markdown** (títulos, listas, código e links).",
+      "Conversa com **Zé Polvinho** (motor Go). Escolha **Automático**, **OpenAI**, **Gemini** ou um **perfil** com chave (em Definições → Modelos LLM). A primeira mensagem cria a conversa se ainda não houver uma activa.\n\nAs respostas usam **Markdown** (títulos, listas, código e links).",
     [],
   );
 
@@ -121,8 +154,9 @@ export function HomePage() {
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const transcribe = useCallback(
-    (blob: Blob) => transcribeAudio(tokenRef.current, blob, workspace.modelProvider),
-    [workspace.modelProvider],
+    (blob: Blob) =>
+      transcribeAudio(tokenRef.current, blob, workspace.transcribeModelProvider),
+    [workspace.transcribeModelProvider],
   );
   const { state: micState, error: micError, toggle: toggleMic } = useAudioRecorder({
     transcribe,
@@ -293,36 +327,12 @@ export function HomePage() {
             </div>
             <div className="absolute bottom-3 right-3 flex flex-wrap items-center justify-end gap-1">
               {token ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={
-                      workspace.modelProvider === "openai"
-                        ? "secondary"
-                        : "outline"
-                    }
-                    className="h-8 rounded-full text-xs"
-                    disabled={submitting}
-                    onClick={() => workspace.setModelProvider("openai")}
-                  >
-                    OpenAI
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={
-                      workspace.modelProvider === "google"
-                        ? "secondary"
-                        : "outline"
-                    }
-                    className="h-8 rounded-full text-xs"
-                    disabled={submitting}
-                    onClick={() => workspace.setModelProvider("google")}
-                  >
-                    Gemini
-                  </Button>
-                </>
+                <ChatLlmRoutingSelect
+                  value={workspace.llmSelectValue}
+                  onValueChange={workspace.setLlmSelectValue}
+                  profiles={workspace.llmProfiles}
+                  disabled={submitting}
+                />
               ) : null}
               <Button
                 type="button"
@@ -370,16 +380,38 @@ export function HomePage() {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            {pills.map((p) => (
-              <Badge
-                key={p.label}
-                variant="secondary"
-                className="cursor-pointer rounded-full px-3 py-1 font-normal text-muted-foreground hover:bg-muted"
-              >
-                <span className="mr-1.5 opacity-60">{p.icon}</span>
-                {p.label}
-              </Badge>
-            ))}
+            {HOME_PILLS.map((p) => {
+              const Icon = p.icon;
+              const selected = activePill === p.id;
+              return (
+                <Button
+                  key={p.id}
+                  type="button"
+                  size="sm"
+                  variant={selected ? "secondary" : "outline"}
+                  disabled={Boolean(p.disabled)}
+                  title={p.title}
+                  className={cn(
+                    "h-auto min-h-8 gap-1.5 rounded-full px-3 py-1.5 text-xs font-normal",
+                    p.disabled && "pointer-events-auto",
+                  )}
+                  onClick={() => {
+                    if (p.disabled) return;
+                    if (p.id === "conversa") {
+                      setActivePill("conversa");
+                      return;
+                    }
+                    if (p.id === "criar_automacao") {
+                      setActivePill("criar_automacao");
+                      navigate("/automacoes");
+                    }
+                  }}
+                >
+                  <Icon className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                  {p.label}
+                </Button>
+              );
+            })}
           </div>
         </form>
       </div>

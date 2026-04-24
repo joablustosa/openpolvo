@@ -24,12 +24,16 @@ type CreateConversation struct {
 func (c *CreateConversation) Execute(ctx context.Context, cmd CreateConversationCommand) (*domain.Conversation, error) {
 	now := time.Now().UTC()
 	id := uuid.New()
+	dm := cmd.DefaultModel
+	if dm == "" {
+		dm = domain.ModelOpenAI
+	}
 	conv := &domain.Conversation{
 		ID:                id,
 		UserID:            cmd.UserID,
 		Title:             cmd.Title,
 		LangGraphThreadID: fmt.Sprintf("go-local:%s", id.String()),
-		DefaultModel:      cmd.DefaultModel,
+		DefaultModel:      dm,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}

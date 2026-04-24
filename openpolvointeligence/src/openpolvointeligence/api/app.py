@@ -34,9 +34,5 @@ async def healthz() -> dict[str, str]:
 
 @app.get("/readyz")
 async def readyz() -> dict[str, str]:
-    s = get_settings()
-    if not s.has_any_llm_key:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=503, detail="no LLM keys")
+    # Chaves LLM podem vir só no corpo do pedido (SQLite local via API Go).
     return {"status": "ready"}

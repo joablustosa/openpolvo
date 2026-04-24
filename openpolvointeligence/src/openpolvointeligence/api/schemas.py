@@ -13,7 +13,15 @@ class MessagePart(BaseModel):
 class ReplyRequest(BaseModel):
     messages: list[MessagePart]
     model_provider: str = Field(default="openai", description="openai | google")
+    openai_api_key: str | None = Field(default=None, description="Override por pedido (API Go / SQLite local)")
+    google_api_key: str | None = Field(default=None, description="Override por pedido")
+    openai_model: str | None = Field(default=None, description="Override do modelo OpenAI")
+    google_model: str | None = Field(default=None, description="Override do modelo Gemini")
     conversation_id: str | None = None
+    agent_memory: dict[str, str] | None = Field(
+        default=None,
+        description="Memória persistente (global + builder) enviada pela API Go.",
+    )
     smtp_context: dict[str, Any] | None = Field(
         default=None,
         description="Metadados SMTP do utilizador (from API Go); sem passwords.",
@@ -47,6 +55,10 @@ class ReplyResponse(BaseModel):
 
 class WorkflowGenerateRequest(BaseModel):
     model_provider: str = "openai"
+    openai_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_model: str | None = None
+    google_model: str | None = None
     prompt: str
     recording_json: str = ""
 
@@ -57,6 +69,10 @@ class WorkflowGenerateResponse(BaseModel):
 
 class LLMTextRequest(BaseModel):
     model_provider: str = "openai"
+    openai_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_model: str | None = None
+    google_model: str | None = None
     system: str
     user: str
 
@@ -74,6 +90,10 @@ class SocialGenerateRequest(BaseModel):
     sites: list[str] = Field(default_factory=list, description="URLs de sites de referência")
     platform: str = Field(default="facebook", description="facebook | instagram")
     model_provider: str = Field(default="openai", description="openai | google")
+    openai_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_model: str | None = None
+    google_model: str | None = None
     generate_image: bool = Field(default=True, description="Gerar imagem via DALL-E 3")
 
 

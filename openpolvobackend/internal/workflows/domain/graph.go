@@ -20,7 +20,26 @@ type NodeData struct {
 	Prompt    string `json:"prompt,omitempty"` // llm mini-prompt
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
 	Label     string `json:"label,omitempty"`
-	// Nó "send_email": UUID do contacto (laele_user_contacts) e conteúdo do e-mail.
+	// Nó "web_search" (SerpApi):
+	// - Query: termos de pesquisa (q).
+	// - Kl: região (DuckDuckGo region code, ex.: us-en, br-pt).
+	// - Df: filtro de data (d/w/m/y ou "YYYY-MM-DD..YYYY-MM-DD").
+	// - Safe: 1 (strict), -1 (moderate), -2 (off).
+	// - Start: offset.
+	// - M: max results (1..50).
+	Query string `json:"query,omitempty"`
+	Kl    string `json:"kl,omitempty"`
+	Df    string `json:"df,omitempty"`
+	Safe  int    `json:"safe,omitempty"`
+	Start int    `json:"start,omitempty"`
+	M     int    `json:"m,omitempty"`
+	// Nó "web_search": motor SerpApi ("duckduckgo" por omissão, "google").
+	SearchEngine string `json:"search_engine,omitempty"`
+	// Nó "send_email": destinatário directo (email_to) ou UUID de contacto, e conteúdo.
+	// email_to tem prioridade; contact_id é fallback (lookup na agenda).
+	// No subject/body, o motor substitui {{previous}} (saídas dos predecessores directos com texto)
+	// e {{output:NODE_ID}} (saída guardada de um nó llm ou web_search).
+	EmailTo      string `json:"email_to,omitempty"`
 	ContactID    string `json:"contact_id,omitempty"`
 	EmailSubject string `json:"email_subject,omitempty"`
 	EmailBody    string `json:"email_body,omitempty"`

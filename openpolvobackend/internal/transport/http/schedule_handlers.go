@@ -19,6 +19,7 @@ type ScheduleHandlers struct {
 	List   *schedapp.ListScheduledTasks
 	Update *schedapp.UpdateScheduledTask
 	Delete *schedapp.DeleteScheduledTask
+	Runner *schedapp.Runner
 }
 
 // GET /v1/scheduled-tasks
@@ -51,11 +52,15 @@ func (h *ScheduleHandlers) Post(w http.ResponseWriter, r *http.Request) {
 		Payload     map[string]any `json:"payload"`
 		CronExpr    string         `json:"cron_expr"`
 		Timezone    string         `json:"timezone"`
-		Active      bool           `json:"active"`
+		Active      *bool          `json:"active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "json inválido")
 		return
+	}
+	active := true
+	if body.Active != nil {
+		active = *body.Active
 	}
 	dto, err := h.Create.Execute(r.Context(), uid, schedapp.CreateInput{
 		Name:        body.Name,
@@ -64,7 +69,7 @@ func (h *ScheduleHandlers) Post(w http.ResponseWriter, r *http.Request) {
 		Payload:     body.Payload,
 		CronExpr:    body.CronExpr,
 		Timezone:    body.Timezone,
-		Active:      body.Active,
+		Active:      active,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -114,11 +119,21 @@ func (h *ScheduleHandlers) Put(w http.ResponseWriter, r *http.Request) {
 		Payload     map[string]any `json:"payload"`
 		CronExpr    string         `json:"cron_expr"`
 		Timezone    string         `json:"timezone"`
-		Active      bool           `json:"active"`
+		Active      *bool          `json:"active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "json inválido")
 		return
+	}
+	active := false
+	if body.Active != nil {
+		active = *body.Active
+	} else {
+		// Mantém o valor actual se não vier no payload.
+		cur, err := h.Get.Execute(r.Context(), id, uid)
+		if err == nil {
+			active = cur.Active
+		}
 	}
 	dto, err := h.Update.Execute(r.Context(), id, uid, schedapp.UpdateInput{
 		Name:        body.Name,
@@ -127,7 +142,7 @@ func (h *ScheduleHandlers) Put(w http.ResponseWriter, r *http.Request) {
 		Payload:     body.Payload,
 		CronExpr:    body.CronExpr,
 		Timezone:    body.Timezone,
-		Active:      body.Active,
+		Active:      active,
 	})
 	if errors.Is(err, schedports.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "não encontrado")
@@ -159,4 +174,27 @@ func (h *ScheduleHandlers) DeleteOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// POST /v1/scheduled-tasks/{id}/run-now
+func (h *ScheduleHandlers) RunNow(w http.ResponseWriter, r *http.Request) {
+	uid := mustUserUUID(w, r)
+	if uid == uuid.Nil {
+		return
+	}
+	if h.Runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "runner não configurado")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id inválido")
+		return
+	}
+	out, runErr := h.Runner.ExecuteNow(r.Context(), id, uid)
+	if runErr != nil {
+		writeError(w, http.StatusBadRequest, runErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": out})
 }

@@ -1,10 +1,11 @@
-import { apiUrl } from "./api";
+import { fetchApi } from "./api";
 
 function headersJson(token: string): HeadersInit {
+  const t = token.trim();
   return {
     Accept: "application/json",
     "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${t}`,
   };
 }
 
@@ -70,7 +71,7 @@ export type SubscriptionDTO = {
 };
 
 export async function getDigestSettings(token: string): Promise<DigestSettingsDTO> {
-  const res = await fetch(apiUrl("/v1/me/digest-settings"), {
+  const res = await fetchApi("/v1/me/digest-settings", {
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`digest-settings: ${res.status}`);
@@ -89,7 +90,7 @@ export async function putDigestSettings(
   token: string,
   body: PutDigestSettingsBody,
 ): Promise<DigestSettingsDTO> {
-  const res = await fetch(apiUrl("/v1/me/digest-settings"), {
+  const res = await fetchApi("/v1/me/digest-settings", {
     method: "PUT",
     headers: headersJson(token),
     body: JSON.stringify(body),
@@ -104,7 +105,7 @@ export async function getAgenda(
   to: string,
 ): Promise<{ events: AgendaEventDTO[] }> {
   const q = new URLSearchParams({ from, to });
-  const res = await fetch(apiUrl(`/v1/agenda?${q.toString()}`), {
+  const res = await fetchApi(`/v1/agenda?${q.toString()}`, {
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`agenda: ${res.status}`);
@@ -112,7 +113,7 @@ export async function getAgenda(
 }
 
 export async function getCategories(token: string): Promise<CategoryDTO[]> {
-  const res = await fetch(apiUrl("/v1/finance/categories"), {
+  const res = await fetchApi("/v1/finance/categories", {
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`finance categories: ${res.status}`);
@@ -123,7 +124,7 @@ export async function postCategory(
   token: string,
   body: { name: string; parent_id?: string | null; sort_order?: number },
 ): Promise<CategoryDTO> {
-  const res = await fetch(apiUrl("/v1/finance/categories"), {
+  const res = await fetchApi("/v1/finance/categories", {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify({
@@ -137,7 +138,7 @@ export async function postCategory(
 }
 
 export async function deleteCategory(token: string, id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/v1/finance/categories/${id}`), {
+  const res = await fetchApi(`/v1/finance/categories/${id}`, {
     method: "DELETE",
     headers: headersJson(token),
   });
@@ -152,7 +153,7 @@ export async function getTransactions(
 ): Promise<TransactionDTO[]> {
   const q = new URLSearchParams({ from, to });
   if (direction) q.set("direction", direction);
-  const res = await fetch(apiUrl(`/v1/finance/transactions?${q.toString()}`), {
+  const res = await fetchApi(`/v1/finance/transactions?${q.toString()}`, {
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`finance transactions: ${res.status}`);
@@ -172,7 +173,7 @@ export async function postTransaction(
     source?: string;
   },
 ): Promise<TransactionDTO> {
-  const res = await fetch(apiUrl("/v1/finance/transactions"), {
+  const res = await fetchApi("/v1/finance/transactions", {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify({
@@ -191,7 +192,7 @@ export async function postTransaction(
 }
 
 export async function deleteTransaction(token: string, id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/v1/finance/transactions/${id}`), {
+  const res = await fetchApi(`/v1/finance/transactions/${id}`, {
     method: "DELETE",
     headers: headersJson(token),
   });
@@ -199,7 +200,7 @@ export async function deleteTransaction(token: string, id: string): Promise<void
 }
 
 export async function getSubscriptions(token: string): Promise<SubscriptionDTO[]> {
-  const res = await fetch(apiUrl("/v1/finance/subscriptions"), {
+  const res = await fetchApi("/v1/finance/subscriptions", {
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`finance subscriptions: ${res.status}`);
@@ -217,7 +218,7 @@ export async function postSubscription(
     next_due_at: string;
   },
 ): Promise<SubscriptionDTO> {
-  const res = await fetch(apiUrl("/v1/finance/subscriptions"), {
+  const res = await fetchApi("/v1/finance/subscriptions", {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify(body),
@@ -239,7 +240,7 @@ export async function patchSubscription(
     reminder_active: boolean;
   }>,
 ): Promise<SubscriptionDTO> {
-  const res = await fetch(apiUrl(`/v1/finance/subscriptions/${id}`), {
+  const res = await fetchApi(`/v1/finance/subscriptions/${id}`, {
     method: "PATCH",
     headers: headersJson(token),
     body: JSON.stringify(body),
@@ -252,7 +253,7 @@ export async function postSubscriptionPaid(
   token: string,
   id: string,
 ): Promise<SubscriptionDTO> {
-  const res = await fetch(apiUrl(`/v1/finance/subscriptions/${id}/paid`), {
+  const res = await fetchApi(`/v1/finance/subscriptions/${id}/paid`, {
     method: "POST",
     headers: headersJson(token),
   });
@@ -261,7 +262,7 @@ export async function postSubscriptionPaid(
 }
 
 export async function deleteSubscription(token: string, id: string): Promise<void> {
-  const res = await fetch(apiUrl(`/v1/finance/subscriptions/${id}`), {
+  const res = await fetchApi(`/v1/finance/subscriptions/${id}`, {
     method: "DELETE",
     headers: headersJson(token),
   });

@@ -19,7 +19,7 @@ Atualiza o README quando houver mudanças em:
 - **API HTTP**: rotas novas/removidas, contratos JSON, autenticação.
 - **Configuração**: variáveis em [`.env.example`](.env.example), flags, CORS, Open Polvo Intelligence, ports.
 - **Execução**: comandos `go run`, `npm`, Electron, Docker, CI, migrações manuais vs automáticas.
-- **Requisitos**: versões de Go, Node, MySQL, ferramentas.
+- **Requisitos**: versões de Go, Node, Python, SQLite (ficheiro local), ferramentas.
 - **Front** ([OpenLaEleFront](OpenLaEleFront)): proxy Vite, `VITE_API_BASE_URL`, fluxo de login, build/preview.
 - **Estrutura** importante: novos `cmd/`, contextos em `internal/`, convções (ex.: prefixo `laele_` em tabelas).
 - **Segurança / operação** que afete quem clona o repo (ex.: seed, registo, CORS).

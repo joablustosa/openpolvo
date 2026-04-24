@@ -16,6 +16,8 @@ type AgentStatus struct {
 // CheckAgentStatus consulta /readyz e /v1/capabilities no serviço Intelligence.
 type CheckAgentStatus struct {
 	Client *polvointel.Client
+	// LocalCaps devolve se há perfis LLM na BD SQLite com chave por fornecedor (opcional).
+	LocalCaps func(ctx context.Context) (openai bool, google bool)
 }
 
 func (c *CheckAgentStatus) Execute(ctx context.Context) AgentStatus {
@@ -29,10 +31,17 @@ func (c *CheckAgentStatus) Execute(ctx context.Context) AgentStatus {
 	if err != nil {
 		return AgentStatus{}
 	}
-	ok := cap.OpenAIConfigured || cap.GoogleConfigured
+	o := cap.OpenAIConfigured
+	g := cap.GoogleConfigured
+	if c.LocalCaps != nil {
+		lo, lg := c.LocalCaps(ctx)
+		o = o || lo
+		g = g || lg
+	}
+	ok := o || g
 	return AgentStatus{
 		OK:               ok,
-		OpenAIConfigured: cap.OpenAIConfigured,
-		GoogleConfigured: cap.GoogleConfigured,
+		OpenAIConfigured: o,
+		GoogleConfigured: g,
 	}
 }

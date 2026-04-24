@@ -9,6 +9,7 @@ import (
 	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	"github.com/open-polvo/open-polvo/internal/tasklists/ports"
+	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 // TaskExecutorClient implementa ports.TaskExecutor chamando o serviço Python
@@ -46,7 +47,7 @@ func (e *TaskExecutorClient) ExecuteTask(ctx context.Context, req ports.TaskExec
 		user += fmt.Sprintf("\n\nDetalhes: %s", d)
 	}
 
-	text, err := e.client.GenerateText(ctx, mp, sys, user)
+	text, err := e.client.GenerateText(ctx, mp, wfports.LLMOverrides{}, sys, user)
 	if err != nil {
 		return ports.TaskExecutionResult{}, fmt.Errorf("task executor: %w", err)
 	}

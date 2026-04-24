@@ -16,6 +16,7 @@ import (
 	"github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	convports "github.com/open-polvo/open-polvo/internal/conversations/ports"
+	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
 )
 
 func truncateForClientErr(s string, maxRunes int) string {
@@ -39,6 +40,7 @@ type ConversationHandlers struct {
 	DeleteConversation *application.DeleteConversation
 	PinConversation    *application.PinConversation
 	RenameConversation *application.RenameConversation
+	AgentMemoryRepo    convports.AgentMemoryRepository
 }
 
 func formatTimeUTC(t time.Time) string {
@@ -91,8 +93,9 @@ type pinConversationRequest struct {
 }
 
 type postMessageRequest struct {
-	Text          string `json:"text"`
-	ModelProvider string `json:"model_provider,omitempty"`
+	Text           string `json:"text"`
+	ModelProvider  string `json:"model_provider,omitempty"`
+	LLMProfileID   string `json:"llm_profile_id,omitempty"`
 }
 
 func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.Request) {
@@ -259,14 +262,27 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	var profID *uuid.UUID
+	if strings.TrimSpace(req.LLMProfileID) != "" {
+		p, err := uuid.Parse(strings.TrimSpace(req.LLMProfileID))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid llm_profile_id")
+			return
+		}
+		profID = &p
+	}
 	msgs, err := h.SendMessage.Execute(r.Context(), application.SendMessageCommand{
 		UserID:         uid,
 		ConversationID: cid,
 		Text:           req.Text,
 		ModelProvider:  mp,
+		LLMProfileID:   profID,
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, llmapp.ErrProfileNotFound):
+			writeError(w, http.StatusBadRequest, "llm profile not found")
+			return
 		case errors.Is(err, convports.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not found")
 			return
@@ -413,6 +429,15 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	var profID *uuid.UUID
+	if strings.TrimSpace(req.LLMProfileID) != "" {
+		p, err := uuid.Parse(strings.TrimSpace(req.LLMProfileID))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid llm_profile_id")
+			return
+		}
+		profID = &p
+	}
 
 	// Prepara: guarda mensagem do utilizador, abre stream Python.
 	result, err := h.StreamMsg.Prepare(r.Context(), application.StreamMessageCommand{
@@ -420,9 +445,13 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		ConversationID: cid,
 		Text:           req.Text,
 		ModelProvider:  mp,
+		LLMProfileID:   profID,
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, llmapp.ErrProfileNotFound):
+			writeError(w, http.StatusBadRequest, "llm profile not found")
+			return
 		case errors.Is(err, convports.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not found")
 		case errors.Is(err, convports.ErrEmptyMessage):
@@ -555,4 +584,104 @@ func (h *ConversationHandlers) PinConversationHandler(w http.ResponseWriter, r *
 		return
 	}
 	writeJSON(w, http.StatusOK, toConversationDTO(*c))
+}
+
+type agentMemoryDTO struct {
+	Global  string `json:"global"`
+	Builder string `json:"builder"`
+}
+
+// GetAgentMemory GET /v1/conversations/{id}/agent-memory
+func (h *ConversationHandlers) GetAgentMemory(w http.ResponseWriter, r *http.Request) {
+	if h.AgentMemoryRepo == nil {
+		writeError(w, http.StatusNotImplemented, "agent memory not configured")
+		return
+	}
+	uidStr, _, ok := UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid user")
+		return
+	}
+	cid, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	if _, err := h.GetConversationUC.Execute(r.Context(), cid, uid); err != nil {
+		if errors.Is(err, convports.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to verify conversation")
+		return
+	}
+	mem, err := h.AgentMemoryRepo.Get(r.Context(), cid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load agent memory")
+		return
+	}
+	writeJSON(w, http.StatusOK, agentMemoryDTO{Global: mem.Global, Builder: mem.Builder})
+}
+
+type patchAgentMemoryRequest struct {
+	Global  *string `json:"global"`
+	Builder *string `json:"builder"`
+}
+
+// PatchAgentMemory PATCH /v1/conversations/{id}/agent-memory
+func (h *ConversationHandlers) PatchAgentMemory(w http.ResponseWriter, r *http.Request) {
+	if h.AgentMemoryRepo == nil {
+		writeError(w, http.StatusNotImplemented, "agent memory not configured")
+		return
+	}
+	uidStr, _, ok := UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid user")
+		return
+	}
+	cid, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	if _, err := h.GetConversationUC.Execute(r.Context(), cid, uid); err != nil {
+		if errors.Is(err, convports.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to verify conversation")
+		return
+	}
+	var req patchAgentMemoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	cur, err := h.AgentMemoryRepo.Get(r.Context(), cid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load agent memory")
+		return
+	}
+	next := domain.AgentMemory{Global: cur.Global, Builder: cur.Builder}
+	if req.Global != nil {
+		next.Global = truncateForClientErr(strings.TrimSpace(*req.Global), 8000)
+	}
+	if req.Builder != nil {
+		next.Builder = truncateForClientErr(strings.TrimSpace(*req.Builder), 8000)
+	}
+	if err := h.AgentMemoryRepo.Upsert(r.Context(), cid, next); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save agent memory")
+		return
+	}
+	writeJSON(w, http.StatusOK, agentMemoryDTO{Global: next.Global, Builder: next.Builder})
 }

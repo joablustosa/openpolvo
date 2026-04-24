@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
+	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
 	wfdomain "github.com/open-polvo/open-polvo/internal/workflows/domain"
+	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 type WorkflowHandlers struct {
@@ -25,6 +29,7 @@ type WorkflowHandlers struct {
 	Generate      *wfapp.GenerateWorkflow
 	SaveGenerated *wfapp.SaveGeneratedWorkflow
 	ListRuns      *wfapp.ListWorkflowRuns
+	LLMResolve    *llmapp.Resolver
 }
 
 type workflowDTO struct {
@@ -291,6 +296,7 @@ type generateBody struct {
 	Prompt        string `json:"prompt"`
 	RecordingJSON string `json:"recording_json,omitempty"`
 	ModelProvider string `json:"model_provider,omitempty"`
+	LlmProfileID  string `json:"llm_profile_id,omitempty"`
 	SaveTitle     string `json:"save_title,omitempty"`
 }
 
@@ -317,7 +323,37 @@ func (h *WorkflowHandlers) PostWorkflowGenerate(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
-	g, raw, err := h.Generate.Execute(r.Context(), mp, body.Prompt, body.RecordingJSON)
+	var explicitProf *uuid.UUID
+	if strings.TrimSpace(body.LlmProfileID) != "" {
+		pid, err := uuid.Parse(strings.TrimSpace(body.LlmProfileID))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid llm_profile_id")
+			return
+		}
+		explicitProf = &pid
+	}
+	repIn := agentports.ReplyInput{ModelProvider: mp}
+	if h.LLMResolve != nil {
+		if err := h.LLMResolve.ApplyToReplyInput(r.Context(), &repIn, mp, explicitProf); err != nil {
+			if errors.Is(err, llmapp.ErrProfileNotFound) {
+				writeError(w, http.StatusBadRequest, "llm profile not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to resolve llm")
+			return
+		}
+	}
+	mpOut := repIn.ModelProvider
+	if mpOut == "" {
+		mpOut = mp
+	}
+	ov := wfports.LLMOverrides{
+		OpenAIAPIKey: repIn.OpenAIAPIKey,
+		GoogleAPIKey: repIn.GoogleAPIKey,
+		OpenAIModel:  repIn.OpenAIModel,
+		GoogleModel:  repIn.GoogleModel,
+	}
+	g, raw, err := h.Generate.Execute(r.Context(), mpOut, ov, body.Prompt, body.RecordingJSON)
 	if err != nil {
 		if errors.Is(err, wfapp.ErrLLMNotConfigured) {
 			writeError(w, http.StatusServiceUnavailable, "LLM not configured")

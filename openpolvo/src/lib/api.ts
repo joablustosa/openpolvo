@@ -36,3 +36,32 @@ export function apiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${base}${p}`;
 }
+
+function clearAuthSession(): void {
+  try {
+    localStorage.removeItem("smartagent_auth_token");
+    localStorage.removeItem("smartagent_target_url");
+  } catch {
+    // ignore
+  }
+}
+
+export async function fetchApi(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const res = await fetch(apiUrl(path), init);
+  if (res.status === 401) {
+    clearAuthSession();
+    if (typeof window !== "undefined") {
+      const cur = window.location.pathname + window.location.search + window.location.hash;
+      try {
+        if (cur && cur !== "/login") localStorage.setItem("smartagent_target_url", cur);
+      } catch {
+        // ignore
+      }
+      window.location.href = "/login";
+    }
+  }
+  return res;
+}

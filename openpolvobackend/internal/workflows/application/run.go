@@ -5,13 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
+	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
 	wfdomain "github.com/open-polvo/open-polvo/internal/workflows/domain"
 	"github.com/open-polvo/open-polvo/internal/workflows/engine"
@@ -24,6 +27,7 @@ type RunWorkflow struct {
 	Workflows ports.WorkflowRepository
 	Runs      ports.RunRepository
 	LLM       wfports.IntelligenceService
+	LLMResolve *llmapp.Resolver
 	// ModelProvider usado para nós llm no grafo.
 	DefaultModel domain.ModelProvider
 	RunnerCfg    engine.RunnerConfig
@@ -53,6 +57,15 @@ func DefaultRunnerConfig() engine.RunnerConfig {
 			if h != "" {
 				cfg.ExtraHosts = append(cfg.ExtraHosts, h)
 			}
+		}
+	}
+	// SerpApi DuckDuckGo (web_search node)
+	cfg.SerpAPIKey = strings.TrimSpace(os.Getenv("SERPAPI_API_KEY"))
+	cfg.SerpDdgKl = strings.TrimSpace(os.Getenv("SERPAPI_DDG_KL"))
+	if strings.TrimSpace(os.Getenv("SERPAPI_DDG_SAFE")) != "" {
+		// safe: 1 strict, -1 moderate, -2 off
+		if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SERPAPI_DDG_SAFE"))); err == nil {
+			cfg.SerpDdgSafe = v
 		}
 	}
 	return cfg
@@ -102,11 +115,26 @@ func (uc *RunWorkflow) Execute(ctx context.Context, userID, workflowID uuid.UUID
 		mp = domain.ModelOpenAI
 	}
 
+	repIn := agentports.ReplyInput{ModelProvider: mp}
+	if uc.LLMResolve != nil {
+		_ = uc.LLMResolve.ApplyToReplyInput(ctx, &repIn, mp, nil)
+	}
+	mpUsed := repIn.ModelProvider
+	if mpUsed == "" {
+		mpUsed = mp
+	}
+	ov := wfports.LLMOverrides{
+		OpenAIAPIKey: repIn.OpenAIAPIKey,
+		GoogleAPIKey: repIn.GoogleAPIKey,
+		OpenAIModel:  repIn.OpenAIModel,
+		GoogleModel:  repIn.GoogleModel,
+	}
+
 	var llmFn engine.LLMInvoker
 	if uc.LLM != nil {
 		llmFn = func(c context.Context, prompt string) (string, error) {
 			sys := "És um assistente que devolve respostas curtas e úteis para automação."
-			return uc.LLM.GenerateText(c, mp, sys, prompt)
+			return uc.LLM.GenerateText(c, mpUsed, ov, sys, prompt)
 		}
 	}
 

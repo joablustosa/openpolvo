@@ -1,4 +1,4 @@
-import { apiUrl } from "./api";
+import { fetchApi } from "./api";
 import { ApiError } from "./apiErrors";
 
 async function ensureOk(res: Response, fallbackLabel: string): Promise<void> {
@@ -10,7 +10,7 @@ async function ensureOk(res: Response, fallbackLabel: string): Promise<void> {
   throw new ApiError(res.status, msg);
 }
 
-export type ModelProvider = "openai" | "google";
+export type ModelProvider = "openai" | "google" | "auto";
 
 export type ConversationDTO = {
   id: string;
@@ -40,7 +40,7 @@ function headersJson(token: string): HeadersInit {
 export async function fetchConversations(
   token: string,
 ): Promise<ConversationDTO[]> {
-  const res = await fetch(apiUrl("/v1/conversations"), {
+  const res = await fetchApi("/v1/conversations", {
     headers: headersJson(token),
   });
   await ensureOk(res, "conversas");
@@ -51,7 +51,7 @@ export async function createConversation(
   token: string,
   body: { title?: string; default_model_provider?: ModelProvider },
 ): Promise<ConversationDTO> {
-  const res = await fetch(apiUrl("/v1/conversations"), {
+  const res = await fetchApi("/v1/conversations", {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify(body),
@@ -64,7 +64,7 @@ export async function fetchMessages(
   token: string,
   conversationId: string,
 ): Promise<MessageDTO[]> {
-  const res = await fetch(apiUrl(`/v1/conversations/${conversationId}/messages`), {
+  const res = await fetchApi(`/v1/conversations/${conversationId}/messages`, {
     headers: headersJson(token),
   });
   await ensureOk(res, "mensagens");
@@ -74,9 +74,9 @@ export async function fetchMessages(
 export async function postMessage(
   token: string,
   conversationId: string,
-  body: { text: string; model_provider?: ModelProvider },
+  body: { text: string; model_provider?: ModelProvider; llm_profile_id?: string },
 ): Promise<MessageDTO[]> {
-  const res = await fetch(apiUrl(`/v1/conversations/${conversationId}/messages`), {
+  const res = await fetchApi(`/v1/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify(body),
@@ -89,7 +89,7 @@ export async function deleteConversation(
   token: string,
   conversationId: string,
 ): Promise<void> {
-  const res = await fetch(apiUrl(`/v1/conversations/${conversationId}`), {
+  const res = await fetchApi(`/v1/conversations/${conversationId}`, {
     method: "DELETE",
     headers: headersJson(token),
   });
@@ -101,7 +101,7 @@ export async function renameConversation(
   conversationId: string,
   title: string,
 ): Promise<ConversationDTO> {
-  const res = await fetch(apiUrl(`/v1/conversations/${conversationId}`), {
+  const res = await fetchApi(`/v1/conversations/${conversationId}`, {
     method: "PATCH",
     headers: headersJson(token),
     body: JSON.stringify({ title }),
@@ -144,12 +144,12 @@ export type StreamEvent =
 export async function streamMessage(
   token: string,
   conversationId: string,
-  body: { text: string; model_provider?: ModelProvider },
+  body: { text: string; model_provider?: ModelProvider; llm_profile_id?: string },
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(
-    apiUrl(`/v1/conversations/${conversationId}/messages/stream`),
+  const res = await fetchApi(
+    `/v1/conversations/${conversationId}/messages/stream`,
     {
       method: "POST",
       headers: {
@@ -192,7 +192,7 @@ export async function pinConversation(
   conversationId: string,
   pinned: boolean,
 ): Promise<ConversationDTO> {
-  const res = await fetch(apiUrl(`/v1/conversations/${conversationId}/pin`), {
+  const res = await fetchApi(`/v1/conversations/${conversationId}/pin`, {
     method: "POST",
     headers: headersJson(token),
     body: JSON.stringify({ pinned }),

@@ -57,3 +57,7 @@ Thumbs.db
 
 # Claude Code local overrides (não versionar)
 **/.claude/settings.local.json
+
+scripts/
+.cursor/
+.claude/

@@ -29,6 +29,7 @@ import {
   createScheduledTask,
   updateScheduledTask,
   deleteScheduledTask,
+  runScheduledTaskNow,
   cronToHuman,
   type ScheduledTaskDTO,
   type CreateScheduledTaskInput,
@@ -48,6 +49,7 @@ type FormState = {
   // agent_prompt payload
   prompt: string;
   send_email: boolean;
+  email_to: string;
   email_subject: string;
   include_tasks: boolean;
   include_finance: boolean;
@@ -65,6 +67,7 @@ const DEFAULT_FORM: FormState = {
   active: true,
   prompt: "",
   send_email: false,
+  email_to: "",
   email_subject: "",
   include_tasks: true,
   include_finance: false,
@@ -83,6 +86,7 @@ function taskToForm(t: ScheduledTaskDTO): FormState {
     active: t.active,
     prompt: String(p.prompt ?? ""),
     send_email: Boolean(p.send_email),
+    email_to: String(p.email_to ?? ""),
     email_subject: String(p.email_subject ?? ""),
     include_tasks: p.include_tasks !== false,
     include_finance: Boolean(p.include_finance),
@@ -97,6 +101,7 @@ function formToInput(f: FormState): CreateScheduledTaskInput {
       ? {
           prompt: f.prompt.trim(),
           send_email: f.send_email,
+          email_to: f.email_to.trim(),
           email_subject: f.email_subject.trim(),
           include_tasks: f.include_tasks,
           include_finance: f.include_finance,
@@ -125,6 +130,7 @@ const CRON_PRESETS = [
   { label: "Toda segunda às 9h", value: "0 9 * * 1" },
   { label: "Dias úteis às 8h", value: "0 8 * * 1-5" },
   { label: "A cada hora", value: "0 * * * *" },
+  { label: "A cada minuto (teste)", value: "*/1 * * * *" },
   { label: "1º de cada mês às 9h", value: "0 9 1 * *" },
 ];
 
@@ -169,11 +175,13 @@ function TaskCard({
   onEdit,
   onDelete,
   onToggle,
+  onRunNow,
 }: {
   task: ScheduledTaskDTO;
   onEdit: (t: ScheduledTaskDTO) => void;
   onDelete: (id: string) => void;
   onToggle: (id: string, active: boolean) => void;
+  onRunNow: (id: string) => void;
 }) {
   const isPrompt = task.task_type === "agent_prompt";
   return (
@@ -212,6 +220,15 @@ function TaskCard({
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          title="Executar agora"
+          onClick={() => onRunNow(task.id)}
+        >
+          <RefreshCw size={14} />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -323,15 +340,27 @@ function FormPanel({
               label="Enviar resultado por email"
             />
             {form.send_email && (
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium">Assunto do email</label>
-                <Input
-                  value={form.email_subject}
-                  onChange={(e) => set("email_subject", e.target.value)}
-                  placeholder="Ex: Resumo do dia — Open Polvo"
-                  className="h-8 text-sm"
-                />
-              </div>
+              <>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Destinatário (e-mail) *</label>
+                  <Input
+                    value={form.email_to}
+                    onChange={(e) => set("email_to", e.target.value)}
+                    type="email"
+                    placeholder="quem.recebe@exemplo.com"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium">Assunto do email</label>
+                  <Input
+                    value={form.email_subject}
+                    onChange={(e) => set("email_subject", e.target.value)}
+                    placeholder="Ex: Resumo do dia — Open Polvo"
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </>
             )}
             <Toggle
               id="inc-tasks"
@@ -451,7 +480,7 @@ export function AutomacoesPage() {
       setLoading(true);
       setError(null);
       const [ts, tls] = await Promise.all([
-        listScheduledTasks(),
+        token ? listScheduledTasks(token) : Promise.resolve([]),
         token ? fetchTaskLists(token) : Promise.resolve([]),
       ]);
       setTasks(ts);
@@ -480,16 +509,25 @@ export function AutomacoesPage() {
   };
 
   const handleSave = async () => {
+    if (!token) {
+      setError("Sessão expirada. Faça login novamente.");
+      return;
+    }
+    setError(null);
     if (!form.name.trim() || !form.cron_expr.trim()) return;
     if (form.task_type === "agent_prompt" && !form.prompt.trim()) return;
+    if (form.task_type === "agent_prompt" && form.send_email && !form.email_to.trim()) {
+      setError("Indique o destinatário (e-mail) quando o envio por email estiver activo.");
+      return;
+    }
     if (form.task_type === "run_task_list" && !form.task_list_id) return;
     setSaving(true);
     try {
       const input = formToInput(form);
       if (editingId) {
-        await updateScheduledTask(editingId, input);
+        await updateScheduledTask(token, editingId, input);
       } else {
-        await createScheduledTask(input);
+        await createScheduledTask(token, input);
       }
       setShowForm(false);
       await load();
@@ -502,8 +540,12 @@ export function AutomacoesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Apagar esta automação?")) return;
+    if (!token) {
+      setError("Sessão expirada. Faça login novamente.");
+      return;
+    }
     try {
-      await deleteScheduledTask(id);
+      await deleteScheduledTask(token, id);
       await load();
     } catch (e) {
       setError(String(e));
@@ -511,9 +553,26 @@ export function AutomacoesPage() {
   };
 
   const handleToggle = async (id: string, active: boolean) => {
+    if (!token) {
+      setError("Sessão expirada. Faça login novamente.");
+      return;
+    }
     try {
-      await updateScheduledTask(id, { active });
+      await updateScheduledTask(token, id, { active });
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, active } : t)));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleRunNow = async (id: string) => {
+    if (!token) {
+      setError("Sessão expirada. Faça login novamente.");
+      return;
+    }
+    try {
+      await runScheduledTaskNow(token, id);
+      await load();
     } catch (e) {
       setError(String(e));
     }
@@ -590,6 +649,7 @@ export function AutomacoesPage() {
               onEdit={openEdit}
               onDelete={(id) => void handleDelete(id)}
               onToggle={(id, active) => void handleToggle(id, active)}
+              onRunNow={(id) => void handleRunNow(id)}
             />
           ))}
         </div>

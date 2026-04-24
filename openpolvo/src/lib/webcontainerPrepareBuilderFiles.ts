@@ -228,7 +228,12 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  server: { host: true },
+  server: {
+    host: true,
+    headers: {
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    },
+  },
 });
 `,
   );
@@ -418,6 +423,99 @@ function ensureSyntheticPackageJsonIfEligible(map: Map<string, string>): void {
   map.set("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
+/**
+ * Devolve `true` se o package.json tem um script `dev` que invoca o Vite
+ * directamente (não Next.js, não CRA, não webpack).
+ */
+function pkgDevScriptUsesVite(map: Map<string, string>): boolean {
+  const k = getKeyCaseInsensitive(map, "package.json");
+  if (!k) return false;
+  try {
+    const parsed = JSON.parse(map.get(k) ?? "{}") as {
+      scripts?: Record<string, string>;
+    };
+    const dev = (parsed.scripts?.dev ?? parsed.scripts?.start ?? "").toLowerCase().trim();
+    return (
+      dev.includes("vite") &&
+      !dev.includes("next") &&
+      !dev.includes("react-scripts") &&
+      !dev.includes("webpack")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Quando o agente gera um `package.json` com `"dev": "vite"` mas SEM `vite.config.*`,
+ * o Vite arranca com configuração padrão: sem `server.host`, sem CORP headers.
+ * Resultado: iframe fica em branco apesar do servidor estar pronto.
+ *
+ * Esta função injeta um `vite.config.ts` mínimo com:
+ *   - `server.host: true` (expõe o servidor no WebContainer)
+ *   - `server.headers: { Cross-Origin-Resource-Policy: cross-origin }` (fix iframe branco)
+ *   - plugin React (se houver .tsx/.jsx)
+ *
+ * Deve ser chamada DEPOIS de `ensureMinimalViteWhenReactWithoutTooling` (que já trata
+ * o caso sem package.json) e ANTES de `ensureRootIndexHtmlForVite` + `patchAnyViteConfig`.
+ */
+function ensureViteConfigWhenPackageJsonUsesVite(map: Map<string, string>): void {
+  if (!mapHasPackageJson(map)) return; // Sem package.json: outro handler trata
+  if (mapHasViteConfig(map)) return; // Já tem vite.config → patchAnyViteConfig vai corrigi-lo
+  if (!pkgDevScriptUsesVite(map)) return; // Não usa Vite
+
+  const isReact = mapHasReactLikeSource(map);
+
+  if (isReact) {
+    map.set(
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+// vite.config injectado automaticamente pelo Open Polvo Builder Preview
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: true,
+    hmr: { overlay: false },
+    headers: {
+      "Cross-Origin-Resource-Policy": "cross-origin", // open-polvo-corp
+    },
+  },
+});
+`,
+    );
+    // Garante que vite e plugin-react estão presentes nas devDeps
+    mergePackageJsonDeps(map, {
+      devDependencies: {
+        vite: "^6.2.0",
+        "@vitejs/plugin-react": "^4.4.0",
+        typescript: "~5.7.0",
+      },
+    });
+  } else {
+    map.set(
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+
+// vite.config injectado automaticamente pelo Open Polvo Builder Preview
+export default defineConfig({
+  server: {
+    host: true,
+    hmr: { overlay: false },
+    headers: {
+      "Cross-Origin-Resource-Policy": "cross-origin", // open-polvo-corp
+    },
+  },
+});
+`,
+    );
+    mergePackageJsonDeps(map, {
+      devDependencies: { vite: "^6.2.0", typescript: "~5.7.0" },
+    });
+  }
+}
+
 function cloneFiles(files: BuilderFile[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const f of files) {
@@ -491,11 +589,69 @@ function patchViteConfigHmrOverlayOff(content: string): string {
   return content.replace(/(\bserver\s*:\s*\{)/, "$1\n    hmr: { overlay: false },");
 }
 
+/**
+ * A shell Open Polvo tem COOP+COEP `require-corp` (necessário para o WebContainer).
+ * O iframe de preview corre noutra origem; sem CORP no Vite dev server do projecto
+ * gerado, o browser bloqueia o conteúdo → iframe fica em branco.
+ *
+ * Ordem: (1) primeiro bloco `headers: {` no ficheiro — típico `server.headers` com
+ * `hmr: { }` aninhado; (2) senão inject em `server: {`; (3) senão bloco `server` após
+ * `defineConfig(`; (4) senão plugin no array `plugins`.
+ */
+function patchViteConfigCorpForEmbeddedPreview(content: string): string {
+  if (/open-polvo-corp/.test(content)) return content;
+  if (/Cross-Origin-Resource-Policy/i.test(content)) return content;
+
+  const headersOpen = /\bheaders\s*:\s*\{/.exec(content);
+  if (headersOpen && headersOpen.index !== undefined) {
+    const insertAt = headersOpen.index + headersOpen[0].length;
+    return (
+      content.slice(0, insertAt) +
+      '\n      "Cross-Origin-Resource-Policy": "cross-origin", // open-polvo-corp' +
+      content.slice(insertAt)
+    );
+  }
+
+  if (/\bserver\s*:\s*\{/.test(content)) {
+    return content.replace(
+      /(\bserver\s*:\s*\{)/,
+      `$1\n    headers: { "Cross-Origin-Resource-Policy": "cross-origin" }, // open-polvo-corp`,
+    );
+  }
+
+  const dm = content.match(/defineConfig\s*\(\s*(?:async\s*)?\{/);
+  if (dm && dm.index !== undefined) {
+    const insertAt = dm.index + dm[0].length;
+    return (
+      content.slice(0, insertAt) +
+      '\n  server: { host: true, headers: { "Cross-Origin-Resource-Policy": "cross-origin" } }, // open-polvo-corp' +
+      content.slice(insertAt)
+    );
+  }
+
+  const plugin = `{
+      name: "open-polvo-corp",
+      configureServer(server) {
+        server.middlewares.use((_req, res, next) => {
+          res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+          next();
+        });
+      },
+    }`;
+
+  if (/plugins\s*:\s*\[/.test(content)) {
+    return content.replace(/(plugins\s*:\s*\[)/, `$1\n    ${plugin},`);
+  }
+
+  return content;
+}
+
 function patchAnyViteConfig(map: Map<string, string>): void {
   for (const [name, cur] of map.entries()) {
     if (!/^vite\.config\.(ts|mts|js|mjs|cjs)$/i.test(fileBasenameLower(name))) continue;
     let next = patchViteConfigForWebContainerHost(cur);
     next = patchViteConfigHmrOverlayOff(next);
+    next = patchViteConfigCorpForEmbeddedPreview(next);
     if (next !== cur) map.set(name, next);
   }
 }
@@ -529,6 +685,89 @@ function postcssReferencesTailwindStack(content: string): boolean {
   );
 }
 
+/** Imports estilo shadcn (`@/components/...`) — exigem `resolve.alias` no Vite. */
+function mapUsesAtPathImports(map: Map<string, string>): boolean {
+  const re = /["']@\//;
+  for (const [p, c] of map.entries()) {
+    if (!/\.(tsx|ts|jsx|js)$/i.test(p)) continue;
+    if (re.test(c) || /import\s*\(\s*["']@\//.test(c)) return true;
+  }
+  return false;
+}
+
+function mapUsesFramerMotion(map: Map<string, string>): boolean {
+  for (const [p, c] of map.entries()) {
+    if (!/\.(tsx|ts|jsx|js)$/i.test(p)) continue;
+    if (/from\s*["']framer-motion(\/|["'])/.test(c)) return true;
+  }
+  return false;
+}
+
+function viteConfigDeclaresAtAlias(content: string): boolean {
+  return /\balias\s*:\s*\{[\s\S]*?["']@["']\s*:/.test(content) || /["']@["']\s*:\s*/.test(content);
+}
+
+/** Garante `path` + `__openPolvoDirname` para alias `@` → `src` (dirname do vite.config). */
+function prependViteDirnameForAlias(content: string): string {
+  if (/__openPolvoDirname/.test(content)) return content;
+  const block =
+    'import path from "node:path";\nimport { fileURLToPath } from "node:url";\nconst __openPolvoDirname = path.dirname(fileURLToPath(import.meta.url));\n';
+  const m = content.match(/^(\s*import[^;\n]+;\s*\n)+/m);
+  if (m && m[0].length > 0) {
+    return content.slice(0, m[0].length) + block + content.slice(m[0].length);
+  }
+  return block + content;
+}
+
+/**
+ * O modelo frequentemente gera `@/…` e `framer-motion` sem `vite.resolve.alias` / deps.
+ * Corrige para o dev server no WebContainer (e Electron) resolver como no Claude/IDE local.
+ */
+function ensureViteAliasAtAndFramerMotion(map: Map<string, string>): void {
+  const needsAt = mapUsesAtPathImports(map);
+  const needsMotion = mapUsesFramerMotion(map);
+  if (!needsAt && !needsMotion) return;
+
+  if (needsMotion) {
+    mergePackageJsonDeps(map, {
+      dependencies: { "framer-motion": "^11.18.0" },
+    });
+  }
+
+  if (!needsAt) return;
+
+  mergePackageJsonDeps(map, {
+    devDependencies: { "@types/node": "^22.10.0" },
+  });
+
+  const aliasEntry = '      "@": path.join(__openPolvoDirname, "src"),\n';
+
+  for (const [name, cur] of [...map.entries()]) {
+    if (!/^vite\.config\.(ts|mts|js|mjs|cjs)$/i.test(fileBasenameLower(name))) continue;
+    if (viteConfigDeclaresAtAlias(cur)) continue;
+
+    let next = prependViteDirnameForAlias(cur);
+
+    if (/\bresolve\s*:\s*\{[\s\S]*?\balias\s*:\s*\{/.test(next)) {
+      next = next.replace(/(\balias\s*:\s*\{)/, `$1\n${aliasEntry}`);
+    } else if (/\bresolve\s*:\s*\{/.test(next)) {
+      next = next.replace(/(\bresolve\s*:\s*\{)/, `$1\n    alias: {\n${aliasEntry}    },`);
+    } else {
+      const syncObj = next.match(/defineConfig\s*\(\s*\{/);
+      const asyncObj = next.match(/defineConfig\s*\(\s*async\s*\(\s*\)\s*=>\s*\{/);
+      const dm = syncObj ?? asyncObj;
+      if (dm && dm.index !== undefined) {
+        const insertAt = dm.index + dm[0].length;
+        next = `${next.slice(0, insertAt)}\n  resolve: {\n    alias: {\n${aliasEntry}    },\n  },${next.slice(insertAt)}`;
+      }
+    }
+
+    if (viteConfigDeclaresAtAlias(next)) {
+      map.set(name, next);
+    }
+  }
+}
+
 function mergePackageJsonDeps(
   map: Map<string, string>,
   extra: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> },
@@ -547,8 +786,9 @@ function mergePackageJsonDeps(
       typeof pkg.devDependencies === "object" && pkg.devDependencies
         ? (pkg.devDependencies as Record<string, string>)
         : {};
-    pkg.dependencies = { ...prevDep, ...(extra.dependencies || {}) };
-    pkg.devDependencies = { ...prevDev, ...(extra.devDependencies || {}) };
+    // Spread: extra primeiro, prevDep/prevDev depois — preserva versões existentes
+    pkg.dependencies = { ...(extra.dependencies || {}), ...prevDep };
+    pkg.devDependencies = { ...(extra.devDependencies || {}), ...prevDev };
     map.set(k, JSON.stringify(pkg, null, 2) + "\n");
   } catch {
     // ignore JSON inválido
@@ -607,8 +847,10 @@ function patchPostcssTailwindInterop(map: Map<string, string>): void {
 
 /** Registo do Vite indica falha PostCSS/Tailwind conhecida. */
 export function shouldRepairFromViteLog(log: string): boolean {
-  return /ENOENT.*tailwindcss|open\s+['"]tailwindcss['"]|\[plugin:vite:css\][\s\S]{0,200}postcss/i.test(
-    log,
+  return (
+    /ENOENT.*tailwindcss|open\s+['"]tailwindcss['"]|\[plugin:vite:css\][\s\S]{0,200}postcss/i.test(log) ||
+    (/could not be resolved|failed to resolve|does not provide an export/i.test(log) &&
+      (/@\/|framer-motion/i.test(log)))
   );
 }
 
@@ -620,6 +862,10 @@ export function repairBuilderFilesFromViteLog(files: BuilderFile[], log: string)
   if (!shouldRepairFromViteLog(log)) return files;
   const map = cloneFiles(files);
   patchPostcssTailwindInterop(map);
+  if (/could not be resolved|failed to resolve/i.test(log) && /@\/|framer-motion/i.test(log)) {
+    ensureViteAliasAtAndFramerMotion(map);
+    patchAnyViteConfig(map);
+  }
   return toBuilderFiles(map);
 }
 
@@ -727,7 +973,7 @@ export function explainWebContainerPrepareFailure(
 ): string {
   if (!rawFiles.length) {
     return (
-      "O artefacto do builder chegou sem ficheiros (`files` vazio). Causas frequentes: o integrador só devolveu `preview_html`; o JSON do LLM veio incompleto; ou a coluna `metadata` na base de dados truncou o payload. Confirme na mensagem assistente (campo metadata) e nos logs do Open Polvo Intelligence."
+      "O artefacto do builder chegou sem ficheiros (`files` vazio). Causas frequentes: o JSON do LLM veio incompleto; a coluna `metadata` truncou o payload; ou o integrador não devolveu a lista de ficheiros. Confirme na mensagem assistente (metadata) e nos logs do Open Polvo Intelligence."
     );
   }
   if (!hasPackageJson(preparedFiles)) {
@@ -753,15 +999,36 @@ export function prepareBuilderFilesForWebContainer(
   opts?: PrepareWebContainerOptions,
 ): BuilderFile[] {
   const map = cloneFiles(files);
+
+  // ── 1. Manifests e entry points ──────────────────────────────────────────────
   ensureSyntheticNextPackageJsonIfEligible(map, opts);
   ensureReactEntryShimForStandaloneApp(map);
   ensureMinimalViteWhenReactWithoutTooling(map);
+
+  // ── 2. Vite config: garante que SEMPRE existe quando Vite é usado ─────────────
+  // Crítico: sem vite.config.ts o Vite arranca sem server.host nem CORP headers
+  // → iframe fica em branco apesar do servidor estar pronto (COEP require-corp).
+  ensureViteConfigWhenPackageJsonUsesVite(map);
+
+  // ── 3. Index.html na raiz (Vite precisa) ─────────────────────────────────────
   ensureRootIndexHtmlForVite(map);
+
+  // ── 4. Package.json sintético se ainda faltar ─────────────────────────────────
   ensureSyntheticPackageJsonIfEligible(map);
+
+  // ── 5. Patches ao vite.config existente (host, hmr overlay, CORP) ────────────
   patchAnyViteConfig(map);
+
+  // ── 5b. Alias `@` + framer-motion (modelo shadcn / landing sem vite completo) ─
+  ensureViteAliasAtAndFramerMotion(map);
+
+  // ── 6. PostCSS/Tailwind interop ───────────────────────────────────────────────
   patchPostcssTailwindInterop(map);
+
+  // ── 7. Ficheiros auxiliares ───────────────────────────────────────────────────
   ensureNpmrc(map);
   ensureCssImportedFromHtmlEntry(map);
   relaxGoogleFontImportsInCss(map);
+
   return toBuilderFiles(map);
 }

@@ -7,6 +7,11 @@
  * (padrão Bolt.new / Lovable). Apenas ao mudar de projecto (projectKey diferente)
  * ou ao chamar `destroy()` explicitamente o container é destruído.
  *
+ * UPDATE INCREMENTAL (padrão Claude / Lovable):
+ *   Quando o utilizador pede alterações ao chat, `init()` detecta que o container já
+ *   está activo para o mesmo projecto e faz patch HMR em vez de re-instalar tudo.
+ *   Só reinstala quando o package.json muda.
+ *
  * COOP / COEP (obrigatório):
  *   vite.config.ts → server.headers: { "Cross-Origin-Opener-Policy": "same-origin",
  *                                       "Cross-Origin-Embedder-Policy": "require-corp" }
@@ -32,7 +37,8 @@ export type ContainerPhase =
   | "installing"
   | "starting"
   | "ready"
-  | "error";
+  | "error"
+  | "updating";
 
 export type ManagerCallbacks = {
   onPhaseChange(phase: ContainerPhase): void;
@@ -49,7 +55,7 @@ let _previewUrl: string | null = null;
 let _projectKey: string | null = null;
 let _mountedFiles: BuilderFile[] | null = null;
 
-/** Fila serial: garante que nunca há dois boots simultâneos. */
+/** Fila serial: garante que nunca há dois boots/patches simultâneos. */
 let _opQueue: Promise<unknown> = Promise.resolve();
 
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -112,9 +118,10 @@ function captureServerUrl(
             `Servidor não ficou pronto em ${Math.round(timeoutMs / 1000)}s.\n\n` +
               "Verificações:\n" +
               "① O script \"dev\" no package.json inclui --host 0.0.0.0\n" +
-              "② vite.config.ts tem server: { host: true }\n" +
+              "② vite.config.ts tem server: { host: true } e porta alinhada com o host (ex.: 5174 + strictPort)\n" +
               "③ Não há erro de compilação no registo acima\n" +
-              "④ O projecto tem index.html na raiz (obrigatório para Vite)",
+              "④ O projecto tem index.html na raiz (obrigatório para Vite)\n" +
+              "⑤ Em Electron, a URL do painel deve usar a mesma porta que o Vite (COOP/COEP activos)",
           ),
         ),
       );
@@ -157,7 +164,31 @@ async function npmInstall(
   onLog("─── npm install --legacy-peer-deps ───\n");
   const proc = await wc.spawn("npm", ["install", "--legacy-peer-deps"], { output: true });
   pipeStream(proc.output, "npm-install", onLog);
-  return proc.exit;
+
+  // Evita ficar preso indefinidamente (rede lenta, npm pendurado, etc.).
+  const timeoutMs = 4 * 60_000;
+  let timedOut = false;
+  const timeout = tick(timeoutMs).then(() => {
+    timedOut = true;
+    try {
+      proc.kill();
+    } catch {
+      // ignore
+    }
+    return 124;
+  });
+
+  const code = await Promise.race([proc.exit, timeout]);
+  if (timedOut) {
+    onLog(
+      `\n⚠️ npm install excedeu ${Math.round(timeoutMs / 1000)}s e foi interrompido.\n` +
+        "Isto costuma acontecer por dependências pesadas, rede lenta, ou resoluções de peer deps.\n" +
+        "Sugestões:\n" +
+        "① Clique em Reiniciar\n" +
+        "② Se persistir, gere um projecto mais leve (menos deps) ou remova libs não essenciais\n\n",
+    );
+  }
+  return code;
 }
 
 async function spawnDev(
@@ -175,7 +206,6 @@ async function spawnDev(
   };
   if (env && Object.keys(env).length > 0) spawnOpts.env = env;
 
-  // Criar proxy da promise de saída ANTES do spawn para registar listeners a tempo
   let resolveExit!: (code: number) => void;
   const exitProxy = new Promise<number>((r) => {
     resolveExit = r;
@@ -225,26 +255,28 @@ export class WebContainerManager {
   // ── API pública ────────────────────────────────────────────────────────────
 
   /**
-   * Restauro instantâneo quando o mesmo projecto já tem servidor activo.
+   * Restauro instantâneo quando o mesmo projecto já tem servidor activo E sem mudanças.
    * Retorna `true` se bem-sucedido — nenhuma operação assíncrona necessária.
    */
   tryFastRestore(projectKey: string, files: BuilderFile[]): boolean {
     if (!_wc || _projectKey !== projectKey || !_previewUrl || !_devProc) return false;
-
-    // Verificar se há mudanças pendentes que precisam de patch
     if (_mountedFiles) {
       const diff = diffBuilderFiles(_mountedFiles, files);
       if (diff.hasChanges) return false;
     }
-
     this._phase("ready");
     this._ready(_previewUrl);
     return true;
   }
 
   /**
-   * Inicialização completa: boot → mount → npm install → servidor dev.
-   * Se o container já está activo com o mesmo projecto, entra no fast-path.
+   * Inicialização completa ou actualização incremental.
+   *
+   * LÓGICA DE DECISÃO (padrão Claude / Lovable):
+   * 1. Mesmo projecto + servidor activo + ficheiros mudaram → patch HMR (sem npm install)
+   * 2. Mesmo projecto + servidor activo + package.json mudou → npm install + restart
+   * 3. Projecto diferente → teardown completo + boot novo
+   * 4. Sem container → boot completo
    */
   async init(files: BuilderFile[], projectKey: string): Promise<void> {
     if (this._detached) return;
@@ -258,7 +290,7 @@ export class WebContainerManager {
     return enqueue(async () => {
       if (this._detached) return;
 
-      // ── Verificação COOP / COEP ──────────────────────────────────────────
+      // ── COOP / COEP ──────────────────────────────────────────────────────
       if (!window.crossOriginIsolated) {
         this._err(
           "crossOriginIsolated = false — o WebContainer requer isolamento cross-origin.\n\n" +
@@ -288,12 +320,18 @@ export class WebContainerManager {
         return;
       }
 
-      // ── Destruir container de projecto diferente ──────────────────────────
+      // ── UPDATE INCREMENTAL: mesmo projecto, container a correr ────────────
+      if (_wc && _projectKey === projectKey && _devProc) {
+        await this._patchRunning(_wc, files, plan.startCommand, plan.startArgs, plan.startEnv);
+        return;
+      }
+
+      // ── Projecto diferente → teardown ─────────────────────────────────────
       if (_wc && _projectKey !== projectKey) {
         await this._hardTeardown();
       }
 
-      // ── Boot único por sessão ──────────────────────────────────────────────
+      // ── Boot único por sessão ─────────────────────────────────────────────
       if (!_wc) {
         this._phase("booting");
         try {
@@ -308,7 +346,6 @@ export class WebContainerManager {
           return;
         }
         if (this._detached) {
-          // O componente desmontou durante o boot — manter container vivo para próxima montagem
           _projectKey = projectKey;
           return;
         }
@@ -317,7 +354,7 @@ export class WebContainerManager {
       const wc = _wc;
       const { startCommand, startArgs, startEnv } = plan;
 
-      // ── Montar ficheiros ───────────────────────────────────────────────────
+      // ── Mount completo ────────────────────────────────────────────────────
       this._phase("mounting");
       const tree = builderFilesToFileSystemTree(files);
       try {
@@ -330,7 +367,7 @@ export class WebContainerManager {
       _projectKey = projectKey;
       if (this._detached) return;
 
-      // ── npm install ────────────────────────────────────────────────────────
+      // ── npm install ───────────────────────────────────────────────────────
       this._phase("installing");
       const code = await npmInstall(wc, this._log.bind(this));
       if (this._detached) return;
@@ -339,10 +376,76 @@ export class WebContainerManager {
         return;
       }
 
-      // ── Servidor dev ───────────────────────────────────────────────────────
+      // ── Servidor dev ──────────────────────────────────────────────────────
       this._phase("starting");
       await this._launchServer(wc, startCommand, startArgs, startEnv, files);
     });
+  }
+
+  /**
+   * Patch incremental num container já a correr (mesmo projecto).
+   * - Só source files → HMR automático, sem paragens
+   * - package.json → npm install + restart
+   */
+  private async _patchRunning(
+    wc: WebContainer,
+    files: BuilderFile[],
+    startCmd: string,
+    startArgs: string[],
+    startEnv: Record<string, string | number | boolean> | undefined,
+  ): Promise<void> {
+    if (this._detached) return;
+
+    const diff = diffBuilderFiles(_mountedFiles ?? [], files);
+
+    if (!diff.hasChanges) {
+      // Nada mudou — restaurar URL actual
+      this._phase("ready");
+      if (_previewUrl) this._ready(_previewUrl);
+      return;
+    }
+
+    this._phase("updating");
+    try {
+      await patchWebContainerFiles(wc, diff);
+    } catch (e) {
+      this._err(`Falha ao aplicar patch: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    _mountedFiles = [...files];
+    if (this._detached) return;
+
+    if (!diff.packageJsonChanged && _previewUrl) {
+      // HMR automático pelo Vite — apenas informar o utilizador
+      this._log(
+        `\n─── HMR: ${diff.toWrite.length} ficheiro(s) actualizado(s) ───\n` +
+          diff.toWrite.map((f) => `  ✓ ${normalizeFsPath(f.path)}`).join("\n") +
+          (diff.toDelete.length > 0
+            ? "\n" + diff.toDelete.map((p) => `  ✗ ${normalizeFsPath(p)}`).join("\n")
+            : "") +
+          "\n",
+      );
+      this._phase("ready");
+      this._ready(_previewUrl);
+      return;
+    }
+
+    // package.json mudou → reinstalar dependências e reiniciar servidor
+    this._log("\n─── package.json alterado — a reinstalar dependências ───\n");
+    try { _devProc?.kill(); } catch { /* ignore */ }
+    _devProc = null;
+    _previewUrl = null;
+
+    this._phase("installing");
+    const code = await npmInstall(wc, this._log.bind(this));
+    if (this._detached) return;
+    if (code !== 0) {
+      this._err(`npm install falhou após actualização (código ${code}).`);
+      return;
+    }
+
+    this._phase("starting");
+    await this._launchServer(wc, startCmd, startArgs, startEnv, files);
   }
 
   private async _launchServer(
@@ -358,7 +461,6 @@ export class WebContainerManager {
       const { proc, url } = await spawnDev(wc, cmd, args, env, 120_000, this._log.bind(this));
 
       if (this._detached) {
-        // Componente desmontado enquanto aguardava o servidor — manter servidor vivo
         _devProc = proc;
         _previewUrl = url;
         return;
@@ -369,9 +471,8 @@ export class WebContainerManager {
       this._phase("ready");
       this._ready(url);
 
-      // Monitorar saída inesperada
       void proc.exit.then((exitCode) => {
-        if (_devProc !== proc) return; // já foi substituído por restart/update
+        if (_devProc !== proc) return;
         _devProc = null;
         _previewUrl = null;
         if (!this._detached) {
@@ -383,7 +484,6 @@ export class WebContainerManager {
       });
     } catch (e) {
       if (this._detached) return;
-      // Fallback: build estático + vite preview
       await this._fallback(wc, files);
     }
   }
@@ -433,9 +533,8 @@ export class WebContainerManager {
   }
 
   /**
-   * Actualiza ficheiros no container em execução.
-   * - Só source files alterados → HMR via fs.writeFile (sem reinstalar)
-   * - package.json alterado → reinstala dependências e reinicia servidor
+   * Actualiza ficheiros no container em execução (chamada directa do componente
+   * quando sabe que é um update — equivalente ao path incremental de `init()`).
    */
   async updateFiles(files: BuilderFile[]): Promise<void> {
     if (this._detached || !_wc || !_mountedFiles) return;
@@ -448,48 +547,7 @@ export class WebContainerManager {
 
     return enqueue(async () => {
       if (this._detached || !_wc) return;
-      const wc = _wc;
-
-      this._phase("mounting");
-      try {
-        await patchWebContainerFiles(wc, diff);
-      } catch (e) {
-        this._err(`Falha ao aplicar patch: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
-      _mountedFiles = [...files];
-      if (this._detached) return;
-
-      if (!diff.packageJsonChanged && _previewUrl) {
-        // Apenas source files → HMR automático pelo Vite
-        this._log(
-          `─── HMR: ${diff.toWrite.length} ficheiro(s) actualizado(s) ───\n` +
-            diff.toWrite.map((f) => `  • ${normalizeFsPath(f.path)}`).join("\n") +
-            "\n",
-        );
-        this._phase("ready");
-        this._ready(_previewUrl);
-        return;
-      }
-
-      // package.json mudou → reinstalar e reiniciar
-      try {
-        _devProc?.kill();
-      } catch { /* ignore */ }
-      _devProc = null;
-      _previewUrl = null;
-
-      this._phase("installing");
-      const code = await npmInstall(wc, this._log.bind(this));
-      if (this._detached) return;
-      if (code !== 0) {
-        this._err(`npm install falhou após actualização (código ${code}).`);
-        return;
-      }
-
-      this._phase("starting");
-      const { startCommand, startArgs, startEnv } = plan;
-      await this._launchServer(wc, startCommand, startArgs, startEnv, files);
+      await this._patchRunning(_wc, files, plan.startCommand, plan.startArgs, plan.startEnv);
     });
   }
 
@@ -506,9 +564,7 @@ export class WebContainerManager {
     return enqueue(async () => {
       if (this._detached || !_wc) return;
 
-      try {
-        _devProc?.kill();
-      } catch { /* ignore */ }
+      try { _devProc?.kill(); } catch { /* ignore */ }
       _devProc = null;
       _previewUrl = null;
 
@@ -520,7 +576,6 @@ export class WebContainerManager {
 
   /**
    * Destrói o container e limpa todo o estado global.
-   * Chamar apenas ao trocar de projecto ou fechar o painel definitivamente.
    */
   async destroy(): Promise<void> {
     this._detached = true;
@@ -529,7 +584,7 @@ export class WebContainerManager {
   }
 
   /**
-   * Desanexa callbacks sem destruir o container — usar no cleanup do useEffect.
+   * Desanexa callbacks sem destruir o container.
    * O servidor dev continua a correr para restauro rápido na próxima montagem.
    */
   detach(): void {
@@ -539,17 +594,13 @@ export class WebContainerManager {
 
   private async _hardTeardown(): Promise<void> {
     return enqueue(async () => {
-      try {
-        _devProc?.kill();
-      } catch { /* ignore */ }
+      try { _devProc?.kill(); } catch { /* ignore */ }
       _devProc = null;
       _previewUrl = null;
       _projectKey = null;
       _mountedFiles = null;
       if (_wc) {
-        try {
-          _wc.teardown();
-        } catch { /* ignore */ }
+        try { _wc.teardown(); } catch { /* ignore */ }
         _wc = null;
       }
       await tick(50);
@@ -557,11 +608,16 @@ export class WebContainerManager {
   }
 }
 
-// ─── Helpers de acesso directo (para compatibilidade e uso em repair) ──────────
+// ─── Helpers de acesso directo ─────────────────────────────────────────────────
 
 /** Retorna `true` se o container está activo e o servidor dev está a correr. */
 export function isContainerReady(): boolean {
   return _wc !== null && _devProc !== null && _previewUrl !== null;
+}
+
+/** Chave do projecto actualmente montado (ou `null`). */
+export function getActiveProjectKey(): string | null {
+  return _projectKey;
 }
 
 /** URL de preview activo (ou `null` se não há servidor). */
@@ -574,7 +630,7 @@ export function getMountedFiles(): BuilderFile[] | null {
   return _mountedFiles ? [..._mountedFiles] : null;
 }
 
-/** Destrói o container global (usado pelo repair que precisa de estado limpo). */
+/** Destrói o container global (usado pelo repair). */
 export async function destroyActiveContainer(): Promise<void> {
   const m = new WebContainerManager({
     onPhaseChange: () => undefined,

@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,37 +16,42 @@ import (
 	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	agapp "github.com/open-polvo/open-polvo/internal/agent/application"
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
-	convmysql "github.com/open-polvo/open-polvo/internal/conversations/adapters/mysql"
+	convsqlite "github.com/open-polvo/open-polvo/internal/conversations/adapters/sqlite"
 	convapp "github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
-	contactsmysql "github.com/open-polvo/open-polvo/internal/contacts/adapters/mysql"
+	contactssqlite "github.com/open-polvo/open-polvo/internal/contacts/adapters/sqlite"
 	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
 	bcryptadapter "github.com/open-polvo/open-polvo/internal/identity/adapters/bcrypt"
 	jwtissuer "github.com/open-polvo/open-polvo/internal/identity/adapters/jwtissuer"
-	idmysql "github.com/open-polvo/open-polvo/internal/identity/adapters/mysql"
+	idsqlite "github.com/open-polvo/open-polvo/internal/identity/adapters/sqlite"
 	idapp "github.com/open-polvo/open-polvo/internal/identity/application"
 	platformcfg "github.com/open-polvo/open-polvo/internal/platform/config"
 	platformdb "github.com/open-polvo/open-polvo/internal/platform/db"
 	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
-	mailmysql "github.com/open-polvo/open-polvo/internal/mail/adapters/mysql"
+	mailsqlite "github.com/open-polvo/open-polvo/internal/mail/adapters/sqlite"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
-	metamysql "github.com/open-polvo/open-polvo/internal/meta/adapters/mysql"
+	metasqlite "github.com/open-polvo/open-polvo/internal/meta/adapters/sqlite"
 	metaapp "github.com/open-polvo/open-polvo/internal/meta/application"
 	"github.com/open-polvo/open-polvo/internal/meta/metaapi"
-	schedmysql "github.com/open-polvo/open-polvo/internal/scheduledtasks/adapters/mysql"
+	sqsqlite "github.com/open-polvo/open-polvo/internal/schedulequeue/adapters/sqlite"
+	sqapp "github.com/open-polvo/open-polvo/internal/schedulequeue/application"
+	sqports "github.com/open-polvo/open-polvo/internal/schedulequeue/ports"
+	schedsqlite "github.com/open-polvo/open-polvo/internal/scheduledtasks/adapters/sqlite"
 	schedapp "github.com/open-polvo/open-polvo/internal/scheduledtasks/application"
-	socialmysql "github.com/open-polvo/open-polvo/internal/social/adapters/mysql"
+	socialsqlite "github.com/open-polvo/open-polvo/internal/social/adapters/sqlite"
 	socialapp "github.com/open-polvo/open-polvo/internal/social/application"
 	"github.com/open-polvo/open-polvo/internal/social/scheduler"
-	financemysql "github.com/open-polvo/open-polvo/internal/finance/adapters/mysql"
+	financesqlite "github.com/open-polvo/open-polvo/internal/finance/adapters/sqlite"
 	financeapp "github.com/open-polvo/open-polvo/internal/finance/application"
-	tasklistsmysql "github.com/open-polvo/open-polvo/internal/tasklists/adapters/mysql"
+	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
+	llmstore "github.com/open-polvo/open-polvo/internal/llmprofiles/adapters/sqliterepo"
+	tasklistssqlite "github.com/open-polvo/open-polvo/internal/tasklists/adapters/sqlite"
 	tasklistsintel "github.com/open-polvo/open-polvo/internal/tasklists/adapters/polvointel"
 	taskapp "github.com/open-polvo/open-polvo/internal/tasklists/application"
 	tasklistsports "github.com/open-polvo/open-polvo/internal/tasklists/ports"
 	"github.com/open-polvo/open-polvo/internal/schedule"
 	httptransport "github.com/open-polvo/open-polvo/internal/transport/http"
-	wfmysql "github.com/open-polvo/open-polvo/internal/workflows/adapters/mysql"
+	wfsqlite "github.com/open-polvo/open-polvo/internal/workflows/adapters/sqlite"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
 	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
@@ -61,117 +66,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := platformdb.Open(cfg.MYSQLDSN)
+	db, err := platformdb.Open(cfg.DBPath)
 	if err != nil {
 		slog.Error("db open", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-
-	// Recuperação única: migração 000002 falhou com dois CREATE no mesmo ficheiro (dirty v2).
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_DIRTY_V2")), "true") {
-		res, err := db.ExecContext(context.Background(),
-			`UPDATE schema_migrations SET dirty = 0 WHERE version = 2 AND dirty = 1`)
-		if err != nil {
-			slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V2", "err", err)
-		} else {
-			n, _ := res.RowsAffected()
-			if n > 0 {
-				slog.Info("schema_migrations: cleared dirty on version 2 (remove FIX_SCHEMA_MIGRATIONS_DIRTY_V2 from .env after sucesso)")
-			}
-		}
-	}
-	// Recuperação: migração 000004 falhou com dois ALTER no mesmo ficheiro (migrate envia um statement; MySQL 1064) → dirty v4.
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_DIRTY_V4")), "true") {
-		ctx4 := context.Background()
-		var colCount int
-		_ = db.QueryRowContext(ctx4,
-			`SELECT COUNT(*) FROM information_schema.COLUMNS
-			 WHERE TABLE_SCHEMA = DATABASE()
-			   AND TABLE_NAME   = 'laele_conversations'
-			   AND COLUMN_NAME  IN ('deleted_at', 'pinned_at')`).Scan(&colCount)
-
-		if colCount < 2 {
-			if _, err := db.ExecContext(ctx4,
-				`DELETE FROM schema_migrations WHERE version = 4`); err != nil {
-				slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V4: apagar v4 falhou", "err", err)
-			} else {
-				slog.Info("FIX_SCHEMA_MIGRATIONS_DIRTY_V4: registo v4 apagado — migration corrigida será aplicada no arranque (remova FIX_SCHEMA_MIGRATIONS_DIRTY_V4 do .env após sucesso)")
-			}
-		} else {
-			res, err := db.ExecContext(ctx4,
-				`UPDATE schema_migrations SET dirty = 0 WHERE version = 4 AND dirty = 1`)
-			if err != nil {
-				slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V4: limpar dirty falhou", "err", err)
-			} else {
-				n, _ := res.RowsAffected()
-				if n > 0 {
-					slog.Info("FIX_SCHEMA_MIGRATIONS_DIRTY_V4: dirty v4 limpo (colunas já existiam; remova FIX_SCHEMA_MIGRATIONS_DIRTY_V4 do .env)")
-				}
-			}
-		}
-	}
-	// Recuperação: migração 000007 pode falhar em ambientes onde a coluna já existe → dirty v7.
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_DIRTY_V7")), "true") {
-		ctx7 := context.Background()
-		var n int
-		_ = db.QueryRowContext(ctx7,
-			`SELECT COUNT(*) FROM information_schema.COLUMNS
-			 WHERE TABLE_SCHEMA = DATABASE()
-			   AND TABLE_NAME   = 'laele_workflows'
-			   AND COLUMN_NAME  = 'pinned_at'`).Scan(&n)
-		if n > 0 {
-			res, err := db.ExecContext(ctx7,
-				`UPDATE schema_migrations SET dirty = 0 WHERE version = 7 AND dirty = 1`)
-			if err != nil {
-				slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V7: limpar dirty falhou", "err", err)
-			} else {
-				ra, _ := res.RowsAffected()
-				if ra > 0 {
-					slog.Info("FIX_SCHEMA_MIGRATIONS_DIRTY_V7: dirty v7 limpo (coluna já existia; remova FIX_SCHEMA_MIGRATIONS_DIRTY_V7 do .env)")
-				}
-			}
-		}
-	}
-	// Recuperação: migração 000012 pode ficar dirty se ADD COLUMN falhou depois da coluna já existir (re-execução).
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_DIRTY_V12")), "true") {
-		ctx12 := context.Background()
-		var n12 int
-		_ = db.QueryRowContext(ctx12,
-			`SELECT COUNT(*) FROM information_schema.COLUMNS
-			 WHERE TABLE_SCHEMA = DATABASE()
-			   AND TABLE_NAME   = 'laele_user_smtp_settings'
-			   AND COLUMN_NAME  = 'email_chat_skip_confirmation'`).Scan(&n12)
-		if n12 > 0 {
-			res, err := db.ExecContext(ctx12,
-				`UPDATE schema_migrations SET dirty = 0 WHERE version = 12 AND dirty = 1`)
-			if err != nil {
-				slog.Warn("FIX_SCHEMA_MIGRATIONS_DIRTY_V12: limpar dirty falhou", "err", err)
-			} else {
-				ra, _ := res.RowsAffected()
-				if ra > 0 {
-					slog.Info("FIX_SCHEMA_MIGRATIONS_DIRTY_V12: dirty v12 limpo (coluna já existia; remova FIX_SCHEMA_MIGRATIONS_DIRTY_V12 do .env)")
-				}
-			}
-		}
-	}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("FIX_SCHEMA_MIGRATIONS_REAPPLY_FROM_V2")), "true") {
-		var n int
-		_ = db.QueryRowContext(context.Background(),
-			`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'laele_conversations'`).Scan(&n)
-		if n == 0 {
-			if _, err := db.ExecContext(context.Background(), `DELETE FROM schema_migrations WHERE version >= 2`); err != nil {
-				slog.Warn("FIX_SCHEMA_MIGRATIONS_REAPPLY_FROM_V2", "err", err)
-			} else {
-				slog.Info("schema_migrations: removed version >= 2 (laele_conversations em falta; remova FIX_SCHEMA_MIGRATIONS_REAPPLY_FROM_V2 após sucesso)")
-			}
-		}
-	}
-
-	// Recuperação: v15 dirty após falha com ficheiro .up.sql multi-statement sem multiStatements no DSN.
-	if err := fixSchemaMigrationDirtyV15(context.Background(), db); err != nil {
-		slog.Warn("fix_schema_migrations_dirty_v15", "err", err)
-	}
 
 	if cfg.RunMigrations {
 		migDir, err := platformmigrate.ResolveMigrationsDir(cfg.MigrationsPath)
@@ -180,14 +80,14 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("running database migrations", "dir", migDir)
-		if err := platformmigrate.Apply(cfg.MYSQLDSN, migDir); err != nil {
+		if err := platformmigrate.Apply(db, migDir); err != nil {
 			slog.Error("migrations", "err", err)
 			os.Exit(1)
 		}
 		slog.Info("database migrations applied")
 	}
 
-	userRepo := idmysql.UserRepository{DB: db}
+	userRepo := idsqlite.UserRepository{DB: db}
 	hasher := bcryptadapter.Hasher{}
 
 	if cfg.BootstrapDefaultAdmin {
@@ -238,7 +138,16 @@ func main() {
 		slog.Warn("Open Polvo Intelligence not configured (POLVO_INTELLIGENCE_BASE_URL + POLVO_INTELLIGENCE_INTERNAL_KEY)")
 	}
 
-	statusUC := &agapp.CheckAgentStatus{Client: intel}
+	llmRepo := &llmstore.Repository{DB: db, Cfg: cfg}
+
+	statusUC := &agapp.CheckAgentStatus{
+		Client: intel,
+		LocalCaps: func(ctx context.Context) (bool, bool) {
+			o, _ := llmRepo.HasConfiguredProvider(ctx, "openai")
+			g, _ := llmRepo.HasConfiguredProvider(ctx, "google")
+			return o, g
+		},
+	}
 	localThreadUC := agapp.CreateLocalThread{}
 
 	authH := &httptransport.AuthHandlers{
@@ -253,23 +162,26 @@ func main() {
 		CreateThread: &localThreadUC,
 	}
 
-	convRepo := convmysql.ConversationRepository{DB: db}
-	msgRepo := convmysql.MessageRepository{DB: db}
+	convRepo := convsqlite.ConversationRepository{DB: db}
+	msgRepo := convsqlite.MessageRepository{DB: db}
+	agentMemRepo := convsqlite.AgentMemoryRepository{DB: db}
+	llmResolver := &llmapp.Resolver{Repo: llmRepo}
+	llmHTTP := &httptransport.LLMHandlers{Repo: llmRepo}
 	createConvUC := &convapp.CreateConversation{
 		Conversations: convRepo,
 	}
-	smtpRepo := &mailmysql.SMTPSettingsRepository{DB: db}
+	smtpRepo := &mailsqlite.SMTPSettingsRepository{DB: db}
 	smtpLoader := &mailapp.SMTPContextLoader{Repo: smtpRepo}
-	metaRepo := &metamysql.MetaSettingsRepository{DB: db}
+	metaRepo := &metasqlite.MetaSettingsRepository{DB: db}
 	metaClient := metaapi.New()
 	metaContextLoader := &metaapp.MetaContextLoader{Repo: metaRepo}
-	contactRepo := &contactsmysql.ContactRepository{DB: db}
+	contactRepo := &contactssqlite.ContactRepository{DB: db}
 	contactsReply := &contactsapp.ContactsReplyLoader{Repo: contactRepo}
 	getContactUC := &contactsapp.GetContact{Repo: contactRepo}
-	taskListRepo := tasklistsmysql.NewTaskListRepository(db)
-	taskItemRepo := tasklistsmysql.NewTaskItemRepository(db)
+	taskListRepo := tasklistssqlite.NewTaskListRepository(db)
+	taskItemRepo := tasklistssqlite.NewTaskItemRepository(db)
 	taskListsReplyLoader := &taskapp.TaskListsReplyLoader{Lists: taskListRepo, Items: taskItemRepo}
-	financeStore := financemysql.NewStore(db)
+	financeStore := financesqlite.NewStore(db)
 	financeReplyLoader := &financeapp.FinanceReplyLoader{
 		Categories:    financeStore,
 		Transactions:  financeStore,
@@ -279,6 +191,8 @@ func main() {
 		Conversations: convRepo,
 		Messages:      msgRepo,
 		Agent:         chatOrch,
+		LLM:           llmResolver,
+		AgentMemory:   agentMemRepo,
 		SMTPForReply:  smtpLoader.ForReply,
 		ContactsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief {
 			return contactsReply.ForReply(ctx, userID)
@@ -310,8 +224,8 @@ func main() {
 		DeleteOne: &contactsapp.DeleteContact{Repo: contactRepo},
 	}
 	var wfHandlers *httptransport.WorkflowHandlers
-	wfRepo := wfmysql.WorkflowRepository{DB: db}
-	runRepo := wfmysql.RunRepository{DB: db}
+	wfRepo := wfsqlite.WorkflowRepository{DB: db}
+	runRepo := wfsqlite.RunRepository{DB: db}
 	var wfLLM wfports.IntelligenceService
 	if intel != nil {
 		wfLLM = intel
@@ -321,6 +235,7 @@ func main() {
 		Workflows:    wfRepo,
 		Runs:         runRepo,
 		LLM:          wfLLM,
+		LLMResolve:   llmResolver,
 		DefaultModel: domain.ModelOpenAI,
 		RunnerCfg:    wfapp.DefaultRunnerConfig(),
 		SendEmail:    sendMailUC,
@@ -338,7 +253,8 @@ func main() {
 		SaveGenerated: &wfapp.SaveGeneratedWorkflow{
 			Create: createWF,
 		},
-		ListRuns: &wfapp.ListWorkflowRuns{Runs: runRepo},
+		ListRuns:   &wfapp.ListWorkflowRuns{Runs: runRepo},
+		LLMResolve: llmResolver,
 	}
 
 	var taskExecutor tasklistsports.TaskExecutor
@@ -383,6 +299,8 @@ func main() {
 		Conversations: convRepo,
 		Messages:      msgRepo,
 		Streamer:      chatStream,
+		LLM:           llmResolver,
+		AgentMemory:   agentMemRepo,
 		SMTPForReply:  smtpLoader.ForReply,
 		ContactsForReply: func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief {
 			return contactsReply.ForReply(ctx, userID)
@@ -413,6 +331,7 @@ func main() {
 		DeleteConversation: &convapp.DeleteConversation{Conversations: convRepo},
 		PinConversation:    &convapp.PinConversation{Conversations: convRepo},
 		RenameConversation: &convapp.RenameConversation{Conversations: convRepo},
+		AgentMemoryRepo:    agentMemRepo,
 	}
 
 	readyCheck := func(ctx context.Context) error {
@@ -429,8 +348,8 @@ func main() {
 		GeminiTranscribeModel: cfg.GeminiTranscribeModel,
 	}
 
-	socialConfigRepo := &socialmysql.AutomationConfigRepository{DB: db}
-	socialPostRepo := &socialmysql.SocialPostRepository{DB: db}
+	socialConfigRepo := &socialsqlite.AutomationConfigRepository{DB: db}
+	socialPostRepo := &socialsqlite.SocialPostRepository{DB: db}
 	socialGenerator := &socialapp.GenerateAndStore{
 		Posts:           socialPostRepo,
 		IntelligenceURL: cfg.PolvoIntelligenceBaseURL,
@@ -478,7 +397,7 @@ func main() {
 	}
 
 	// Scheduled tasks
-	schedTaskRepo := &schedmysql.ScheduledTaskRepository{DB: db}
+	schedTaskRepo := &schedsqlite.ScheduledTaskRepository{DB: db}
 	schedLoader := func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief {
 		tasks, err := schedTaskRepo.ListByUser(ctx, userID)
 		if err != nil || len(tasks) == 0 {
@@ -511,6 +430,7 @@ func main() {
 		Config:        cfg,
 		Auth:          authH,
 		Agent:         agentH,
+		LLM:           llmHTTP,
 		Conversations: convHandlers,
 		Workflows:     wfHandlers,
 		TaskLists:     taskHandlers,
@@ -540,6 +460,42 @@ func main() {
 	}()
 
 	schedCtx, schedCancel := context.WithCancel(context.Background())
+
+	// Fila persistida para execuções agendadas (tasks + workflows).
+	scheduleQueueRepo := sqsqlite.Repository{DB: db}
+	queueEnabled := scheduleQueueEnabled()
+	var queueWorker *sqapp.Worker
+	if queueEnabled {
+		workers := 2
+		if s := strings.TrimSpace(os.Getenv("SCHED_QUEUE_WORKERS")); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n >= 1 && n <= 16 {
+				workers = n
+			}
+		}
+		poll := 2 * time.Second
+		if s := strings.TrimSpace(os.Getenv("SCHED_QUEUE_POLL_INTERVAL")); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d >= 200*time.Millisecond {
+				poll = d
+			}
+		}
+		lockTTL := 10 * time.Minute
+		if s := strings.TrimSpace(os.Getenv("SCHED_QUEUE_LOCK_TTL")); s != "" {
+			if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
+				lockTTL = d
+			}
+		}
+		queueWorker = &sqapp.Worker{
+			Queue:          &scheduleQueueRepo,
+			ScheduledTasks: nil, // ligado abaixo quando schedRunner for criado
+			WorkflowsRun:   runWfUC,
+			WorkflowsRepo:  &wfRepo,
+			Workers:        workers,
+			PollInterval:   poll,
+			LockTTL:        lockTTL,
+			Log:            slog.Default(),
+		}
+		// Start() só depois de ligar ScheduledTasks ao runner (evita itens task na fila sem executor).
+	}
 	if workflowSchedulerEnabled() {
 		interval := 45 * time.Second
 		if s := strings.TrimSpace(os.Getenv("WORKFLOW_SCHEDULER_INTERVAL")); s != "" {
@@ -547,7 +503,11 @@ func main() {
 				interval = d
 			}
 		}
-		go wfapp.StartWorkflowScheduler(schedCtx, interval, &wfRepo, runWfUC, slog.Default())
+		var q sqports.Repository
+		if queueEnabled {
+			q = &scheduleQueueRepo
+		}
+		go wfapp.StartWorkflowScheduler(schedCtx, interval, &wfRepo, runWfUC, q, slog.Default())
 	}
 	if socialSchedulerEnabled() {
 		interval := 15 * time.Minute
@@ -586,7 +546,18 @@ func main() {
 			},
 			Log: slog.Default(),
 		}
+		if queueEnabled {
+			schedRunner.Queue = &scheduleQueueRepo
+			if queueWorker != nil {
+				queueWorker.ScheduledTasks = schedRunner
+			}
+		}
 		go schedRunner.Start(schedCtx, interval)
+		// Permite execução manual via endpoint /run-now.
+		schedHandlers.Runner = schedRunner
+	}
+	if queueEnabled && queueWorker != nil {
+		queueWorker.Start(schedCtx)
 	}
 	if digestSchedulerEnabled() {
 		interval := time.Hour
@@ -634,31 +605,15 @@ func scheduledTasksRunnerEnabled() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-func digestSchedulerEnabled() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("DIGEST_SCHEDULER_ENABLED")))
+func scheduleQueueEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("SCHED_QUEUE_ENABLED")))
+	if v == "" {
+		return true
+	}
 	return v == "1" || v == "true" || v == "yes"
 }
 
-// fixSchemaMigrationDirtyV15 limpa dirty na v15 quando a migração falhou antes de criar tabelas,
-// ou marca limpo se as tabelas de finanças já existirem (estado coerente).
-func fixSchemaMigrationDirtyV15(ctx context.Context, db *sql.DB) error {
-	var ver int
-	var dirty bool
-	err := db.QueryRowContext(ctx, `SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&ver, &dirty)
-	if err != nil {
-		return err
-	}
-	if ver != 15 || !dirty {
-		return nil
-	}
-	var n int
-	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'laele_finance_categories'`,
-	).Scan(&n)
-	if n == 0 {
-		_, err := db.ExecContext(ctx, `UPDATE schema_migrations SET version = 14, dirty = 0 WHERE version = 15 AND dirty = 1`)
-		return err
-	}
-	_, err = db.ExecContext(ctx, `UPDATE schema_migrations SET dirty = 0 WHERE version = 15`)
-	return err
+func digestSchedulerEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("DIGEST_SCHEDULER_ENABLED")))
+	return v == "1" || v == "true" || v == "yes"
 }

@@ -1,0 +1,1 @@
+-- No-op: não apagar dados de memória do agente em rollback (política do projecto).

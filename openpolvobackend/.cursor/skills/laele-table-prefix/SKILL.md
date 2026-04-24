@@ -1,7 +1,7 @@
 ---
 name: laele-table-prefix
 description: >-
-  Convenção Open Polvo: todas as tabelas MySQL novas devem começar pelo prefixo
+  Convenção Open Polvo: todas as tabelas novas (SQLite) devem começar pelo prefixo
   laele_. Aplica-se a migrações SQL, DDL e queries nos adaptadores. Use ao criar
   schema, migrations ou repositórios.
 ---
@@ -17,7 +17,7 @@ description: >-
 ## Onde aplicar
 
 1. **Ficheiros em `migrations/`** — `CREATE TABLE`, `DROP TABLE`, `ALTER TABLE`, `REFERENCES`, índices e FKs devem usar o nome completo com prefixo.
-2. **Adaptadores SQL** (ex.: `internal/**/adapters/mysql/`) — `FROM`, `INTO`, `JOIN`, `UPDATE` devem referir tabelas com o prefixo correto.
+2. **Adaptadores SQL** (ex.: `internal/**/adapters/sqlite/`) — `FROM`, `INTO`, `JOIN`, `UPDATE` devem referir tabelas com o prefixo correto.
 3. **Documentação / diagramas** de schema no repositório — alinhar com a mesma convenção.
 
 ## Tabelas já existentes

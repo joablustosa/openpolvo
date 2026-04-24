@@ -17,6 +17,7 @@ type Deps struct {
 	Config         platformcfg.Config
 	Auth           *AuthHandlers
 	Agent          *AgentHandlers
+	LLM            *LLMHandlers
 	Conversations  *ConversationHandlers
 	Workflows      *WorkflowHandlers
 	TaskLists      *TaskListHandlers
@@ -112,6 +113,14 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/agent/status", d.Agent.GetAgentStatus)
 			r.Get("/agent/langgraph/status", d.Agent.GetLangGraphStatus)
 			r.Post("/agent/langgraph/threads", d.Agent.PostLangGraphThreads)
+			if d.LLM != nil {
+				r.Get("/llm/profiles", d.LLM.ListProfiles)
+				r.Post("/llm/profiles", d.LLM.PostProfile)
+				r.Patch("/llm/profiles/{id}", d.LLM.PatchProfile)
+				r.Delete("/llm/profiles/{id}", d.LLM.DeleteProfile)
+				r.Get("/llm/agent-prefs", d.LLM.GetAgentPrefs)
+				r.Put("/llm/agent-prefs", d.LLM.PutAgentPrefs)
+			}
 			if d.Conversations != nil {
 				r.Get("/conversations", d.Conversations.GetConversations)
 				r.Post("/conversations", d.Conversations.PostConversation)
@@ -121,6 +130,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/conversations/{id}/pin", d.Conversations.PinConversationHandler)
 				r.Get("/conversations/{id}/messages", d.Conversations.GetMessages)
 				r.Post("/conversations/{id}/messages", d.Conversations.PostMessage)
+				r.Get("/conversations/{id}/agent-memory", d.Conversations.GetAgentMemory)
+				r.Patch("/conversations/{id}/agent-memory", d.Conversations.PatchAgentMemory)
 			}
 			if d.Workflows != nil {
 				r.Get("/workflows", d.Workflows.GetWorkflows)
@@ -166,6 +177,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/scheduled-tasks/{id}", d.Schedule.GetOne)
 				r.Put("/scheduled-tasks/{id}", d.Schedule.Put)
 				r.Delete("/scheduled-tasks/{id}", d.Schedule.DeleteOne)
+				r.Post("/scheduled-tasks/{id}/run-now", d.Schedule.RunNow)
 			}
 			if d.Finance != nil {
 				r.Get("/agenda", d.Finance.GetAgenda)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from openpolvointeligence.api.deps import verify_internal_key
+from openpolvointeligence.api.llm_merge import merge_llm_from_mapping
 from openpolvointeligence.api.schemas import (
     CapabilitiesResponse,
     LLMTextRequest,
@@ -31,7 +32,8 @@ async def post_reply(
     _: None = Depends(verify_internal_key),
 ) -> ReplyResponse:
     settings = get_settings()
-    if not settings.has_any_llm_key:
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     if not body.messages:
         raise HTTPException(status_code=400, detail="messages required")
@@ -47,7 +49,7 @@ async def post_reply(
         if sc_ctx is not None and not isinstance(sc_ctx, list):
             sc_ctx = None
         text, meta = await run_reply(
-            settings,
+            eff,
             msgs,
             body.model_provider,
             body.smtp_context,
@@ -56,6 +58,8 @@ async def post_reply(
             fin_ctx,
             body.meta_context,
             sc_ctx,
+            conversation_id=body.conversation_id,
+            agent_memory=body.agent_memory,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -76,7 +80,8 @@ async def post_reply_stream(
     levar vários minutos.
     """
     settings = get_settings()
-    if not settings.has_any_llm_key:
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     if not body.messages:
         raise HTTPException(status_code=400, detail="messages required")
@@ -97,7 +102,7 @@ async def post_reply_stream(
     async def event_gen():
         try:
             async for event in run_reply_stream(
-                settings,
+                eff,
                 msgs,
                 body.model_provider,
                 body.smtp_context,
@@ -106,6 +111,8 @@ async def post_reply_stream(
                 fin_ctx,
                 meta_ctx,
                 sc_ctx,
+                conversation_id=body.conversation_id,
+                agent_memory=body.agent_memory,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001
@@ -128,11 +135,12 @@ async def post_workflow_generate(
     _: None = Depends(verify_internal_key),
 ) -> WorkflowGenerateResponse:
     settings = get_settings()
-    if not settings.has_any_llm_key:
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     try:
         raw = await generate_graph_json(
-            settings,
+            eff,
             body.model_provider,
             body.prompt,
             body.recording_json,
@@ -150,11 +158,12 @@ async def post_llm_generate_text(
     _: None = Depends(verify_internal_key),
 ) -> LLMTextResponse:
     settings = get_settings()
-    if not settings.has_any_llm_key:
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     try:
         text = await generate_text(
-            settings,
+            eff,
             body.model_provider,
             body.system,
             body.user,
@@ -172,11 +181,12 @@ async def post_social_generate(
     _: None = Depends(verify_internal_key),
 ) -> SocialGenerateResponse:
     settings = get_settings()
-    if not settings.has_any_llm_key:
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     try:
         result = await generate_social_post(
-            settings,
+            eff,
             body.sites,
             body.platform,
             body.model_provider,

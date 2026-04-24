@@ -126,9 +126,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => {
+    setSidebarCollapsedState((prev) => {
       const next = !prev;
-      localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
+      }
       return next;
     });
   }, []);

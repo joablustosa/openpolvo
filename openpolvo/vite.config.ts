@@ -22,7 +22,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 5173,
+      // 5173 é frequentemente usado por outros Vite projects e pode colidir no desktop.
+      // O Electron em dev usa este porto.
+      port: 5174,
       strictPort: true,
       headers: crossOriginIsolationHeaders,
       proxy: {
@@ -34,7 +36,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: {
-      port: 4173,
+      port: 4174,
       strictPort: true,
       headers: crossOriginIsolationHeaders,
       proxy: {

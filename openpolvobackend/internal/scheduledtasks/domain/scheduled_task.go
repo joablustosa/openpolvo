@@ -38,6 +38,7 @@ type ScheduledTask struct {
 type AgentPromptPayload struct {
 	Prompt         string `json:"prompt"`
 	SendEmail      bool   `json:"send_email"`
+	EmailTo        string `json:"email_to,omitempty"` // obrigatório quando send_email=true
 	EmailSubject   string `json:"email_subject,omitempty"`
 	IncludeTasks   bool   `json:"include_tasks"`
 	IncludeFinance bool   `json:"include_finance"`

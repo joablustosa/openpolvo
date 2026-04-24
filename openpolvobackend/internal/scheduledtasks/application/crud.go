@@ -71,6 +71,9 @@ func (uc *CreateScheduledTask) Execute(ctx context.Context, userID uuid.UUID, in
 	if tz == "" {
 		tz = "UTC"
 	}
+	if err := validateScheduledTaskPayload(in.TaskType, in.Payload); err != nil {
+		return ScheduledTaskDTO{}, err
+	}
 	now := time.Now().UTC()
 	t := &domain.ScheduledTask{
 		ID: uuid.New(), UserID: userID,
@@ -155,6 +158,9 @@ func (uc *UpdateScheduledTask) Execute(ctx context.Context, id, userID uuid.UUID
 		t.Timezone = strings.TrimSpace(in.Timezone)
 	}
 	t.Active = in.Active
+	if err := validateScheduledTaskPayload(t.TaskType, t.Payload); err != nil {
+		return ScheduledTaskDTO{}, err
+	}
 	if err := uc.Repo.Update(ctx, t); err != nil {
 		return ScheduledTaskDTO{}, err
 	}

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Radio, SendHorizontal } from "lucide-react";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
@@ -8,8 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
 import { EmailDraftActions } from "@/components/chat/EmailDraftActions";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
+import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
+import { BuilderArtifactChip } from "@/components/builder/BuilderArtifactChip";
+import { BuilderProgressChecklist } from "@/components/builder/BuilderProgressChecklist";
+import { computeBuilderDiff, type FileDiff } from "@/lib/builderDiff";
 import { useAuth } from "@/auth/AuthContext";
 import { parseEmailMessageMeta } from "@/lib/emailChatMetadata";
+import { parseBuilderMeta, type BuilderData } from "@/lib/builderMetadata";
 import { transcribeAudio } from "@/lib/audioApi";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import {
@@ -23,7 +28,12 @@ import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
   const { token } = useAuth();
-  const { taskListsPreviewOpen } = useWorkspace();
+  const {
+    taskListsPreviewOpen,
+    setBuilderData,
+    builderProgress,
+    builderStreamFiles,
+  } = useWorkspace();
   const {
     messages,
     sending,
@@ -33,8 +43,10 @@ export function ChatPanel() {
     clearEmailSendNotice,
     taskListNotice,
     clearTaskListNotice,
-    modelProvider,
-    setModelProvider,
+    llmSelectValue,
+    setLlmSelectValue,
+    llmProfiles,
+    transcribeModelProvider,
     sendAuthenticatedMessage,
     activeConversationId,
     selectConversation,
@@ -45,6 +57,34 @@ export function ChatPanel() {
   const [wakeBusy, setWakeBusy] = useState(false);
   const [wakeError, setWakeError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Pré-calcula, para cada mensagem do assistente com dados Builder, o snapshot e
+   * o diff em relação ao turno anterior (padrão Claude — artefacto por mensagem).
+   */
+  const msgBuilderInfo = useMemo(() => {
+    const map = new Map<
+      string,
+      { data: BuilderData; diff: FileDiff | null; isLatest: boolean }
+    >();
+    let prev: BuilderData | null = null;
+    let lastId: string | null = null;
+
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      const bd = parseBuilderMeta(m.metadata);
+      if (!bd) continue;
+      const diff = computeBuilderDiff(prev, bd);
+      map.set(m.id, { data: bd, diff, isLatest: false });
+      prev = bd;
+      lastId = m.id;
+    }
+    if (lastId) {
+      const entry = map.get(lastId)!;
+      map.set(lastId, { ...entry, isLatest: true });
+    }
+    return map;
+  }, [messages]);
 
   useEffect(() => {
     writeVoiceWakePreference(voiceWakeEnabled);
@@ -65,8 +105,9 @@ export function ChatPanel() {
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const transcribe = useCallback(
-    (blob: Blob) => transcribeAudio(tokenRef.current, blob, modelProvider),
-    [modelProvider],
+    (blob: Blob) =>
+      transcribeAudio(tokenRef.current, blob, transcribeModelProvider),
+    [transcribeModelProvider],
   );
   const { state: micState, error: micError, toggle: toggleMic } = useAudioRecorder({
     transcribe,
@@ -129,30 +170,15 @@ export function ChatPanel() {
       <header className="shrink-0 border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight">Zé Polvinho</h2>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setModelProvider("openai")}
-            className={cn(
-              "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
-              modelProvider === "openai"
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            OpenAI
-          </button>
-          <button
-            type="button"
-            onClick={() => setModelProvider("google")}
-            className={cn(
-              "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
-              modelProvider === "google"
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Gemini
-          </button>
+          {token ? (
+            <ChatLlmRoutingSelect
+              value={llmSelectValue}
+              onValueChange={setLlmSelectValue}
+              profiles={llmProfiles}
+              disabled={sending}
+              compact
+            />
+          ) : null}
           <button
             type="button"
             disabled={!token || !wakeSupported}
@@ -240,8 +266,26 @@ export function ChatPanel() {
                   }}
                 />
               ) : null}
+              {/* Artefacto Builder — chip clicável por turno (padrão Claude) */}
+              {m.role === "assistant" && (() => {
+                const info = msgBuilderInfo.get(m.id);
+                if (!info) return null;
+                return (
+                  <BuilderArtifactChip
+                    data={info.data}
+                    diff={info.diff}
+                    isLatest={info.isLatest}
+                    onClick={() => setBuilderData(info.data)}
+                  />
+                );
+              })()}
             </div>
           ))}
+          {sending && (builderProgress || builderStreamFiles.length > 0) ? (
+            <div className="max-w-[min(92%,560px)] self-start">
+              <BuilderProgressChecklist progress={builderProgress} variant="compact" />
+            </div>
+          ) : null}
           {sending ? <OctopusTypingLoader active /> : null}
           <div ref={bottomRef} />
         </div>

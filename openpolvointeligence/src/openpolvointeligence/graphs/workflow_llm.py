@@ -10,7 +10,7 @@ from openpolvointeligence.graphs.models import get_chat_model
 _WORKFLOW_SYSTEM = """És um especialista em automação web. Responde APENAS com JSON válido, sem markdown nem texto fora do JSON.
 O formato obrigatório é:
 {"nodes":[{"id":"n1","type":"goto","data":{"url":"https://..."},"position":{"x":0,"y":0}},{"id":"n2","type":"click","data":{"selector":"css..."},"position":{"x":200,"y":0}}],"edges":[{"id":"e1","source":"n1","target":"n2"}]}
-Tipos de nó permitidos: goto (data.url), click (data.selector), fill (data.selector + data.value), wait (data.selector), llm (data.prompt), send_email (data.contact_id UUID do contacto, data.email_subject, data.email_body — envio SMTP do utilizador na API).
+Tipos de nó permitidos: schedule (data.cron cron de 5 campos, data.timezone fuso IANA, data.schedule_enabled booleano), goto (data.url), click (data.selector), fill (data.selector + data.value), wait (data.selector), llm (data.prompt), web_search (data.query; opcional data.search_engine "duckduckgo" ou "google" para SerpApi com a mesma chave), send_email (data.email_to ou data.contact_id, data.email_subject, data.email_body — envio SMTP na API; em subject/body podes usar {{previous}} para a saída dos nós a montante ligados por aresta, ou {{output:ID}} para a saída de um nó llm/web_search).
 IDs devem ser únicos. Inclui posições em grelha para o editor visual."""
 
 

@@ -22,6 +22,15 @@ import {
   streamMessage as apiStreamMessage,
   renameConversation as apiRenameConversation,
 } from "@/lib/conversationsApi";
+import {
+  fetchLlmProfiles,
+  type LlmProfileDTO,
+} from "@/lib/llmProfilesApi";
+import {
+  defaultModelForNewConversation,
+  parseLlmRoutingSelect,
+  transcribeModelProvider,
+} from "@/lib/llmRouting";
 import { isApiUnauthorized } from "@/lib/apiErrors";
 import { buildEmailSendPayload, parseEmailMessageMeta } from "@/lib/emailChatMetadata";
 import { messageIndicatesTaskListInteraction, parseTaskListMessageMeta } from "@/lib/taskListChatMetadata";
@@ -36,7 +45,10 @@ import {
 } from "@/lib/scheduleApi";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { parseDashboardMeta } from "@/lib/dashboardMetadata";
-import { builderDataFromAssistantMetadata } from "@/lib/builderMetadata";
+import {
+  builderDataFromAssistantMetadata,
+  findLatestBuilderDataInMessages,
+} from "@/lib/builderMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import * as mail from "@/lib/mailApi";
@@ -45,8 +57,12 @@ type ConversationWorkspaceValue = {
   conversations: ConversationDTO[];
   activeConversationId: string | null;
   messages: MessageDTO[];
-  modelProvider: ModelProvider;
-  setModelProvider: (m: ModelProvider) => void;
+  /** Selecção do chat: `auto`, `openai`, `google` ou `p:<uuid>` (perfil com chave). */
+  llmSelectValue: string;
+  setLlmSelectValue: (v: string) => void;
+  llmProfiles: LlmProfileDTO[];
+  /** OpenAI ou Google para POST /audio/transcribe (não aceita `auto`). */
+  transcribeModelProvider: "openai" | "google";
   loadingList: boolean;
   loadingMessages: boolean;
   sending: boolean;
@@ -59,7 +75,7 @@ type ConversationWorkspaceValue = {
   clearTaskListNotice: () => void;
   selectConversation: (
     id: string | null,
-    defaultModel?: ModelProvider,
+    defaultModel?: ModelProvider | string,
   ) => Promise<void>;
   refreshConversations: () => Promise<void>;
   createNewConversation: () => Promise<string | null>;
@@ -68,6 +84,8 @@ type ConversationWorkspaceValue = {
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   pinConversation: (id: string, pinned: boolean) => Promise<void>;
+  /** Carrega mensagens, extrai o último projecto Builder e abre o painel de preview. */
+  openBuilderPreviewForConversation: (conversationId: string) => Promise<boolean>;
 };
 
 const ConversationWorkspaceContext =
@@ -88,6 +106,7 @@ export function ConversationWorkspaceProvider({
     setBuilderStreamFiles,
     openTaskListsPreview,
     closeTaskListsPreview,
+    setActiveApp,
   } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
@@ -95,8 +114,8 @@ export function ConversationWorkspaceProvider({
     string | null
   >(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
-  const [modelProvider, setModelProviderState] =
-    useState<ModelProvider>("openai");
+  const [llmSelectValue, setLlmSelectValue] = useState<string>("auto");
+  const [llmProfiles, setLlmProfiles] = useState<LlmProfileDTO[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
@@ -147,12 +166,36 @@ export function ConversationWorkspaceProvider({
     void refreshConversations();
   }, [refreshConversations]);
 
+  const refreshLlmProfiles = useCallback(async () => {
+    if (!token) {
+      setLlmProfiles([]);
+      return;
+    }
+    try {
+      const list = await fetchLlmProfiles(token);
+      setLlmProfiles(list);
+    } catch {
+      setLlmProfiles([]);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void refreshLlmProfiles();
+  }, [refreshLlmProfiles]);
+
+  useEffect(() => {
+    const { profileId } = parseLlmRoutingSelect(llmSelectValue);
+    if (!profileId || llmProfiles.length === 0) return;
+    const ok = llmProfiles.some((p) => p.id === profileId && p.has_api_key);
+    if (!ok) setLlmSelectValue("auto");
+  }, [llmProfiles, llmSelectValue]);
+
   const selectConversation = useCallback(
-    async (id: string | null, defaultModel?: ModelProvider) => {
+    async (id: string | null, defaultModel?: ModelProvider | string) => {
       setActiveConversationId(id);
       setMessages([]);
       if (defaultModel) {
-        setModelProviderState(defaultModel);
+        setLlmSelectValue(defaultModel);
       }
       if (!token || !id) return;
       setLoadingMessages(true);
@@ -163,7 +206,7 @@ export function ConversationWorkspaceProvider({
         if (!defaultModel) {
           const conv = conversations.find((c) => c.id === id);
           if (conv?.default_model_provider) {
-            setModelProviderState(conv.default_model_provider);
+            setLlmSelectValue(conv.default_model_provider);
           }
         }
       } catch (e) {
@@ -183,13 +226,14 @@ export function ConversationWorkspaceProvider({
     if (!token) return null;
     setError(null);
     try {
+      const dm = defaultModelForNewConversation(llmSelectValue);
       const c = await apiCreateConversation(token, {
-        default_model_provider: modelProvider,
+        default_model_provider: dm,
       });
       await refreshConversations();
       setActiveConversationId(c.id);
       setMessages([]);
-      setModelProviderState(c.default_model_provider ?? modelProvider);
+      setLlmSelectValue(c.default_model_provider ?? dm);
       return c.id;
     } catch (e) {
       if (isApiUnauthorized(e)) {
@@ -201,7 +245,7 @@ export function ConversationWorkspaceProvider({
       );
       return null;
     }
-  }, [token, modelProvider, refreshConversations, onSessionUnauthorized]);
+  }, [token, llmSelectValue, refreshConversations, onSessionUnauthorized]);
 
   const sendAuthenticatedMessage = useCallback(
     async (text: string) => {
@@ -221,10 +265,18 @@ export function ConversationWorkspaceProvider({
         const cidFinal = cid;
         let finalMessages: MessageDTO[] | null = null;
 
+        const { model, profileId } = parseLlmRoutingSelect(llmSelectValue);
+        const streamBody: {
+          text: string;
+          model_provider?: ModelProvider;
+          llm_profile_id?: string;
+        } = { text, model_provider: model };
+        if (profileId) streamBody.llm_profile_id = profileId;
+
         await apiStreamMessage(
           token,
           cidFinal,
-          { text, model_provider: modelProvider },
+          streamBody,
           (event: StreamEvent) => {
             if (event.type === "progress") {
               setBuilderProgress({ step: event.step, label: event.label });
@@ -344,7 +396,7 @@ export function ConversationWorkspaceProvider({
     [
       token,
       activeConversationId,
-      modelProvider,
+      llmSelectValue,
       refreshConversations,
       createNewConversation,
       openPlugin,
@@ -395,6 +447,54 @@ export function ConversationWorkspaceProvider({
     [token, refreshConversations, onSessionUnauthorized],
   );
 
+  const openBuilderPreviewForConversation = useCallback(
+    async (conversationId: string): Promise<boolean> => {
+      if (!token) return false;
+      setError(null);
+      try {
+        const msgs = await fetchMessages(token, conversationId);
+        const bd = findLatestBuilderDataInMessages(msgs);
+        if (!bd) {
+          setError(
+            "Esta conversa não tem um projecto com ficheiros para abrir no painel.",
+          );
+          return false;
+        }
+        setActiveApp(null);
+        setDashboardData(null);
+        setBuilderData(bd);
+        setBuilderStreamFiles([]);
+        setBuilderProgress(null);
+        closeTaskListsPreview();
+        setActiveConversationId(conversationId);
+        setMessages(msgs);
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (conv?.default_model_provider) {
+          setLlmSelectValue(conv.default_model_provider);
+        }
+        return true;
+      } catch (e) {
+        if (isApiUnauthorized(e)) {
+          onSessionUnauthorized();
+          return false;
+        }
+        setError(e instanceof Error ? e.message : "Falha ao carregar o projecto");
+        return false;
+      }
+    },
+    [
+      token,
+      conversations,
+      setActiveApp,
+      setDashboardData,
+      setBuilderData,
+      setBuilderProgress,
+      setBuilderStreamFiles,
+      closeTaskListsPreview,
+      onSessionUnauthorized,
+    ],
+  );
+
   const pinConversation = useCallback(
     async (id: string, pinned: boolean) => {
       if (!token) return;
@@ -417,13 +517,15 @@ export function ConversationWorkspaceProvider({
     [token, refreshConversations, onSessionUnauthorized],
   );
 
-  const setModelProvider = useCallback((m: ModelProvider) => {
-    setModelProviderState(m);
-  }, []);
+  const transcribeProv = useMemo(
+    () => transcribeModelProvider(llmSelectValue, llmProfiles),
+    [llmSelectValue, llmProfiles],
+  );
 
   const clearWorkspace = useCallback(() => {
     setActiveConversationId(null);
     setMessages([]);
+    setLlmSelectValue("auto");
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
@@ -435,8 +537,10 @@ export function ConversationWorkspaceProvider({
       conversations,
       activeConversationId,
       messages,
-      modelProvider,
-      setModelProvider,
+      llmSelectValue,
+      setLlmSelectValue,
+      llmProfiles,
+      transcribeModelProvider: transcribeProv,
       loadingList,
       loadingMessages,
       sending,
@@ -453,13 +557,15 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
+      openBuilderPreviewForConversation,
     }),
     [
       conversations,
       activeConversationId,
       messages,
-      modelProvider,
-      setModelProvider,
+      llmSelectValue,
+      llmProfiles,
+      transcribeProv,
       loadingList,
       loadingMessages,
       sending,
@@ -476,6 +582,7 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
+      openBuilderPreviewForConversation,
     ],
   );
 

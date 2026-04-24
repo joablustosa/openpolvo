@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := platformdb.Open(cfg.MYSQLDSN)
+	db, err := platformdb.Open(cfg.DBPath)
 	if err != nil {
 		slog.Error("db", "err", err)
 		os.Exit(1)
@@ -38,7 +38,7 @@ func main() {
 	defer db.Close()
 
 	if cfg.RunMigrations {
-		if err := platformmigrate.Up(cfg.MYSQLDSN, cfg.MigrationsPath); err != nil {
+		if err := platformmigrate.Up(db, cfg.MigrationsPath); err != nil {
 			slog.Error("migrations", "err", err)
 			os.Exit(1)
 		}
@@ -55,7 +55,7 @@ func main() {
 	ctx := context.Background()
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO laele_users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), updated_at = VALUES(updated_at)`,
+		 ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
 		id.String(), email, string(hash), now, now,
 	)
 	if err != nil {

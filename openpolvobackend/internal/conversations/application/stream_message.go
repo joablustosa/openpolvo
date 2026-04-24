@@ -20,6 +20,7 @@ type StreamMessageCommand struct {
 	ConversationID uuid.UUID
 	Text           string
 	ModelProvider  domain.ModelProvider
+	LLMProfileID   *uuid.UUID
 }
 
 // StreamEvent é o evento SSE deserializado do Python.
@@ -41,6 +42,8 @@ type StreamMessage struct {
 	Conversations   convports.ConversationRepository
 	Messages        convports.MessageRepository
 	Streamer        agentports.ChatStreamer
+	LLM             LLMReplyConfigurator
+	AgentMemory     convports.AgentMemoryRepository
 	SMTPForReply      func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
 	ContactsForReply  func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief
 	TaskListsForReply func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief
@@ -89,8 +92,17 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 		return nil, err
 	}
 	repIn := agentports.ReplyInput{
-		Messages:      hist,
-		ModelProvider: model,
+		Messages:         hist,
+		ModelProvider:    model,
+		ConversationID:   conv.ID.String(),
+	}
+	if s.AgentMemory != nil {
+		if row, err := s.AgentMemory.Get(ctx, conv.ID); err == nil {
+			repIn.AgentMemory = &agentports.AgentMemoryIn{
+				Global:  row.Global,
+				Builder: row.Builder,
+			}
+		}
 	}
 	if s.SMTPForReply != nil {
 		repIn.SMTP = s.SMTPForReply(ctx, cmd.UserID)
@@ -109,6 +121,11 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 	}
 	if s.ScheduledTasksForReply != nil {
 		repIn.ScheduledTasks = s.ScheduledTasksForReply(ctx, cmd.UserID)
+	}
+	if s.LLM != nil {
+		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
+			return nil, err
+		}
 	}
 	body, err := s.Streamer.ReplyStream(ctx, repIn)
 	if err != nil {
@@ -133,6 +150,7 @@ func (s *StreamMessage) SaveAssistant(ctx context.Context, conv domain.Conversat
 		Metadata:       metaBytes,
 		CreatedAt:      time.Now().UTC(),
 	})
+	ApplyAgentMemoryPatch(ctx, s.AgentMemory, conv.ID, meta)
 	_ = s.Conversations.TouchUpdatedAt(ctx, conv.ID, time.Now().UTC())
 	if conv.Title == nil || strings.TrimSpace(*conv.Title) == "" {
 		title := userText

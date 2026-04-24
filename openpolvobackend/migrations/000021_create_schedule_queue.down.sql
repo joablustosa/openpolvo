@@ -1,0 +1,1 @@
+-- no-op: não apagar dados de fila em rollback

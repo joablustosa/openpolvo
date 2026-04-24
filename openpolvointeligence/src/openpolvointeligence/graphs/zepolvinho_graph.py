@@ -27,6 +27,12 @@ from openpolvointeligence.graphs.scheduled_task_metadata import (
     format_sched_tasks_for_prompt,
     sched_ops_metadata_for_reply,
 )
+from openpolvointeligence.graphs.agent_memory_utils import (
+    finalize_reply_metadata,
+    format_agent_memory_block,
+    normalize_agent_memory,
+)
+from openpolvointeligence.graphs.skills_budget import skills_block_for_prompt
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -400,6 +406,7 @@ class ZepState(TypedDict, total=False):
     messages: list[dict[str, Any]]
     model_provider: str
     conversation_id: str | None
+    agent_memory: dict[str, Any] | None
     smtp_context: dict[str, Any] | None
     contacts_context: list[dict[str, Any]] | None
     task_lists_context: list[dict[str, Any]] | None
@@ -455,10 +462,16 @@ def build_zepolvinho_graph(settings: Settings):
         capped = tail_messages(msgs)
         summary = conversation_summary(capped)
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=True)
-        sys1 = SystemMessage(content=analyzer_system)
-        sys2 = SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary)
+        mem_block = format_agent_memory_block(normalize_agent_memory(state.get("agent_memory")))
+        sk = skills_block_for_prompt(settings)
+        pre: list[Any] = [SystemMessage(content=analyzer_system)]
+        if sk:
+            pre.append(SystemMessage(content=sk))
+        if mem_block:
+            pre.append(SystemMessage(content=mem_block))
+        pre.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
         hist = _to_lc_messages(capped)
-        resp = await chat.ainvoke([sys1, sys2, *hist])
+        resp = await chat.ainvoke([*pre, *hist])
         raw = str(resp.content).strip()
         if not raw:
             analysis = {
@@ -476,6 +489,7 @@ def build_zepolvinho_graph(settings: Settings):
         analysis = state.get("analysis") or {}
         routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
         capped = tail_messages(msgs)
+        summary = conversation_summary(capped)
         ctx_b = _build_classification_ctx(analysis)
         mp = effective_provider(state.get("model_provider"))
 
@@ -488,28 +502,37 @@ def build_zepolvinho_graph(settings: Settings):
             routed = "gestao_tarefas_calendario"
 
         # Despacho para o sub-grafo Builder (Lovable-like): gera uma app completa
-        # com preview + ficheiros e devolve tudo em metadata.builder.
+        # com ficheiros + app ao vivo (WebContainer) em metadata.builder.
         if routed == "criacao_app_interativa":
             try:
                 from openpolvointeligence.graphs.builder_subgraph import run_builder
 
                 user_req = last_user_text(msgs, 4000)
-                artifact = await run_builder(settings, user_req, state.get("model_provider"))
+                artifact = await run_builder(
+                    settings,
+                    user_req,
+                    state.get("model_provider"),
+                    agent_memory=state.get("agent_memory"),
+                )
                 title = str(artifact.get("title") or "Aplicação")
                 desc = str(artifact.get("description") or "").strip()
-                msg = f"**{title}** pronta. Abre o painel à direita para ver o preview e o código."
+                msg = f"**{title}** pronta. Abre o painel à direita para ver a app ao vivo (Vite) e o código."
                 if desc:
                     msg += f"\n\n{desc}"
+                meta_b: dict[str, Any] = {
+                    "model_provider": mp,
+                    "intent": str(analysis.get("intent", "")),
+                    "routed_intent": routed,
+                    "intent_confidence": float(analysis.get("confidence", 0)),
+                    "intent_reasoning": str(analysis.get("reasoning", "")),
+                    "builder": artifact,
+                }
+                meta_b = await finalize_reply_metadata(
+                    settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta_b,
+                )
                 return {
                     "assistant_text": msg,
-                    "metadata": {
-                        "model_provider": mp,
-                        "intent": str(analysis.get("intent", "")),
-                        "routed_intent": routed,
-                        "intent_confidence": float(analysis.get("confidence", 0)),
-                        "intent_reasoning": str(analysis.get("reasoning", "")),
-                        "builder": artifact,
-                    },
+                    "metadata": meta_b,
                 }
             except Exception as exc:  # noqa: BLE001 — fallback defensivo para não quebrar o chat
                 import logging as _lg
@@ -620,6 +643,15 @@ def build_zepolvinho_graph(settings: Settings):
                     "com `{platform, message, image_url}`, e enviar **mensagens WhatsApp** via `POST /v1/meta/message` "
                     "com `{platform: 'whatsapp', to, text}`. Nunca inventes IDs ou tokens — usa os fornecidos acima."
                 )
+        mem_block = format_agent_memory_block(normalize_agent_memory(state.get("agent_memory")))
+        sk = skills_block_for_prompt(settings)
+        hist_prefix: list[Any] = []
+        if sk:
+            hist_prefix.append(SystemMessage(content=sk))
+        if mem_block:
+            hist_prefix.append(SystemMessage(content=mem_block))
+        hist_sys = SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary)
+
         if routed == "geral":
             sys = (
                 _system_with_formatting(base, settings)
@@ -631,7 +663,9 @@ def build_zepolvinho_graph(settings: Settings):
                 sys += contacts_block
             if meta_block:
                 sys += meta_block
-            resp = await chat.ainvoke([SystemMessage(content=sys), *_to_lc_messages(capped)])
+            resp = await chat.ainvoke(
+                [SystemMessage(content=sys), *hist_prefix, hist_sys, *_to_lc_messages(capped)],
+            )
         else:
             sys = _system_with_formatting(base, settings) + "\n\nContexto da classificação:\n" + ctx_b
             if routed == "criacao_email" and smtp_block:
@@ -646,7 +680,9 @@ def build_zepolvinho_graph(settings: Settings):
                 sys += sched_block
             if meta_block and routed in ("post_instagram", "post_facebook", "automacao", "pedido_conteudo"):
                 sys += meta_block
-            resp = await chat.ainvoke([SystemMessage(content=sys), *_to_lc_messages(capped)])
+            resp = await chat.ainvoke(
+                [SystemMessage(content=sys), *hist_prefix, hist_sys, *_to_lc_messages(capped)],
+            )
         text = str(resp.content).strip()
 
         meta: dict[str, Any] = {
@@ -703,6 +739,9 @@ def build_zepolvinho_graph(settings: Settings):
                 )
             except Exception:
                 pass
+        meta = await finalize_reply_metadata(
+            settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta,
+        )
         return {"assistant_text": text, "metadata": meta}
 
     g = StateGraph(ZepState)
@@ -742,6 +781,9 @@ async def run_reply(
     finance_context: dict[str, Any] | None = None,
     meta_context: dict[str, Any] | None = None,
     scheduled_tasks_context: list[dict[str, Any]] | None = None,
+    *,
+    conversation_id: str | None = None,
+    agent_memory: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Executa o grafo LangGraph compilado."""
     graph = get_compiled_graph(settings)
@@ -749,6 +791,8 @@ async def run_reply(
         {
             "messages": messages,
             "model_provider": model_provider,
+            "conversation_id": conversation_id,
+            "agent_memory": agent_memory,
             "smtp_context": smtp_context,
             "contacts_context": contacts_context,
             "task_lists_context": task_lists_context,
@@ -774,6 +818,9 @@ async def run_reply_stream(
     finance_context: dict[str, Any] | None = None,
     meta_context: dict[str, Any] | None = None,
     scheduled_tasks_context: list[dict[str, Any]] | None = None,
+    *,
+    conversation_id: str | None = None,
+    agent_memory: dict[str, Any] | None = None,
 ):
     """Versão SSE de run_reply — sem timeout HTTP.
 
@@ -825,12 +872,16 @@ async def run_reply_stream(
         analyzer_system = _load_prompt("analyzer_system")
         capped = tail_messages(messages)
         summary = conversation_summary(capped)
+        mem_block = format_agent_memory_block(normalize_agent_memory(agent_memory))
+        sk = skills_block_for_prompt(settings)
+        pre_a: list[Any] = [SystemMessage(content=analyzer_system)]
+        if sk:
+            pre_a.append(SystemMessage(content=sk))
+        if mem_block:
+            pre_a.append(SystemMessage(content=mem_block))
+        pre_a.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
         chat_analyze = get_chat_model(settings, model_provider, json_mode=True)
-        resp = await chat_analyze.ainvoke([
-            SystemMessage(content=analyzer_system),
-            SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary),
-            *_to_lc_messages(capped),
-        ])
+        resp = await chat_analyze.ainvoke([*pre_a, *_to_lc_messages(capped)])
         raw = str(resp.content).strip()
         analysis = _parse_analysis(raw) if raw else {
             "intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {},
@@ -851,23 +902,29 @@ async def run_reply_stream(
     if routed == "criacao_app_interativa":
         user_req = last_user_text(messages, 4000)
         try:
-            async for event in run_builder_stream(settings, user_req, model_provider):
+            async for event in run_builder_stream(
+                settings, user_req, model_provider, agent_memory=agent_memory,
+            ):
                 if event.get("type") == "done":
                     artifact = event.get("artifact", {})
                     title = str(artifact.get("title") or "Aplicação")
                     desc = str(artifact.get("description") or "").strip()
-                    msg = f"**{title}** pronta. Abre o painel à direita para ver o preview e o código."
+                    msg = f"**{title}** pronta. Abre o painel à direita para ver a app ao vivo (Vite) e o código."
                     if desc:
                         msg += f"\n\n{desc}"
+                    meta_done: dict[str, Any] = {
+                        "model_provider": mp,
+                        "intent": "criacao_app_interativa",
+                        "routed_intent": "criacao_app_interativa",
+                        "builder": artifact,
+                    }
+                    meta_done = await finalize_reply_metadata(
+                        settings, model_provider, messages, agent_memory, meta_done,
+                    )
                     yield {
                         "type": "done",
                         "assistant_text": msg,
-                        "metadata": {
-                            "model_provider": mp,
-                            "intent": "criacao_app_interativa",
-                            "routed_intent": "criacao_app_interativa",
-                            "builder": artifact,
-                        },
+                        "metadata": meta_done,
                     }
                 else:
                     yield event
@@ -889,6 +946,8 @@ async def run_reply_stream(
             finance_context,
             meta_context,
             scheduled_tasks_context,
+            conversation_id=conversation_id,
+            agent_memory=agent_memory,
         )
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:

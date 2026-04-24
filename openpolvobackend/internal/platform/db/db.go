@@ -2,19 +2,30 @@ package db
 
 import (
 	"database/sql"
-	"time"
+	"fmt"
+	"path/filepath"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "modernc.org/sqlite"
 )
 
-func Open(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
+func Open(dbPath string) (*sql.DB, error) {
+	abs, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("db: resolver caminho: %w", err)
+	}
+	dsn := fmt.Sprintf(
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)",
+		abs,
+	)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	// SQLite com WAL serializa escritas internamente; uma conexão na pool evita "database is locked".
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, err

@@ -14,7 +14,7 @@ openpolvointeligence/ → Agente Python — LangGraph, LLMs, especialistas
 
 ## ⚡ Início rápido — menos de 2 minutos
 
-> Precisas de: **Go 1.24+**, **Node 20+**, **Python 3.11+**, **MySQL 8+** e pelo menos uma chave de API (**OpenAI** ou **Google Gemini**).
+> Precisas de: **Go 1.24+**, **Node 20+**, **Python 3.11+** e pelo menos uma chave de API (**OpenAI** ou **Google Gemini**) no serviço Python (ou perfis LLM no SQLite via API). A API Go usa **SQLite local** (`DB_PATH`).
 
 Abre **3 terminais** e executa cada bloco num:
 
@@ -25,15 +25,13 @@ git clone https://github.com/open-polvo/open-polvo.git
 cd open-polvo/openpolvobackend
 
 cp .env.example .env
-# Edita .env: preenche JWT_SECRET, MYSQL_DSN, POLVO_INTELLIGENCE_INTERNAL_KEY
-# Exemplo mínimo (MySQL local):
-#   MYSQL_DSN=root:root@tcp(127.0.0.1:3306)/openpolvo?parseTime=true
+# Edita .env: JWT_SECRET, DB_PATH (SQLite), POLVO_INTELLIGENCE_INTERNAL_KEY (= POLVO_INTERNAL_KEY no Python)
 #   JWT_SECRET=um-segredo-longo-aqui
+#   DB_PATH=openpolvo.db
 #   RUN_MIGRATIONS=true
-#   POLVO_INTELLIGENCE_INTERNAL_KEY=chave-secreta-igual-ao-python
 
 go run ./cmd/openlaele-api/
-# ✅ API em http://127.0.0.1:8080
+# ✅ API em HTTP_ADDR (por defeito http://127.0.0.1:8080)
 ```
 
 ### Terminal 2 — Agente Python (Intelligence)
@@ -61,10 +59,10 @@ cd open-polvo/openpolvo
 
 npm install
 npm run dev
-# ✅ App em http://localhost:5173
+# ✅ Desktop: Electron + Vite (também em http://localhost:5173)
 ```
 
-Abre `http://localhost:5173` e entra com o utilizador definido em `openpolvobackend/.env` (por defeito no `.env.example`: **email** `admin@openlaele.local` e **password** `DEFAULT_ADMIN_PASSWORD`; altera antes do primeiro arranque em produção).
+Em **desktop** o `npm run dev` abre o **Electron**; em **navegador** usa `npm run dev:web` no `openpolvo`. Entra com o utilizador definido em `openpolvobackend/.env` (por defeito no `.env.example`: **email** `admin@openlaele.local` e **password** `DEFAULT_ADMIN_PASSWORD`; altera antes do primeiro arranque em produção).
 
 > **Pronto. Em menos de 2 minutos, o Zé Polvinho tá de pé.**
 
@@ -77,7 +75,7 @@ Abre `http://localhost:5173` e entra com o utilizador definido em `openpolvoback
 ```env
 HTTP_ADDR=:8080
 JWT_SECRET=troca-isso-por-um-segredo-forte
-MYSQL_DSN=usuario:senha@tcp(127.0.0.1:3306)/openpolvo?parseTime=true&charset=utf8mb4
+DB_PATH=openpolvo.db
 RUN_MIGRATIONS=true
 BOOTSTRAP_DEFAULT_ADMIN=true
 DEFAULT_ADMIN_EMAIL=admin@openlaele.local
@@ -281,7 +279,7 @@ openpolvobackend/
 │   ├── meta/             → WhatsApp, Facebook, Instagram
 │   ├── social/           → automação de posts sociais
 │   ├── transport/http/   → handlers e router Chi
-│   └── platform/         → config, MySQL, migrations
+│   └── platform/         → config, SQLite, migrations
 └── migrations/           → arquivos SQL versionados
 ```
 
@@ -371,13 +369,38 @@ META_WEBHOOK_VERIFY_TOKEN=token-configurado-no-painel-meta
 As migrações rodam automaticamente com `RUN_MIGRATIONS=true`. Para rodar manualmente:
 
 ```bash
-# Aplicar todas
-go run ./cmd/openlaele-api/ -migrate-only
+# Aplicar todas (arranque normal com RUN_MIGRATIONS=true no .env)
+go run ./cmd/openlaele-api/
 
 # Verificar estado
 go run github.com/golang-migrate/migrate/v4/cmd/migrate@latest \
-  -database "mysql://..." -path migrations version
+  -database "sqlite3://openpolvo.db" -path migrations version
 ```
+
+### Primeiro arranque (utilizador inicial)
+
+- Com `BOOTSTRAP_DEFAULT_ADMIN=true` (defeito), **é obrigatório** definir `DEFAULT_ADMIN_PASSWORD` no `.env`. A API **termina com erro** se a password estiver vazia — não há utilizador inicial sem password explícita (política de segurança).
+- O bootstrap corre **depois** das migrações e é **idempotente**: se já existir utilizador com `DEFAULT_ADMIN_EMAIL`, não cria duplicado.
+
+### Domínios da API ↔ migrações SQLite (inventário)
+
+Todas as áreas abaixo usam o mesmo ficheiro SQLite (`DB_PATH`) e repositórios registados em `cmd/openlaele-api/main.go`. Cada domínio depende das migrações indicadas.
+
+| Domínio | Migrações principais (pasta `migrations/`) |
+|---------|-----------------------------------------------|
+| Identidade (login/registo) | `000001_create_users` |
+| Conversas e mensagens | `000002`, `000003`, `000004` |
+| Workflows (Pulo do Gato) | `000005`, `000006`, `000007`, `000008`, `000009` |
+| SMTP e opções de chat | `000010`, `000012` |
+| Contactos | `000011` |
+| Listas de tarefas | `000013`, `000014`; prazo `due_at` em `000015` |
+| Finanças, digest diário | `000015` (categorias, movimentos, assinaturas, definições de digest) |
+| Meta (WhatsApp/FB/IG) | `000016` |
+| Social / publicações | `000017` |
+| Tarefas agendadas (CRON) | `000018` |
+| Perfis LLM | `000019` |
+
+Se adicionares um novo domínio na API, adiciona migração `.up.sql` / `.down.sql` e regista o repositório em `main.go` para não haver handlers sem tabela.
 
 ---
 

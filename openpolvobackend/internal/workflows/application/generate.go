@@ -16,11 +16,11 @@ type GenerateWorkflow struct {
 	LLM wfports.IntelligenceService
 }
 
-func (uc *GenerateWorkflow) Execute(ctx context.Context, provider domain.ModelProvider, userRequest, recordingJSON string) (wfdomain.GraphJSON, string, error) {
+func (uc *GenerateWorkflow) Execute(ctx context.Context, provider domain.ModelProvider, ov wfports.LLMOverrides, userRequest, recordingJSON string) (wfdomain.GraphJSON, string, error) {
 	if uc.LLM == nil {
 		return wfdomain.GraphJSON{}, "", ErrLLMNotConfigured
 	}
-	raw, err := uc.LLM.GenerateGraphJSON(ctx, provider, userRequest, recordingJSON)
+	raw, err := uc.LLM.GenerateGraphJSON(ctx, provider, ov, userRequest, recordingJSON)
 	if err != nil {
 		return wfdomain.GraphJSON{}, "", err
 	}

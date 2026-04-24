@@ -7,10 +7,23 @@ import (
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 )
 
+// AgentMemoryIn memória híbrida por conversa (texto curto para o prompt do Intelligence).
+type AgentMemoryIn struct {
+	Global  string
+	Builder string
+}
+
 // ReplyInput contém o histórico já persistido (incluindo a última mensagem do utilizador).
 type ReplyInput struct {
-	Messages       []domain.Message
-	ModelProvider  domain.ModelProvider
+	Messages        []domain.Message
+	ModelProvider   domain.ModelProvider
+	ConversationID  string            // opcional: UUID da conversa para o Intelligence
+	AgentMemory     *AgentMemoryIn    // opcional: vindo do SQLite
+	// Overrides opcionais enviados ao Open Polvo Intelligence (perfis LLM na BD local).
+	OpenAIAPIKey  string `json:"-"`
+	GoogleAPIKey  string `json:"-"`
+	OpenAIModel   string `json:"-"`
+	GoogleModel   string `json:"-"`
 	SMTP           *SMTPContext         // opcional: conta de envio configurada na aplicação
 	Contacts       []ContactBrief       // opcional: agenda do utilizador (nome, email, telefone)
 	TaskLists      []TaskListBrief      // opcional: listas de tarefas persistidas (Agente Tarefas)

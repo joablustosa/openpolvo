@@ -40,13 +40,13 @@ func (r *AutomationConfigRepository) Upsert(ctx context.Context, cfg *domain.Aut
 		`INSERT INTO laele_social_automation_configs
 		   (id, user_id, platforms_json, sites_json, times_per_day, approval_phone, active, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE
-		   platforms_json = VALUES(platforms_json),
-		   sites_json = VALUES(sites_json),
-		   times_per_day = VALUES(times_per_day),
-		   approval_phone = VALUES(approval_phone),
-		   active = VALUES(active),
-		   updated_at = VALUES(updated_at)`,
+		 ON CONFLICT(id) DO UPDATE SET
+		   platforms_json = excluded.platforms_json,
+		   sites_json = excluded.sites_json,
+		   times_per_day = excluded.times_per_day,
+		   approval_phone = excluded.approval_phone,
+		   active = excluded.active,
+		   updated_at = excluded.updated_at`,
 		cfg.ID, cfg.UserID, string(platforms), string(sites),
 		cfg.TimesPerDay, cfg.ApprovalPhone, active, now, now,
 	)

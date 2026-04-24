@@ -13,15 +13,18 @@ Recebes o design técnico do Engineer, o `kit_shadcn.md` (sempre) e o kit arquit
    - Estilos **apenas com Tailwind** — nada de CSS inline (excepto variáveis OKLCH no `index.css`).
    - Componentes shadcn-style copiados literalmente do `kit_shadcn.md` (não alteres a API deles).
    - `cn()` utility sempre em `src/lib/utils.ts`.
-3. **Backend Node (Hono)** se `project_type === "fullstack_node"`:
+   - Path alias `@/*` **obrigatório**: configura em `vite.config.ts` + `tsconfig.json`. Imports `@/components/ui/*` devem funcionar sem ajustes manuais.
+   - Se usares `framer-motion` (landing_page), garante `"framer-motion"` em `dependencies` no `package.json`.
+   - `package.json` deve incluir (mínimo) `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `typescript` e os deps Tailwind/PostCSS conforme o kit (para o preview ao vivo).
+8. **Backend Node (Hono)** se `project_type === "fullstack_node"`:
    - Separação estrita: `routes/` (handlers Hono) → `services/` (lógica) → `repos/` (DB) → `db/schema.ts` (Drizzle).
    - Types partilhados em `packages/shared/src/types.ts`.
    - SQLite ficheiro único (`data.sqlite`).
-4. **Backend Go hexagonal** se `project_type === "fullstack_go_hexagonal"`:
+9. **Backend Go hexagonal** se `project_type === "fullstack_go_hexagonal"`:
    - Segue literalmente o `kit_go_hex_arch.md`: `internal/{feature}/{domain,ports,application,adapters/mysql}` + `internal/transport/http/` + `cmd/{name}-api/main.go` + migrations.
    - UUIDs como `[16]byte` de `github.com/google/uuid`.
    - Handlers chi, mesmo pattern do openpolvobackend.
-5. **README.md** obrigatório com:
+10. **README.md** obrigatório com:
    - Secção "Requisitos" (Node 20+, Go 1.22+, SQLite/MySQL se aplicável)
    - Secção "Como correr" com comandos exactos
    - Secção "Endpoints" (se fullstack)
@@ -32,17 +35,28 @@ Recebes o design técnico do Engineer, o `kit_shadcn.md` (sempre) e o kit arquit
 
 O `index.css` (ou equivalente) **tem de incluir** exactamente estas variáveis OKLCH do openpolvo (kit_shadcn tem-nas). Font: `Geist Variable`. Radius: `0.625rem`.
 
+## Contrato entre agentes (handoff)
+
+- Implementa **todos** os caminhos listados em `design.file_tree` (ou justifica omissão criando ficheiros equivalentes que cubram a mesma responsabilidade).
+- Respeita `design.api_routes`, `design.user_flows` e `design.edge_cases` — o Integrator assume que o código cumpre estes contratos.
+- Usa apenas paths que existem no `design.file_tree` ou que são claramente auxiliares (`src/lib/utils.ts`, etc.).
+
+## Regras estilo assistente de código (Claude-like)
+
+- Não inventes dependências npm que não estejam no `package.json`.
+- Imports com alias `@/` conforme `vite.config.ts` / `tsconfig.json` que geras.
+
 ## Input
 
-- `spec` (Tech Lead)
-- `design` (Engineer)
-- `kit_shadcn` (componentes shadcn-style)
-- `kit_arch` (arquitectura específica)
+- `spec` (Tech Lead), `design` (Engineer), `user_request` (pedido original — mantém consistência de copy e nomes).
+- `handoff` (opcional): objecto com `schema_version`, `stage`, `project_type`, `title`, `file_tree_paths` — referência rápida; não substitui `spec`/`design`.
+- `kit_shadcn` + `kit_arch`: anexados pelo sistema após este prompt.
 
 ## Output JSON (obrigatório, sem markdown)
 
 ```json
 {
+  "schema_version": 1,
   "files": [
     {"path": "src/App.tsx", "language": "tsx", "content": "import { Button } from ...\n..."},
     {"path": "src/index.css", "language": "css", "content": "@import ..."},

@@ -19,12 +19,15 @@ type SendMessageCommand struct {
 	ConversationID uuid.UUID
 	Text           string
 	ModelProvider  domain.ModelProvider
+	LLMProfileID   *uuid.UUID
 }
 
 type SendMessage struct {
 	Conversations convports.ConversationRepository
 	Messages      convports.MessageRepository
 	Agent         agentports.ChatOrchestrator
+	LLM           LLMReplyConfigurator
+	AgentMemory   convports.AgentMemoryRepository
 	// Opcional: metadados SMTP do utilizador para o orquestrador Intelligence.
 	SMTPForReply func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
 	// Opcional: contactos guardados para o agente sugerir destinatários ou corresponder nomes.
@@ -37,6 +40,11 @@ type SendMessage struct {
 	MetaForReply func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext
 	// Opcional: tarefas agendadas do utilizador para o agente sugerir ou criar automações.
 	ScheduledTasksForReply func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief
+}
+
+// LLMReplyConfigurator aplica chaves/modelos do SQLite ao ReplyInput (opcional).
+type LLMReplyConfigurator interface {
+	ApplyToReplyInput(ctx context.Context, repIn *agentports.ReplyInput, requested domain.ModelProvider, explicitProfileID *uuid.UUID) error
 }
 
 func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]domain.Message, error) {
@@ -71,8 +79,17 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 		return nil, err
 	}
 	repIn := agentports.ReplyInput{
-		Messages:      hist,
-		ModelProvider: model,
+		Messages:         hist,
+		ModelProvider:    model,
+		ConversationID:   conv.ID.String(),
+	}
+	if s.AgentMemory != nil {
+		if row, err := s.AgentMemory.Get(ctx, conv.ID); err == nil {
+			repIn.AgentMemory = &agentports.AgentMemoryIn{
+				Global:  row.Global,
+				Builder: row.Builder,
+			}
+		}
 	}
 	if s.SMTPForReply != nil {
 		repIn.SMTP = s.SMTPForReply(ctx, cmd.UserID)
@@ -92,6 +109,11 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	if s.ScheduledTasksForReply != nil {
 		repIn.ScheduledTasks = s.ScheduledTasksForReply(ctx, cmd.UserID)
 	}
+	if s.LLM != nil {
+		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
+			return nil, err
+		}
+	}
 	assistantText, meta, err := s.Agent.Reply(ctx, repIn)
 	if err != nil {
 		if errors.Is(err, convports.ErrModelNotConfigured) {
@@ -100,7 +122,7 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 				ID:             uuid.New(),
 				ConversationID: conv.ID,
 				Role:           "assistant",
-				Content:        "Não há chave de API no serviço Open Polvo Intelligence para o fornecedor de modelo seleccionado. Defina OPENAI_API_KEY e/ou GOOGLE_API_KEY no ambiente do serviço Python.",
+				Content:        "Não há chave de API disponível para o modelo seleccionado. Em Definições → Modelos LLM, adicione um perfil com chave (gravado localmente no SQLite) ou defina OPENAI_API_KEY / GOOGLE_API_KEY no ambiente do Open Polvo Intelligence.",
 				Metadata:       metaBytes,
 				CreatedAt:      time.Now().UTC(),
 			})
@@ -136,6 +158,7 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 		Metadata:       metaBytes,
 		CreatedAt:      time.Now().UTC(),
 	})
+	ApplyAgentMemoryPatch(ctx, s.AgentMemory, conv.ID, meta)
 	_ = s.Conversations.TouchUpdatedAt(ctx, conv.ID, time.Now().UTC())
 	if conv.Title == nil || strings.TrimSpace(*conv.Title) == "" {
 		title := text

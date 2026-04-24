@@ -1,0 +1,86 @@
+# electron-builder — configuração de packaging do Open Polvo
+#
+# Binários dos serviços backend são incluídos como extraResources:
+#   resources/backend/openlaele-api.exe   (Go API — tem o scheduler interno)
+#   resources/intelligence/openpolvointel.exe  (Python Intelligence — PyInstaller)
+#
+# Configuração dos serviços (variáveis de ambiente) fica em:
+#   %APPDATA%/Open Polvo/backend.env
+#   %APPDATA%/Open Polvo/intelligence.env
+# (criados pelo instalador ou manualmente pelo utilizador)
+
+appId: com.openpolvo.app
+productName: Open Polvo
+copyright: Open Polvo
+
+# Ícone gerado a partir de src/assets/oficial_logo.png pelo script de build
+icon: build/icon.png
+
+# Directório de output do Vite build
+directories:
+  buildResources: build
+  output: dist-electron
+
+# Ficheiros a incluir no asar
+files:
+  - dist/**
+  - electron/**
+  - "!electron/**/*.map"
+  - node_modules/**
+  - package.json
+
+# Binários externos (fora do asar, acessíveis via process.resourcesPath)
+extraResources:
+  # Go API — compilar com: go build -o build/backend/openlaele-api.exe ./cmd/openlaele-api/
+  - from: "../openpolvobackend/build/backend"
+    to: "backend"
+    filter:
+      - "openlaele-api*"
+  # Python Intelligence — empacotar com PyInstaller: pyinstaller openpolvointel.spec
+  - from: "../openpolvointeligence/dist/openpolvointel"
+    to: "intelligence"
+    filter:
+      - "**/*"
+
+# ── Windows ────────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # Solicita permissões de administrador apenas para o instalador
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  # Criar atalho no arranque (o utilizador pode desactivar nas definições)
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  # Script personalizado para criar os ficheiros .env iniciais
+  # include: build/installer.nsh
+
+# ── macOS ──────────────────────────────────────────────────────────────────────
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  sign: false
+
+# ── Linux ──────────────────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Office

@@ -34,6 +34,7 @@ export type BuilderData = {
   framework: string;
   entry_file: string;
   files: BuilderFile[];
+  /** Legado: o cliente usa só WebContainer (Vite). Manter `""` no artefacto novo. */
   preview_html: string;
   deploy_instructions?: string;
   review_summary?: BuilderReviewSummary;
@@ -205,54 +206,6 @@ function extractExplicitPreviewHtml(raw: Record<string, unknown>): string {
   return "";
 }
 
-function normalizeFsPath(p: string): string {
-  return p.replace(/\\/g, "/").replace(/^\/+/, "").trim();
-}
-
-/**
- * Se o integrador não devolver `preview_html`, tenta usar um ficheiro HTML do projecto
- * (entrada ou index) para o iframe — caso típico em que o modelo só preenche `files`.
- */
-function derivePreviewHtmlFromFiles(files: BuilderFile[], entryFile: string): string {
-  if (!files.length) return "";
-  const pathKey = (p: string) => normalizeFsPath(p).toLowerCase();
-  const byPath = new Map(files.map((f) => [pathKey(f.path), f] as const));
-
-  const entryNorm = normalizeFsPath(entryFile);
-  if (entryNorm && /\.html?$/i.test(entryNorm)) {
-    const hit =
-      byPath.get(pathKey(entryFile)) ??
-      files.find((f) => pathKey(f.path) === pathKey(entryFile));
-    const c = hit?.content?.trim();
-    if (c) return c;
-  }
-
-  const indexNames = [
-    "index.html",
-    "public/index.html",
-    "src/index.html",
-    "dist/index.html",
-    "static/index.html",
-  ];
-  for (const name of indexNames) {
-    const key = pathKey(name);
-    const hit =
-      byPath.get(key) ??
-      files.find((f) => pathKey(f.path) === key || pathKey(f.path).endsWith(`/${key}`));
-    const c = hit?.content?.trim();
-    if (c) return c;
-  }
-
-  const htmlFiles = files.filter((f) => /\.html?$/i.test(f.path));
-  htmlFiles.sort(
-    (a, b) =>
-      normalizeFsPath(a.path).split("/").length - normalizeFsPath(b.path).split("/").length ||
-      a.path.localeCompare(b.path),
-  );
-  const c = htmlFiles[0]?.content?.trim();
-  return c ?? "";
-}
-
 /**
  * Artefacto Builder para abrir o painel lateral **só** quando o encaminhamento
  * foi `criacao_app_interativa` (desenvolvimento); outras intenções ficam no chat.
@@ -274,12 +227,9 @@ export function parseBuilderMeta(metadata: unknown): BuilderData | null {
   const files = coerceBuilderFilesArray(raw.files);
 
   const entry_file = typeof raw.entry_file === "string" ? raw.entry_file : "";
-  let preview_html = extractExplicitPreviewHtml(raw);
-  if (!preview_html.trim() && files.length > 0) {
-    preview_html = derivePreviewHtmlFromFiles(files, entry_file);
-  }
+  /** O cliente usa só WebContainer (Vite); não derivamos HTML de ficheiros. */
+  const preview_html = extractExplicitPreviewHtml(raw);
 
-  // Precisa de, pelo menos, ficheiros ou preview_html para ser útil.
   if (files.length === 0 && !preview_html.trim()) return null;
 
   const data: BuilderData = {

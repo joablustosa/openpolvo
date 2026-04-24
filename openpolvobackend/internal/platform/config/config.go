@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,9 +20,10 @@ type Config struct {
 	JWTSecret           string
 	JWTIssuer           string
 	JWTAccessTTL        time.Duration
-	MYSQLDSN            string
-	RunMigrations       bool
-	MigrationsPath      string
+	// Base de dados SQLite local.
+	DBPath        string
+	RunMigrations bool
+	MigrationsPath string
 	AuthAllowRegister   bool
 	// OAuth (Google) — usado para login/cadastro via conta Google (ID token).
 	GoogleOAuthClientIDs []string
@@ -69,6 +69,7 @@ func Load() (Config, error) {
 		CORSAllowNullOrigin:  parseBool(getEnv("CORS_ALLOW_NULL_ORIGIN", "true")),
 		JWTSecret:            strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		JWTIssuer:            getEnv("JWT_ISSUER", "open-polvo"),
+		DBPath:               getEnv("DB_PATH", "openpolvo.db"),
 		RunMigrations:        parseBool(getEnv("RUN_MIGRATIONS", "true")),
 		MigrationsPath:       getEnv("MIGRATIONS_PATH", "migrations"),
 		AuthAllowRegister:    parseBool(getEnv("AUTH_ALLOW_REGISTER", "false")),
@@ -99,8 +100,7 @@ func Load() (Config, error) {
 	}
 	cfg.JWTAccessTTL = ttl
 
-	// O sub-grafo Builder (Lovable-like) pode correr 4 LLM calls encadeadas com
-	// outputs grandes; 120s é curto demais. 600s cobre o pior caso com margem.
+	// O sub-grafo Builder pode correr 4 LLM calls encadeadas com outputs grandes; 600s cobre o pior caso com margem.
 	llmTO, err := time.ParseDuration(getEnv("AGENT_LLM_TIMEOUT", "600s"))
 	if err != nil {
 		return Config{}, fmt.Errorf("AGENT_LLM_TIMEOUT: %w", err)
@@ -135,11 +135,6 @@ func Load() (Config, error) {
 			cfg.GoogleOAuthClientIDs = []string{v}
 		}
 	}
-	dsn, err := resolveMySQLDSN()
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.MYSQLDSN = dsn
 	return cfg, nil
 }
 
@@ -172,48 +167,4 @@ func splitComma(s string) []string {
 		}
 	}
 	return out
-}
-
-func resolveMySQLDSN() (string, error) {
-	raw := strings.TrimSpace(os.Getenv("MYSQL_DSN"))
-	raw = trimQuotes(raw)
-	if raw != "" {
-		return raw, nil
-	}
-	host := strings.TrimSpace(os.Getenv("MYSQL_HOST"))
-	user := strings.TrimSpace(os.Getenv("MYSQL_USER"))
-	db := strings.TrimSpace(os.Getenv("MYSQL_DATABASE"))
-	pass := strings.TrimSpace(os.Getenv("MYSQL_PASSWORD"))
-	port := strings.TrimSpace(os.Getenv("MYSQL_PORT"))
-	if port == "" {
-		port = "3306"
-	}
-	if host == "" || user == "" || db == "" {
-		return "", fmt.Errorf("define MYSQL_DSN ou MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE (e MYSQL_PASSWORD se necessário)")
-	}
-	tls := false
-	if v := strings.TrimSpace(os.Getenv("MYSQL_TLS")); v != "" {
-		tls = parseBool(v)
-	} else if strings.Contains(strings.ToLower(host), ".mysql.database.azure.com") {
-		tls = true
-	}
-	ui := url.UserPassword(user, pass)
-	if ui == nil {
-		return "", fmt.Errorf("MYSQL_USER inválido")
-	}
-	q := "parseTime=true&charset=utf8mb4"
-	if tls {
-		q += "&tls=true"
-	}
-	return fmt.Sprintf("%s@tcp(%s:%s)/%s?%s", ui.String(), host, port, db, q), nil
-}
-
-func trimQuotes(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			return strings.TrimSpace(s[1 : len(s)-1])
-		}
-	}
-	return s
 }

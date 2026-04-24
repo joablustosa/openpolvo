@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     builder_llm_timeout_s: float = Field(default=180.0, validation_alias="BUILDER_LLM_TIMEOUT_S")
     port: int = Field(default=8090, validation_alias="PORT")
     host: str = Field(default="0.0.0.0", validation_alias="HOST")
+    # Raízes para procurar `.cursor/skills/**/SKILL.md` (separador `;` ou `,`). Vazio = auto-detect.
+    skills_scan_roots: str = Field(default="", validation_alias="OP_SKILLS_SCAN_ROOTS")
+    skills_prompt_budget_chars: int = Field(default=6000, validation_alias="OP_SKILLS_PROMPT_BUDGET_CHARS")
 
     @property
     def has_any_llm_key(self) -> bool:

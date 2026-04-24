@@ -11,7 +11,7 @@ import (
 	"github.com/open-polvo/open-polvo/internal/finance/ports"
 )
 
-// Store implementa repositórios de finanças em MySQL.
+// Store implementa repositórios de finanças em SQLite.
 type Store struct {
 	DB *sql.DB
 }
@@ -299,9 +299,13 @@ func (s *Store) UpsertDigestSettings(ctx context.Context, d *domain.DigestSettin
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO laele_user_digest_settings (user_id, timezone, digest_hour, digest_enabled, include_finance_summary, include_tasks, last_digest_sent_on, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE timezone = VALUES(timezone), digest_hour = VALUES(digest_hour), digest_enabled = VALUES(digest_enabled),
-		 include_finance_summary = VALUES(include_finance_summary), include_tasks = VALUES(include_tasks),
-		 last_digest_sent_on = VALUES(last_digest_sent_on), updated_at = VALUES(updated_at)`,
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   timezone = excluded.timezone, digest_hour = excluded.digest_hour,
+		   digest_enabled = excluded.digest_enabled,
+		   include_finance_summary = excluded.include_finance_summary,
+		   include_tasks = excluded.include_tasks,
+		   last_digest_sent_on = excluded.last_digest_sent_on,
+		   updated_at = excluded.updated_at`,
 		d.UserID.String(), d.Timezone, d.DigestHour, d.DigestEnabled, d.IncludeFinanceSummary, d.IncludeTasks,
 		nullableDate(d.LastDigestSentOn), d.UpdatedAt,
 	)
@@ -417,9 +421,10 @@ func subscriptionFromScanned(
 // MarkSubscriptionReminderSent actualiza lembrete diário (data civil UTC).
 func (s *Store) MarkSubscriptionReminderSent(ctx context.Context, subID, userID uuid.UUID, dayUTC time.Time) error {
 	d := dayUTC.UTC().Format("2006-01-02")
+	now := time.Now().UTC()
 	_, err := s.DB.ExecContext(ctx,
-		`UPDATE laele_finance_subscriptions SET last_reminder_sent_at = ?, reminder_active = 1, updated_at = UTC_TIMESTAMP() WHERE id = ? AND user_id = ?`,
-		d, subID.String(), userID.String(),
+		`UPDATE laele_finance_subscriptions SET last_reminder_sent_at = ?, reminder_active = 1, updated_at = ? WHERE id = ? AND user_id = ?`,
+		d, now, subID.String(), userID.String(),
 	)
 	return err
 }
@@ -427,9 +432,10 @@ func (s *Store) MarkSubscriptionReminderSent(ctx context.Context, subID, userID 
 // UpdateDigestLastSentOn grava a data do último digest enviado (YYYY-MM-DD).
 func (s *Store) UpdateDigestLastSentOn(ctx context.Context, userID uuid.UUID, dayUTC time.Time) error {
 	d := dayUTC.UTC().Format("2006-01-02")
+	now := time.Now().UTC()
 	_, err := s.DB.ExecContext(ctx,
-		`UPDATE laele_user_digest_settings SET last_digest_sent_on = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?`,
-		d, userID.String(),
+		`UPDATE laele_user_digest_settings SET last_digest_sent_on = ?, updated_at = ? WHERE user_id = ?`,
+		d, now, userID.String(),
 	)
 	return err
 }

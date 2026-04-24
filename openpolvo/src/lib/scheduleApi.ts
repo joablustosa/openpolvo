@@ -1,4 +1,4 @@
-import { apiUrl } from "./api";
+import { fetchApi } from "./api";
 
 export type TaskType = "agent_prompt" | "run_task_list";
 
@@ -31,23 +31,30 @@ export type CreateScheduledTaskInput = {
 
 export type UpdateScheduledTaskInput = Partial<CreateScheduledTaskInput>;
 
-export async function listScheduledTasks(): Promise<ScheduledTaskDTO[]> {
-  const r = await fetch(apiUrl("/v1/scheduled-tasks"), { credentials: "include" });
+function headersJson(token: string): HeadersInit {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+export async function listScheduledTasks(token: string): Promise<ScheduledTaskDTO[]> {
+  const r = await fetchApi("/v1/scheduled-tasks", { headers: headersJson(token) });
   if (!r.ok) throw new Error(`Erro ao listar automações: ${r.status}`);
   return r.json();
 }
 
-export async function getScheduledTask(id: string): Promise<ScheduledTaskDTO> {
-  const r = await fetch(apiUrl(`/v1/scheduled-tasks/${id}`), { credentials: "include" });
+export async function getScheduledTask(token: string, id: string): Promise<ScheduledTaskDTO> {
+  const r = await fetchApi(`/v1/scheduled-tasks/${id}`, { headers: headersJson(token) });
   if (!r.ok) throw new Error(`Automação não encontrada: ${r.status}`);
   return r.json();
 }
 
-export async function createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTaskDTO> {
-  const r = await fetch(apiUrl("/v1/scheduled-tasks"), {
+export async function createScheduledTask(token: string, input: CreateScheduledTaskInput): Promise<ScheduledTaskDTO> {
+  const r = await fetchApi("/v1/scheduled-tasks", {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: headersJson(token),
     body: JSON.stringify(input),
   });
   if (!r.ok) {
@@ -57,11 +64,14 @@ export async function createScheduledTask(input: CreateScheduledTaskInput): Prom
   return r.json();
 }
 
-export async function updateScheduledTask(id: string, input: UpdateScheduledTaskInput): Promise<ScheduledTaskDTO> {
-  const r = await fetch(apiUrl(`/v1/scheduled-tasks/${id}`), {
+export async function updateScheduledTask(
+  token: string,
+  id: string,
+  input: UpdateScheduledTaskInput,
+): Promise<ScheduledTaskDTO> {
+  const r = await fetchApi(`/v1/scheduled-tasks/${id}`, {
     method: "PUT",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: headersJson(token),
     body: JSON.stringify(input),
   });
   if (!r.ok) {
@@ -71,12 +81,27 @@ export async function updateScheduledTask(id: string, input: UpdateScheduledTask
   return r.json();
 }
 
-export async function deleteScheduledTask(id: string): Promise<void> {
-  const r = await fetch(apiUrl(`/v1/scheduled-tasks/${id}`), {
+export async function deleteScheduledTask(token: string, id: string): Promise<void> {
+  const r = await fetchApi(`/v1/scheduled-tasks/${id}`, {
     method: "DELETE",
-    credentials: "include",
+    headers: headersJson(token),
   });
   if (!r.ok) throw new Error(`Erro ao apagar automação: ${r.status}`);
+}
+
+export async function runScheduledTaskNow(
+  token: string,
+  id: string,
+): Promise<{ status: string; result?: string }> {
+  const r = await fetchApi(`/v1/scheduled-tasks/${id}/run-now`, {
+    method: "POST",
+    headers: headersJson(token),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || `Erro ao executar: ${r.status}`);
+  }
+  return r.json();
 }
 
 export function cronToHuman(expr: string): string {

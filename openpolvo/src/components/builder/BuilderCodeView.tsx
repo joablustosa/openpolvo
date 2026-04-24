@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 type Props = {
   files: BuilderFile[];
   entryFile?: string;
+  /** Caminhos de ficheiros adicionados neste turno (destaque verde). */
+  addedPaths?: ReadonlySet<string>;
+  /** Caminhos de ficheiros modificados neste turno (destaque âmbar). */
+  changedPaths?: ReadonlySet<string>;
 };
 
 // ─── Árvore de ficheiros ─────────────────────────────────────────────────────
@@ -73,9 +77,11 @@ type TreeItemProps = {
   onSelect: (path: string) => void;
   expanded: Set<string>;
   toggleDir: (path: string) => void;
+  addedPaths?: ReadonlySet<string>;
+  changedPaths?: ReadonlySet<string>;
 };
 
-function TreeItem({ node, depth, activePath, onSelect, expanded, toggleDir }: TreeItemProps) {
+function TreeItem({ node, depth, activePath, onSelect, expanded, toggleDir, addedPaths, changedPaths }: TreeItemProps) {
   const pad = { paddingLeft: 8 + depth * 12 };
   if (node.type === "dir") {
     const isOpen = expanded.has(node.path);
@@ -105,6 +111,8 @@ function TreeItem({ node, depth, activePath, onSelect, expanded, toggleDir }: Tr
                 onSelect={onSelect}
                 expanded={expanded}
                 toggleDir={toggleDir}
+                addedPaths={addedPaths}
+                changedPaths={changedPaths}
               />
             ))
           : null}
@@ -112,6 +120,8 @@ function TreeItem({ node, depth, activePath, onSelect, expanded, toggleDir }: Tr
     );
   }
   const active = activePath === node.path;
+  const isAdded = addedPaths?.has(node.path);
+  const isChanged = !isAdded && changedPaths?.has(node.path);
   return (
     <button
       type="button"
@@ -125,15 +135,20 @@ function TreeItem({ node, depth, activePath, onSelect, expanded, toggleDir }: Tr
       style={pad}
     >
       <span className="size-3.5 shrink-0" />
-      <FileCode2 className="size-3.5 shrink-0" />
-      <span className="truncate">{node.name}</span>
+      <FileCode2 className={cn("size-3.5 shrink-0", isAdded ? "text-emerald-500" : isChanged ? "text-amber-500" : "")} />
+      <span className="min-w-0 flex-1 truncate">{node.name}</span>
+      {isAdded ? (
+        <span className="ml-auto shrink-0 size-1.5 rounded-full bg-emerald-500" title="Adicionado" />
+      ) : isChanged ? (
+        <span className="ml-auto shrink-0 size-1.5 rounded-full bg-amber-500" title="Modificado" />
+      ) : null}
     </button>
   );
 }
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
-export function BuilderCodeView({ files, entryFile }: Props) {
+export function BuilderCodeView({ files, entryFile, addedPaths, changedPaths }: Props) {
   const root = useMemo(() => buildTree(files), [files]);
   const initialActive = useMemo(() => {
     if (!files.length) return "";
@@ -193,6 +208,8 @@ export function BuilderCodeView({ files, entryFile }: Props) {
             onSelect={setActivePath}
             expanded={expanded}
             toggleDir={toggleDir}
+            addedPaths={addedPaths}
+            changedPaths={changedPaths}
           />
         ))}
       </aside>

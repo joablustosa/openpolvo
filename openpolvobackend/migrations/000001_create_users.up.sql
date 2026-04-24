@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS laele_users (
-    id CHAR(36) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at DATETIME(3) NOT NULL,
-    updated_at DATETIME(3) NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_laele_users_email (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_laele_users_email ON laele_users (email);

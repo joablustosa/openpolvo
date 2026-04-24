@@ -8,17 +8,17 @@ import (
 	"strings"
 	"time"
 
-	financemysql "github.com/open-polvo/open-polvo/internal/finance/adapters/mysql"
+	financesqlite "github.com/open-polvo/open-polvo/internal/finance/adapters/sqlite"
 	"github.com/open-polvo/open-polvo/internal/finance/domain"
-	idmysql "github.com/open-polvo/open-polvo/internal/identity/adapters/mysql"
+	idsqlite "github.com/open-polvo/open-polvo/internal/identity/adapters/sqlite"
 	idports "github.com/open-polvo/open-polvo/internal/identity/ports"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
-	tasklistsmysql "github.com/open-polvo/open-polvo/internal/tasklists/adapters/mysql"
+	tasklistssqlite "github.com/open-polvo/open-polvo/internal/tasklists/adapters/sqlite"
 )
 
 // StartFinanceJobs corre lembretes de assinaturas e digest diário por SMTP do utilizador.
 // Usa interval (mín. 1 min); o digest só envia na hora local configurada (timezone + digest_hour).
-func StartFinanceJobs(ctx context.Context, interval time.Duration, store *financemysql.Store, mail *mailapp.SendUserEmail, users idmysql.UserRepository, tasks *tasklistsmysql.TaskItemRepository, log *slog.Logger) {
+func StartFinanceJobs(ctx context.Context, interval time.Duration, store *financesqlite.Store, mail *mailapp.SendUserEmail, users idsqlite.UserRepository, tasks *tasklistssqlite.TaskItemRepository, log *slog.Logger) {
 	if store == nil || mail == nil || log == nil {
 		return
 	}
@@ -39,7 +39,7 @@ func StartFinanceJobs(ctx context.Context, interval time.Duration, store *financ
 	}()
 }
 
-func runFinanceJobs(ctx context.Context, store *financemysql.Store, mail *mailapp.SendUserEmail, users idmysql.UserRepository, tasks *tasklistsmysql.TaskItemRepository, log *slog.Logger) {
+func runFinanceJobs(ctx context.Context, store *financesqlite.Store, mail *mailapp.SendUserEmail, users idsqlite.UserRepository, tasks *tasklistssqlite.TaskItemRepository, log *slog.Logger) {
 	remindRows, err := store.ListSubscriptionReminders(ctx, time.Now().UTC())
 	if err != nil {
 		log.Warn("subscription reminders list", "err", err)
@@ -72,7 +72,7 @@ func runFinanceJobs(ctx context.Context, store *financemysql.Store, mail *mailap
 	}
 }
 
-func processDigest(ctx context.Context, st *domain.DigestSettings, store *financemysql.Store, mail *mailapp.SendUserEmail, users idmysql.UserRepository, tasks *tasklistsmysql.TaskItemRepository, log *slog.Logger) {
+func processDigest(ctx context.Context, st *domain.DigestSettings, store *financesqlite.Store, mail *mailapp.SendUserEmail, users idsqlite.UserRepository, tasks *tasklistssqlite.TaskItemRepository, log *slog.Logger) {
 	loc, err := time.LoadLocation(st.Timezone)
 	if err != nil {
 		loc = time.UTC

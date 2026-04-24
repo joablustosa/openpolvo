@@ -44,17 +44,6 @@ export function hasPackageJson(files: BuilderFile[]): boolean {
   return files.some((f) => fileBasename(f.path) === "package.json");
 }
 
-/**
- * Modo inicial do painel: com `package.json` (incl. injectado por
- * `prepareBuilderFilesForWebContainer`) usa-se WebContainer; caso contrário, tabs HTML/código.
- */
-export function defaultBuilderVisualMode(
-  files: BuilderFile[],
-): "standard" | "webcontainer" {
-  if (hasPackageJson(files)) return "webcontainer";
-  return "standard";
-}
-
 export type WebContainerCommands =
   | {
       ok: true;

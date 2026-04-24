@@ -1,4 +1,3 @@
-ALTER TABLE laele_conversations
-  ADD COLUMN deleted_at DATETIME(3) NULL DEFAULT NULL,
-  ADD COLUMN pinned_at  DATETIME(3) NULL DEFAULT NULL,
-  ADD INDEX idx_laele_conversations_user_active (user_id, deleted_at, pinned_at, updated_at);
+ALTER TABLE laele_conversations ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL;
+ALTER TABLE laele_conversations ADD COLUMN pinned_at DATETIME NULL DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_laele_conversations_user_active ON laele_conversations (user_id, deleted_at, pinned_at, updated_at);

@@ -17,11 +17,22 @@ export type WorkflowNode = {
     prompt?: string;
     timeout_ms?: number;
     label?: string;
+    // web_search (SerpApi DuckDuckGo)
+    query?: string;
+    kl?: string;
+    df?: string;
+    safe?: number;
+    start?: number;
+    m?: number;
+    /** SerpApi: "duckduckgo" (omissão) ou "google" */
+    search_engine?: string;
     /** Cron de 5 campos (min hora dom mês dow), ex.: 0 9 * * * */
     cron?: string;
     /** IANA, ex.: Europe/Lisbon */
     timezone?: string;
     schedule_enabled?: boolean;
+    /** E-mail(s) directo(s) do destinatário — tem prioridade sobre contact_id */
+    email_to?: string;
     contact_id?: string;
     email_subject?: string;
     email_body?: string;
@@ -171,6 +182,7 @@ export async function generateWorkflow(
     prompt: string;
     recording_json?: string;
     model_provider?: ModelProvider;
+    llm_profile_id?: string;
     save_title?: string;
   },
 ): Promise<GenerateResponse> {

@@ -60,14 +60,15 @@ export function FinancasPage() {
   });
 
   const loadAll = useCallback(async () => {
-    if (!token) return;
+    const auth = token?.trim();
+    if (!auth) return;
     setLoading(true);
     setErr(null);
     try {
       const [c, t, s] = await Promise.all([
-        fin.getCategories(token),
-        fin.getTransactions(token, from, to),
-        fin.getSubscriptions(token),
+        fin.getCategories(auth),
+        fin.getTransactions(auth, from, to),
+        fin.getSubscriptions(auth),
       ]);
       setCategories(c);
       setTxs(t);

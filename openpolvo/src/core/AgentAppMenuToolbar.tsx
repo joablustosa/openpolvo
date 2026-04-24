@@ -55,21 +55,12 @@ export function AgentAppMenuToolbar({
 
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const canOpenBuilderPreview =
-    typeof builderData?.preview_html === "string" &&
-    builderData.preview_html.trim().length > 0;
+  const canOpenBuilderPanel =
+    Array.isArray(builderData?.files) && builderData.files.length > 0;
 
-  const openBuilderPreviewInNewWindow = () => {
-    const html = builderData?.preview_html;
-    if (typeof html !== "string" || !html.trim()) return;
-    const blob = new Blob([html], { type: "text/html; charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank", "noopener,noreferrer");
-    if (win) {
-      win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
-    } else {
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    }
+  const goToBuilderPanel = () => {
+    if (!canOpenBuilderPanel) return;
+    navigate("/");
   };
 
   const newChat = () => {
@@ -154,15 +145,15 @@ export function AgentAppMenuToolbar({
                   {sidebarCollapsed ? "Mostrar barra lateral" : "Ocultar barra lateral"}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!canOpenBuilderPreview}
-                  onClick={openBuilderPreviewInNewWindow}
+                  disabled={!canOpenBuilderPanel}
+                  onClick={goToBuilderPanel}
                   title={
-                    canOpenBuilderPreview
-                      ? "Abre o HTML de preview numa nova janela do browser"
-                      : "Disponível após gerar uma aplicação com preview no painel Builder"
+                    canOpenBuilderPanel
+                      ? "Mostra o painel do projecto (Vite ao vivo) na área principal"
+                      : "Gere uma aplicação primeiro; o painel abre automaticamente ao concluir"
                   }
                 >
-                  Visualizar preview
+                  Painel do projecto
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled>Tema</DropdownMenuItem>
               </DropdownMenuSubContent>

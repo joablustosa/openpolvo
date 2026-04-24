@@ -1,51 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronDown,
   Download,
   ExternalLink,
-  Eye,
   FileCode,
-  GitCompare,
-  LayoutGrid,
   Lightbulb,
   Package,
   Play,
-  SlidersHorizontal,
   Sparkles,
-  Terminal,
   X,
+  Zap,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import type { BuilderData, BuilderProjectType } from "@/lib/builderMetadata";
 import { projectTypeLabel } from "@/lib/builderMetadata";
-import {
-  builderFilesSignature,
-  defaultBuilderVisualMode,
-  hasPackageJson,
-} from "@/lib/builderToWebContainerFiles";
+import { computeBuilderDiff, computeBuilderPathSets, type FileDiff } from "@/lib/builderDiff";
+import { builderFilesSignature, hasPackageJson } from "@/lib/builderToWebContainerFiles";
 import {
   explainWebContainerPrepareFailure,
   prepareBuilderFilesForWebContainer,
 } from "@/lib/webcontainerPrepareBuilderFiles";
-import { BuilderPreview } from "./BuilderPreview";
 import { BuilderCodeView } from "./BuilderCodeView";
 import { BuilderWebContainerPreview } from "./BuilderWebContainerPreview";
 import { cn } from "@/lib/utils";
-
-type BuilderVisualMode = "standard" | "webcontainer";
 
 type Props = {
   data: BuilderData;
@@ -78,9 +60,37 @@ function slugify(s: string): string {
     .slice(0, 60) || "projecto";
 }
 
+/**
+ * Painel Builder: um único preview funcional — WebContainer (Vite/npm), como IDE + dev server.
+ * Compatível com browser e Electron (iframe credentialless + nova janela).
+ */
 export function BuilderPanel({ data, onClose }: Props) {
+  const prevDataRef = useRef<BuilderData | null>(null);
+  const [updateDiff, setUpdateDiff] = useState<FileDiff | null>(null);
+  const [addedPaths, setAddedPaths] = useState<ReadonlySet<string>>(new Set());
+  const [changedPaths, setChangedPaths] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    const prev = prevDataRef.current;
+    prevDataRef.current = data;
+    if (!prev) return;
+    const diff = computeBuilderDiff(prev, data);
+    const hasChange = diff.added > 0 || diff.changed > 0 || diff.removed > 0;
+    if (hasChange) {
+      const pathSets = computeBuilderPathSets(prev, data);
+      setAddedPaths(pathSets?.added ?? new Set());
+      setChangedPaths(pathSets?.changed ?? new Set());
+      setUpdateDiff(diff);
+      const t = window.setTimeout(() => {
+        setUpdateDiff(null);
+        setAddedPaths(new Set());
+        setChangedPaths(new Set());
+      }, 8_000);
+      return () => clearTimeout(t);
+    }
+  }, [data]);
+
   const filesSignature = useMemo(() => builderFilesSignature(data.files), [data.files]);
-  /** Ficheiros normalizados para WebContainer (package.json sintético, patches Vite, etc.). */
   const preparedForWebContainer = useMemo(
     () =>
       prepareBuilderFilesForWebContainer(data.files, {
@@ -105,46 +115,18 @@ export function BuilderPanel({ data, onClose }: Props) {
     [data, preparedForWebContainer],
   );
 
-  const [visualMode, setVisualMode] = useState<BuilderVisualMode>(() =>
-    defaultBuilderVisualMode(preparedForWebContainer),
-  );
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
   const [recsOpen, setRecsOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const hasPreview = typeof data.preview_html === "string" && data.preview_html.trim().length > 0;
   const hasFiles = data.files.length > 0;
-  const preferredTab = hasPreview ? "preview" : "code";
-  const [tab, setTab] = useState(preferredTab);
+  const [tab, setTab] = useState<"app" | "code">("app");
   const review = data.review_summary;
   const hasRecs = !!(data.recommendations && data.recommendations.length > 0);
 
-  // Sincroniza o separador activo quando chega um novo resultado ou quando passa a haver preview.
   useEffect(() => {
-    setTab(preferredTab);
-  }, [
-    preferredTab,
-    data.title,
-    data.preview_html.length,
-    data.files.length,
-  ]);
-
-  // Com package.json real ou sintético (Vite + index) → WebContainer por defeito.
-  useEffect(() => {
-    setVisualMode(defaultBuilderVisualMode(preparedForWebContainer));
-  }, [data.title, filesSignature, preparedForWebContainer]);
-
-  const handleOpenPreview = () => {
-    if (!hasPreview) return;
-    const blob = new Blob([data.preview_html], { type: "text/html; charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank", "noopener,noreferrer");
-    // Revoga o URL após o browser carregar o documento.
-    if (win) {
-      win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
-    } else {
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    }
-  };
+    setTab("app");
+  }, [data.title, filesSignature]);
 
   const handleDownload = async () => {
     if (!hasFiles) return;
@@ -154,11 +136,6 @@ export function BuilderPanel({ data, onClose }: Props) {
       for (const f of data.files) {
         zip.file(f.path, f.content);
       }
-      // Incluir o HTML de preview como ficheiro bónus para quem quer abrir offline.
-      if (hasPreview) {
-        zip.file("__preview.html", data.preview_html);
-      }
-      // Adiciona um INFO.md curto com a descrição e instruções.
       const info = [
         `# ${data.title}`,
         "",
@@ -166,7 +143,7 @@ export function BuilderPanel({ data, onClose }: Props) {
         "",
         `**Stack**: ${projectTypeLabel(data.project_type)}${data.framework ? ` · ${data.framework}` : ""}`,
         "",
-        data.deploy_instructions ? data.deploy_instructions : "Correr: ver README.md dentro do projecto.",
+        data.deploy_instructions ? data.deploy_instructions : "Correr: `npm install` e `npm run dev` (ver README.md).",
       ].join("\n");
       zip.file("INFO.md", info);
       const blob = await zip.generateAsync({ type: "blob" });
@@ -181,7 +158,6 @@ export function BuilderPanel({ data, onClose }: Props) {
       className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background"
       aria-label="Aplicação gerada"
     >
-      {/* Header */}
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/60 px-3">
         <Package className="size-4 shrink-0 text-muted-foreground" />
         <span className="truncate text-sm font-medium">{data.title}</span>
@@ -205,77 +181,19 @@ export function BuilderPanel({ data, onClose }: Props) {
           </Button>
         ) : null}
         <div className="ml-auto flex items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              nativeButton
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 px-2.5 text-xs"
-                  aria-label="Menu Visualizar"
-                >
-                  Visualizar
-                  <ChevronDown className="size-3 opacity-60" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                disabled={!canWebContainerPreview}
-                className="gap-2"
-                onClick={() => setVisualMode("webcontainer")}
-                title={
-                  canWebContainerPreview
-                    ? "Preview em tempo real: npm install + servidor Vite/Next no WebContainer (recomendado para React)."
-                    : "Sem manifest Node reconhecido (package.json ou Vite+index.html injectável). Gera um projecto com package.json ou use o preview HTML."
-                }
-              >
-                <Play className="size-3.5 opacity-80" />
-                Pré-visualização ao vivo (npm)
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-2"
-                onClick={() => {
-                  setVisualMode("standard");
-                  setTab("preview");
-                }}
-                title="Iframe com o HTML estático devolvido pelo modelo (sem bundler)."
-              >
-                <Eye className="size-3.5 opacity-80" />
-                Pré-visualização HTML (estático)
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled className="gap-2" title="Em breve">
-                <GitCompare className="size-3.5 opacity-80" />
-                Diff
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="gap-2" title="Em breve">
-                <Terminal className="size-3.5 opacity-80" />
-                Terminal
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="gap-2" title="Em breve">
-                <LayoutGrid className="size-3.5 opacity-80" />
-                Tarefas
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled className="gap-2" title="Em breve">
-                <SlidersHorizontal className="size-3.5 opacity-80" />
-                Plano
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {hasPreview ? (
+          {canWebContainerPreview && livePreviewUrl ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={handleOpenPreview}
               className="h-8 gap-1.5 px-2.5 text-xs"
-              title="Abrir preview em nova aba"
+              title="Abre o URL do Vite numa aba nova (recomendado no Electron se o iframe estiver em branco)"
+              onClick={() =>
+                window.open(livePreviewUrl, "_blank", "noopener,noreferrer")
+              }
             >
               <ExternalLink className="size-3.5" />
-              Abrir preview
+              Abrir em nova janela
             </Button>
           ) : null}
           {hasFiles ? (
@@ -305,7 +223,6 @@ export function BuilderPanel({ data, onClose }: Props) {
         </div>
       </header>
 
-      {/* Banner de recomendação (colapsável) */}
       {hasRecs && recsOpen ? (
         <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3 text-xs">
           {data.recommendation_reason ? (
@@ -340,27 +257,56 @@ export function BuilderPanel({ data, onClose }: Props) {
       {!canWebContainerPreview ? (
         <p className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-950 dark:text-amber-100">
           {webContainerExplain ||
-            "Não foi possível preparar o modo npm. Use a pré-visualização HTML ou o ZIP no VS Code."}
+            "Sem package.json reconhecido: o preview ao vivo (Vite) não arranca neste painel. Descarrega o ZIP e corre npm install && npm run dev no teu ambiente."}
         </p>
       ) : null}
 
-      {visualMode === "webcontainer" ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <BuilderWebContainerPreview data={dataForWebContainer} />
+      {updateDiff ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-emerald-500/20 bg-emerald-500/8 px-3 py-2 text-[11px] text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          <Zap className="size-3.5 shrink-0 text-emerald-500" />
+          <span className="font-medium">Actualizado via HMR</span>
+          <span className="flex items-center gap-1 text-muted-foreground">
+            {updateDiff.added > 0 && (
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-400">
+                +{updateDiff.added}
+              </span>
+            )}
+            {updateDiff.changed > 0 && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+                ~{updateDiff.changed}
+              </span>
+            )}
+            {updateDiff.removed > 0 && (
+              <span className="rounded bg-red-500/15 px-1.5 py-0.5 font-medium text-red-700 dark:text-red-400">
+                -{updateDiff.removed}
+              </span>
+            )}
+            <span>ficheiro{(updateDiff.added + updateDiff.changed + updateDiff.removed) !== 1 ? "s" : ""}</span>
+          </span>
+          <button
+            type="button"
+            className="ml-auto rounded p-0.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setUpdateDiff(null)}
+            aria-label="Fechar"
+          >
+            <X className="size-3" />
+          </button>
         </div>
-      ) : (
+      ) : null}
+
+      {canWebContainerPreview ? (
         <Tabs
           value={tab}
-          onValueChange={setTab}
+          onValueChange={(v) => setTab(v as "app" | "code")}
           className="flex min-h-0 flex-1 flex-col gap-0"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-border bg-card/40 px-3 py-2">
             <TabsList>
-              <TabsTrigger value="preview">
-                <Eye className="size-3.5" />
-                Preview
+              <TabsTrigger value="app" className="gap-1.5">
+                <Play className="size-3.5" />
+                App ao vivo
               </TabsTrigger>
-              <TabsTrigger value="code">
+              <TabsTrigger value="code" className="gap-1.5">
                 <FileCode className="size-3.5" />
                 Código
                 {hasFiles ? (
@@ -376,17 +322,32 @@ export function BuilderPanel({ data, onClose }: Props) {
               </span>
             ) : null}
           </div>
-
-          <TabsContent value="preview" className="relative min-h-0 flex-1 overflow-hidden">
-            <BuilderPreview data={data} />
+          <TabsContent value="app" className="relative min-h-0 flex-1 overflow-hidden">
+            <BuilderWebContainerPreview
+              data={dataForWebContainer}
+              onPreviewUrlChange={setLivePreviewUrl}
+            />
           </TabsContent>
           <TabsContent value="code" className="min-h-0 flex-1 overflow-hidden">
-            <BuilderCodeView files={data.files} entryFile={data.entry_file} />
+            <BuilderCodeView
+              files={data.files}
+              entryFile={data.entry_file}
+              addedPaths={addedPaths}
+              changedPaths={changedPaths}
+            />
           </TabsContent>
         </Tabs>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <BuilderCodeView
+            files={data.files}
+            entryFile={data.entry_file}
+            addedPaths={addedPaths}
+            changedPaths={changedPaths}
+          />
+        </div>
       )}
 
-      {/* Rodapé */}
       {review || data.deploy_instructions ? (
         <footer className="shrink-0 border-t border-border bg-card/60 px-3 py-2 text-xs">
           {review ? (

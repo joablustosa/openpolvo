@@ -1,34 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   CalendarDays,
   ChevronDown,
+  Cpu,
   History,
+  Home,
+  LayoutGrid,
   ListTodo,
+  Mail,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
+  Plug,
   Settings2,
+  Share2,
   Trash2,
   Users,
   Wallet,
+  PanelRight,
+  Zap,
 } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/auth/AuthContext";
@@ -38,42 +43,31 @@ import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { AppLogo } from "@/components/brand/AppLogo";
 import { displayNameFromToken } from "@/lib/userDisplay";
+import { findLatestBuilderDataInMessages } from "@/lib/builderMetadata";
 import { type ConversationDTO } from "@/lib/conversationsApi";
 import { partitionConversationsForNav } from "@/lib/conversationNavOrder";
 import { cn } from "@/lib/utils";
 
-/** Opções do menu Email — extensível para mais integrações de agente. */
-const AGENT_EMAIL_SETTINGS = [
-  { value: "email-smtp", label: "Email (SMTP)", path: "/settings/email" as const },
-  {
-    value: "calendar",
-    label: "Calendário",
-    disabled: true as const,
-    hint: "em breve",
-  },
-  {
-    value: "agent-files",
-    label: "Ficheiros do agente",
-    disabled: true as const,
-    hint: "em breve",
-  },
-] as const;
-
 type ConversationItemProps = {
   conv: ConversationDTO;
   isActive: boolean;
+  /** null = não sabemos (outra conversa ou a carregar); true/false só para a conversa activa. */
+  builderPreviewAvailable: boolean | null;
   onSelect: () => void;
   onRename: (id: string, newTitle: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onOpenBuilderPreview: () => void | Promise<void>;
   onDelete: (id: string) => void;
 };
 
 function ConversationItem({
   conv,
   isActive,
+  builderPreviewAvailable,
   onSelect,
   onRename,
   onPin,
+  onOpenBuilderPreview,
   onDelete,
 }: ConversationItemProps) {
   const [editing, setEditing] = useState(false);
@@ -150,7 +144,21 @@ function ConversationItem({
             </button>
           }
         />
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem
+            disabled={builderPreviewAvailable === false}
+            title={
+              builderPreviewAvailable === false
+                ? "Não há projecto com ficheiros nesta conversa"
+                : builderPreviewAvailable === null
+                  ? "Abre o painel ao lado (Vite) se existir projecto Builder nesta conversa"
+                  : undefined
+            }
+            onClick={() => void onOpenBuilderPreview()}
+          >
+            <PanelRight className="mr-2 size-3.5" />
+            Abrir painel do projecto
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={startEdit}>
             <Pencil className="mr-2 size-3.5" />
             Renomear
@@ -191,13 +199,33 @@ export function AgentSidebar() {
   const {
     conversations,
     activeConversationId,
+    messages,
+    loadingMessages,
     selectConversation,
     clearWorkspace,
     loadingList,
     deleteConversation,
     renameConversation,
     pinConversation,
+    openBuilderPreviewForConversation,
   } = useConversationWorkspace();
+
+  const builderPreviewAvailableFor = useCallback(
+    (convId: string): boolean | null => {
+      if (convId !== activeConversationId) return null;
+      if (loadingMessages) return null;
+      return findLatestBuilderDataInMessages(messages) != null;
+    },
+    [activeConversationId, loadingMessages, messages],
+  );
+
+  const handleOpenBuilderPreview = useCallback(
+    async (convId: string) => {
+      const ok = await openBuilderPreviewForConversation(convId);
+      if (ok) navigate("/");
+    },
+    [openBuilderPreviewForConversation, navigate],
+  );
   const newChat = useCallback(() => {
     if (token) {
       clearWorkspace();
@@ -218,18 +246,37 @@ export function AgentSidebar() {
   }, [newChat]);
 
   const displayName = displayNameFromToken(token);
-
-  const isEmailSettingsActive = location.pathname.startsWith("/settings/email");
-  const { taskListsPreviewOpen, openTaskListsPreview, resetShellLayout } = useWorkspace();
-
-  const taskListsSplitActive =
-    taskListsPreviewOpen &&
-    (location.pathname === "/" || location.pathname === "/agente-tarefas");
+  const { resetShellLayout } = useWorkspace();
 
   const { pinned: pinnedConvs, recent: recentConvs } = useMemo(
     () => partitionConversationsForNav(conversations),
     [conversations],
   );
+
+  const pathname = location.pathname;
+  /** Destaque no gatilho só fora do chat inicial (rotas listadas no menu). */
+  const isAppsMenuActive = useMemo(() => {
+    if (pathname.startsWith("/settings")) return true;
+    const toolPaths = [
+      "/agente-tarefas",
+      "/agenda",
+      "/financas",
+      "/social",
+      "/automacao",
+      "/automacoes",
+    ];
+    return toolPaths.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+  }, [pathname]);
+
+  const goChatHome = useCallback(() => {
+    resetShellLayout();
+    if (token) {
+      clearWorkspace();
+    } else {
+      requestNewChat();
+    }
+    navigate("/");
+  }, [resetShellLayout, token, clearWorkspace, requestNewChat, navigate]);
 
   function handleSelect(c: ConversationDTO) {
     void selectConversation(c.id, c.default_model_provider ?? undefined);
@@ -276,119 +323,92 @@ export function AgentSidebar() {
       </button>
 
       <nav className="flex shrink-0 flex-col gap-0.5 px-2 py-2">
-        <button
-          type="button"
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "w-full justify-start gap-2 font-normal",
-            taskListsSplitActive && "bg-muted font-medium text-foreground",
-          )}
-          onClick={() => {
-            if (location.pathname !== "/") {
-              navigate("/", { replace: location.pathname === "/agente-tarefas" });
-            }
-            openTaskListsPreview();
-          }}
-        >
-          <ListTodo className="size-3.5 shrink-0 opacity-80" />
-          Agente de Tarefas
-        </button>
-        <NavLink
-          to="/pulo-do-gato"
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
-        >
-          Pulo do Gato
-        </NavLink>
-        <NavLink
-          to="/agenda"
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start gap-2 font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
-        >
-          <CalendarDays className="size-3.5 shrink-0 opacity-80" />
-          Agenda
-        </NavLink>
-        <NavLink
-          to="/financas"
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start gap-2 font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
-        >
-          <Wallet className="size-3.5 shrink-0 opacity-80" />
-          Finanças
-        </NavLink>
-        <NavLink
-          to="/settings"
-          end
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start gap-2 font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
-        >
-          <Settings2 className="size-3.5 shrink-0 opacity-80" />
-          Definições
-        </NavLink>
-        <NavLink
-          to="/settings/contacts"
-          className={({ isActive }) =>
-            cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "justify-start gap-2 font-normal",
-              isActive && "bg-muted font-medium text-foreground",
-            )
-          }
-        >
-          <Users className="size-3.5 shrink-0 opacity-80" />
-          Contactos
-        </NavLink>
-        <Select
-          onValueChange={(value) => {
-            const opt = AGENT_EMAIL_SETTINGS.find((o) => o.value === value);
-            if (opt && "path" in opt) {
-              navigate(opt.path);
-            }
-          }}
-        >
-          <SelectTrigger
-            size="sm"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "h-8 w-full border-0 bg-transparent font-normal shadow-none hover:bg-muted/80 focus-visible:ring-1 focus-visible:ring-ring/40",
-              isEmailSettingsActive && "bg-muted font-medium text-foreground",
-            )}
-            aria-label="Email — configurações para agentes"
-          >
-            <span className="flex min-w-0 flex-1 truncate text-left text-sm">Email</span>
-          </SelectTrigger>
-          <SelectContent align="start" className="min-w-[var(--anchor-width)]">
-            {AGENT_EMAIL_SETTINGS.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                disabled={"disabled" in opt && opt.disabled}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            nativeButton
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-9 w-full justify-start gap-2 px-2 font-normal",
+                  isAppsMenuActive && "bg-muted font-medium text-foreground",
+                )}
               >
-                {"hint" in opt ? `${opt.label} (${opt.hint})` : opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                <LayoutGrid className="size-3.5 shrink-0 opacity-80" />
+                <span className="min-w-0 flex-1 truncate text-left">Aplicativos</span>
+                <ChevronDown className="size-3.5 shrink-0 opacity-70" aria-hidden />
+              </Button>
+            }
+          />
+          <DropdownMenuContent
+            side="right"
+            align="start"
+            className="min-w-56 max-w-[min(100vw-2rem,280px)]"
+          >
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Páginas</DropdownMenuLabel>
+              <DropdownMenuItem
+                className="gap-2"
+                onClick={() => {
+                  goChatHome();
+                }}
+              >
+                <Home className="size-3.5 opacity-80" />
+                Início (chat)
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/agente-tarefas")}>
+                <ListTodo className="size-3.5 opacity-80" />
+                Agente de tarefas
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/automacao")}>
+                <Zap className="size-3.5 opacity-80" />
+                Automação
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/agenda")}>
+                <CalendarDays className="size-3.5 opacity-80" />
+                Agenda
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/financas")}>
+                <Wallet className="size-3.5 opacity-80" />
+                Finanças
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/social")}>
+                <MessageCircle className="size-3.5 opacity-80" />
+                Social
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Definições e integrações</DropdownMenuLabel>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings")}>
+                <Settings2 className="size-3.5 opacity-80" />
+                Definições
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings/llm")}>
+                <Cpu className="size-3.5 opacity-80" />
+                Modelos LLM
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings/email")}>
+                <Mail className="size-3.5 opacity-80" />
+                Correio (SMTP)
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings/meta")}>
+                <Share2 className="size-3.5 opacity-80" />
+                Meta (redes)
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings/contacts")}>
+                <Users className="size-3.5 opacity-80" />
+                Contactos
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onClick={() => navigate("/settings/plugins")}>
+                <Plug className="size-3.5 opacity-80" />
+                Plugins
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </nav>
 
       <Separator className="mx-2 shrink-0 bg-border/60" />
@@ -412,9 +432,11 @@ export function AgentSidebar() {
                   key={c.id}
                   conv={c}
                   isActive={activeConversationId === c.id}
+                  builderPreviewAvailable={builderPreviewAvailableFor(c.id)}
                   onSelect={() => handleSelect(c)}
                   onRename={handleRename}
                   onPin={handlePin}
+                  onOpenBuilderPreview={() => void handleOpenBuilderPreview(c.id)}
                   onDelete={handleDelete}
                 />
               ))}
@@ -445,9 +467,11 @@ export function AgentSidebar() {
                   key={c.id}
                   conv={c}
                   isActive={activeConversationId === c.id}
+                  builderPreviewAvailable={builderPreviewAvailableFor(c.id)}
                   onSelect={() => handleSelect(c)}
                   onRename={handleRename}
                   onPin={handlePin}
+                  onOpenBuilderPreview={() => void handleOpenBuilderPreview(c.id)}
                   onDelete={handleDelete}
                 />
               ))}

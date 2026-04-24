@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,23 @@ type SMTPSettingsRepository struct {
 
 var _ ports.SMTPSettingsRepository = (*SMTPSettingsRepository)(nil)
 
+func parseTimeLoose(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
+}
+
 func (r SMTPSettingsRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*domain.SMTPRecord, error) {
 	row := r.DB.QueryRowContext(ctx,
 		`SELECT user_id, host, port, username, password_enc, from_email, from_name, use_tls, COALESCE(email_chat_skip_confirmation, 0), updated_at
@@ -28,13 +46,24 @@ func (r SMTPSettingsRepository) GetByUserID(ctx context.Context, userID uuid.UUI
 		uid, host, user, fromEmail, fromName string
 		port, useTLS, skipConfirm            int
 		passEnc                             []byte
-		updated                             time.Time
+		updatedRaw                          any
 	)
-	if err := row.Scan(&uid, &host, &port, &user, &passEnc, &fromEmail, &fromName, &useTLS, &skipConfirm, &updated); err != nil {
+	if err := row.Scan(&uid, &host, &port, &user, &passEnc, &fromEmail, &fromName, &useTLS, &skipConfirm, &updatedRaw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
 		return nil, err
+	}
+	updated := time.Time{}
+	switch v := updatedRaw.(type) {
+	case time.Time:
+		updated = v
+	case []byte:
+		updated = parseTimeLoose(string(v))
+	case string:
+		updated = parseTimeLoose(v)
+	default:
+		updated = time.Time{}
 	}
 	return &domain.SMTPRecord{
 		UserSMTPSettings: domain.UserSMTPSettings{
@@ -66,10 +95,11 @@ func (r SMTPSettingsRepository) Upsert(ctx context.Context, s *domain.UserSMTPSe
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO laele_user_smtp_settings (user_id, host, port, username, password_enc, from_email, from_name, use_tls, email_chat_skip_confirmation, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE
-		   host = VALUES(host), port = VALUES(port), username = VALUES(username),
-		   password_enc = VALUES(password_enc), from_email = VALUES(from_email), from_name = VALUES(from_name),
-		   use_tls = VALUES(use_tls), email_chat_skip_confirmation = VALUES(email_chat_skip_confirmation), updated_at = VALUES(updated_at)`,
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   host = excluded.host, port = excluded.port, username = excluded.username,
+		   password_enc = excluded.password_enc, from_email = excluded.from_email, from_name = excluded.from_name,
+		   use_tls = excluded.use_tls, email_chat_skip_confirmation = excluded.email_chat_skip_confirmation,
+		   updated_at = excluded.updated_at`,
 		s.UserID, s.Host, s.Port, s.Username, passwordEnc, s.FromEmail, s.FromName, useTLS, skip, now,
 	)
 	return err

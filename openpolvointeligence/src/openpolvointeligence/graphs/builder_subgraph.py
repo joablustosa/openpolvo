@@ -4,10 +4,10 @@ Pipeline por defeito (FAST, 4 nodes):
 
     techlead → engineer → developer → integrator → END
 
-Quando `quality_mode=True` intercala tester + analyzer **em paralelo** entre
-developer e integrator (reduz latência vs. os executar em série):
+Quando `quality_mode=True` corre tester e depois o code analyzer **em série**
+(com o relatório de testes no contexto do analyzer):
 
-    techlead → engineer → developer → (tester ‖ analyzer) → integrator → END
+    techlead → engineer → developer → tester → analyzer → integrator → END
 
 Cada node faz uma invocação LLM com `response_format=json` e acumula o
 resultado no `BuilderState`. O integrador devolve o `artifact` final.
@@ -26,7 +26,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 from openpolvointeligence.core.config import Settings
+from openpolvointeligence.graphs.agent_memory_utils import normalize_agent_memory
 from openpolvointeligence.graphs.models import get_chat_model
+from openpolvointeligence.graphs.skills_budget import skills_block_for_prompt
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts" / "builder"
 _logger = logging.getLogger(__name__)
@@ -65,13 +67,30 @@ def _parse_json(raw: str, *, fallback: Any = None) -> Any:
 class BuilderState(TypedDict, total=False):
     user_request: str
     model_provider: str | None
-    quality_mode: bool  # True → inclui tester + analyzer em paralelo
+    agent_memory: dict[str, str] | None
+    quality_mode: bool  # True → inclui tester + analyzer em série
     spec: dict[str, Any]
     design: dict[str, Any]
     code_files: list[dict[str, Any]]
     test_report: dict[str, Any]
     review_report: dict[str, Any]
     artifact: dict[str, Any]
+
+
+def _handoff_payload(spec: dict[str, Any], design: dict[str, Any]) -> dict[str, Any]:
+    ft = design.get("file_tree") or []
+    paths: list[str] = []
+    if isinstance(ft, list):
+        for x in ft[:48]:
+            if isinstance(x, dict) and x.get("path"):
+                paths.append(str(x["path"]))
+    return {
+        "schema_version": 1,
+        "stage": "post_engineer",
+        "project_type": spec.get("project_type"),
+        "title": spec.get("title"),
+        "file_tree_paths": paths,
+    }
 
 
 def _kit_for(project_type: str) -> str:
@@ -168,11 +187,22 @@ def build_builder_graph(settings: Settings):
 
     async def node_techlead(state: BuilderState) -> dict[str, Any]:
         req = state.get("user_request") or ""
+        tl_payload: dict[str, Any] = {"user_request": req}
+        mem = normalize_agent_memory(state.get("agent_memory"))
+        if mem.get("global") or mem.get("builder"):
+            tl_payload["persisted_memory"] = {
+                "global": mem.get("global", "")[:3000],
+                "builder": mem.get("builder", "")[:2000],
+            }
+        sys_tl = techlead_sys
+        sk = skills_block_for_prompt(settings)
+        if sk:
+            sys_tl = techlead_sys + "\n\n---\n\n# Skills do repositório (resumo orçamentado)\n\n" + sk
         data = await _invoke_json(
             settings,
             state.get("model_provider"),
-            techlead_sys,
-            {"user_request": req},
+            sys_tl,
+            tl_payload,
             node_name="techlead",
         )
         if not isinstance(data, dict):
@@ -195,6 +225,7 @@ def build_builder_graph(settings: Settings):
         }
         if data.get("project_type") not in valid_types:
             data["project_type"] = "frontend_only"
+        data.setdefault("schema_version", 1)
         return {"spec": data}
 
     async def node_engineer(state: BuilderState) -> dict[str, Any]:
@@ -206,11 +237,16 @@ def build_builder_graph(settings: Settings):
             settings,
             state.get("model_provider"),
             sys_prompt,
-            {"user_request": state.get("user_request", ""), "spec": spec},
+            {
+                "user_request": state.get("user_request", ""),
+                "spec": spec,
+                "handoff": {"schema_version": 1, "stage": "post_techlead", "project_type": spec.get("project_type")},
+            },
             node_name="engineer",
         )
         if not isinstance(data, dict):
             data = {}
+        data.setdefault("schema_version", 1)
         data.setdefault("file_tree", [])
         data.setdefault("modules", [])
         data.setdefault("user_flows", [])
@@ -227,7 +263,12 @@ def build_builder_graph(settings: Settings):
             settings,
             state.get("model_provider"),
             sys_prompt,
-            {"spec": spec, "design": design},
+            {
+                "user_request": state.get("user_request", ""),
+                "spec": spec,
+                "design": design,
+                "handoff": _handoff_payload(spec, design),
+            },
             node_name="developer",
         )
         files: list[dict[str, Any]] = []
@@ -251,32 +292,29 @@ def build_builder_graph(settings: Settings):
         return {"code_files": files}
 
     async def node_quality(state: BuilderState) -> dict[str, Any]:
-        """Corre tester + analyzer em paralelo (quality_mode)."""
+        """Corre tester e depois o code analyzer com o relatório de testes (quality_mode)."""
         payload = {
             "spec": state.get("spec", {}),
             "design": state.get("design", {}),
             "files": state.get("code_files", []),
         }
-        tester_task = _invoke_json(
+        tester_data = await _invoke_json(
             settings,
             state.get("model_provider"),
             tester_sys,
             payload,
             node_name="tester",
         )
-        analyzer_payload = {**payload, "test_report": {}}
-        analyzer_task = _invoke_json(
+        if not isinstance(tester_data, dict):
+            tester_data = {}
+        analyzer_payload = {**payload, "test_report": tester_data}
+        analyzer_data = await _invoke_json(
             settings,
             state.get("model_provider"),
             analyzer_sys,
             analyzer_payload,
             node_name="analyzer",
         )
-        tester_data, analyzer_data = await asyncio.gather(
-            tester_task, analyzer_task, return_exceptions=False,
-        )
-        if not isinstance(tester_data, dict):
-            tester_data = {}
         tester_data.setdefault("test_cases", [])
         tester_data.setdefault("bugs", [])
         tester_data.setdefault("coverage_notes", "")
@@ -298,11 +336,13 @@ def build_builder_graph(settings: Settings):
             state.get("model_provider"),
             sys_prompt,
             {
+                "user_request": state.get("user_request", ""),
                 "spec": spec,
                 "design": state.get("design", {}),
                 "files": state.get("code_files", []),
                 "test_report": state.get("test_report", {}),
                 "review_report": state.get("review_report", {}),
+                "handoff": _handoff_payload(spec, state.get("design") or {}),
             },
             node_name="integrator",
         )
@@ -423,6 +463,7 @@ async def run_builder(
     model_provider: str | None = None,
     *,
     quality_mode: bool | None = None,
+    agent_memory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Executa o sub-grafo e devolve o `artifact` final.
 
@@ -437,6 +478,7 @@ async def run_builder(
                 "user_request": user_request or "",
                 "model_provider": model_provider,
                 "quality_mode": qm,
+                "agent_memory": normalize_agent_memory(agent_memory),
             },
         )
     except Exception as exc:  # noqa: BLE001 — último fallback
@@ -456,6 +498,7 @@ async def run_builder_stream(
     settings: Settings,
     user_request: str,
     model_provider: str | None = None,
+    agent_memory: dict[str, Any] | None = None,
 ):
     """Executa o builder nó a nó emitindo eventos SSE após cada fase.
 
@@ -473,9 +516,20 @@ async def run_builder_stream(
 
     # ── Node: techlead ──────────────────────────────────────────────────────────
     yield {"type": "progress", "step": "techlead", "label": "Tech Lead a definir arquitetura e stack..."}
+    mem = normalize_agent_memory(agent_memory)
+    tl_payload: dict[str, Any] = {"user_request": user_request or ""}
+    if mem.get("global") or mem.get("builder"):
+        tl_payload["persisted_memory"] = {
+            "global": mem.get("global", "")[:3000],
+            "builder": mem.get("builder", "")[:2000],
+        }
+    sys_tl = techlead_sys
+    sk = skills_block_for_prompt(settings)
+    if sk:
+        sys_tl = techlead_sys + "\n\n---\n\n# Skills do repositório (resumo orçamentado)\n\n" + sk
     spec = await _invoke_json(
-        settings, model_provider, techlead_sys,
-        {"user_request": user_request or ""},
+        settings, model_provider, sys_tl,
+        tl_payload,
         node_name="techlead",
     )
     if not isinstance(spec, dict):
@@ -491,6 +545,7 @@ async def run_builder_stream(
     valid_types = {"frontend_only", "landing_page", "fullstack_node", "fullstack_next", "fullstack_go_hexagonal"}
     if spec.get("project_type") not in valid_types:
         spec["project_type"] = "frontend_only"
+    spec.setdefault("schema_version", 1)
     yield {"type": "node_done", "node": "techlead"}
 
     # ── Node: engineer ──────────────────────────────────────────────────────────
@@ -500,11 +555,16 @@ async def run_builder_stream(
     yield {"type": "progress", "step": "engineer", "label": "Engenheiro a planear estrutura de ficheiros..."}
     design = await _invoke_json(
         settings, model_provider, sys_eng,
-        {"user_request": user_request or "", "spec": spec},
+        {
+            "user_request": user_request or "",
+            "spec": spec,
+            "handoff": {"schema_version": 1, "stage": "post_techlead", "project_type": spec.get("project_type")},
+        },
         node_name="engineer",
     )
     if not isinstance(design, dict):
         design = {}
+    design.setdefault("schema_version", 1)
     design.setdefault("file_tree", [])
     design.setdefault("modules", [])
     design.setdefault("user_flows", [])
@@ -516,7 +576,12 @@ async def run_builder_stream(
     yield {"type": "progress", "step": "developer", "label": "Programador a gerar código dos ficheiros..."}
     dev_data = await _invoke_json(
         settings, model_provider, sys_dev,
-        {"spec": spec, "design": design},
+        {
+            "user_request": user_request or "",
+            "spec": spec,
+            "design": design,
+            "handoff": _handoff_payload(spec, design),
+        },
         node_name="developer",
     )
     files: list[dict[str, Any]] = []
@@ -545,11 +610,13 @@ async def run_builder_stream(
     int_data = await _invoke_json(
         settings, model_provider, sys_int,
         {
+            "user_request": user_request or "",
             "spec": spec,
             "design": design,
             "files": files,
             "test_report": {},
             "review_report": {},
+            "handoff": _handoff_payload(spec, design),
         },
         node_name="integrator",
     )
