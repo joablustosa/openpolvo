@@ -108,7 +108,8 @@ func expandEmailTemplates(s, currentID string, order []string, outputs map[strin
 
 // RunGraph executa o DAG com um único browser (headless por defeito).
 // mail pode ser nil: nós send_email falham com erro claro.
-func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLMInvoker, mail *MailDeps) ([]domain.StepLogEntry, error) {
+// social pode ser nil: nós post_facebook / post_instagram / post_whatsapp falham com erro claro.
+func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLMInvoker, mail *MailDeps, social *SocialDeps) ([]domain.StepLogEntry, error) {
 	if cfg.AutomationOff {
 		return nil, fmt.Errorf("automação desactivada (AUTOMATION_ENABLED=false)")
 	}
@@ -418,6 +419,120 @@ func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLM
 			}
 			step.OK = true
 			step.Message = "email enviado para " + toAddr
+
+		case "post_facebook", "post_instagram":
+			if social == nil || social.PostMeta == nil {
+				step.Message = "publicação social não configurada no servidor"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: social indisponível", id)
+			}
+			plat := "facebook"
+			if strings.EqualFold(strings.TrimSpace(n.Type), "post_instagram") {
+				plat = "instagram"
+			}
+			msg := strings.TrimSpace(expandEmailTemplates(n.Data.Caption, id, order, outputs, preds))
+			if msg == "" {
+				step.Message = "caption obrigatório (use {{previous}} após um nó LLM)"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: caption obrigatório", id)
+			}
+			img := strings.TrimSpace(expandEmailTemplates(n.Data.ImageURL, id, order, outputs, preds))
+			pid, err := social.PostMeta(ctx, plat, msg, img)
+			if err != nil {
+				step.Message = err.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("post_%s %s: %w", plat, id, err)
+			}
+			step.OK = true
+			outputs[id] = msg
+			step.Message = "publicado (" + plat + ") id=" + pid
+
+		case "post_whatsapp":
+			if social == nil || social.SendWA == nil {
+				step.Message = "WhatsApp não configurado no servidor"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: whatsapp indisponível", id)
+			}
+			to := strings.TrimSpace(n.Data.WhatsAppTo)
+			if to == "" {
+				step.Message = "whatsapp_to obrigatório (número destino)"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: whatsapp_to obrigatório", id)
+			}
+			txt := strings.TrimSpace(expandEmailTemplates(n.Data.Caption, id, order, outputs, preds))
+			if txt == "" {
+				step.Message = "caption/texto obrigatório"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: texto obrigatório", id)
+			}
+			mid, err := social.SendWA(ctx, to, txt)
+			if err != nil {
+				step.Message = err.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("post_whatsapp %s: %w", id, err)
+			}
+			step.OK = true
+			outputs[id] = txt
+			step.Message = "WhatsApp enviado id=" + mid
+
+		case "post_linkedin", "post_x", "post_twitter", "post_youtube":
+			if llm == nil {
+				step.Message = "LLM não configurado"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: llm indisponível", id)
+			}
+			plat := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(n.Type)), "post_")
+			if plat == "twitter" {
+				plat = "x"
+			}
+			sys := systemPromptSocialDraft(plat, n.Data.YoutubeFormat)
+			userBits := []string{
+				"Pedido de conteúdo para a plataforma: " + plat,
+			}
+			if strings.TrimSpace(n.Data.LinkURL) != "" {
+				userBits = append(userBits, "Link de referência: "+strings.TrimSpace(n.Data.LinkURL))
+			}
+			if strings.TrimSpace(n.Data.VideoURL) != "" {
+				userBits = append(userBits, "Vídeo de referência (URL): "+strings.TrimSpace(n.Data.VideoURL))
+			}
+			if n.Data.PostsPerDay > 0 {
+				userBits = append(userBits, fmt.Sprintf("Meta: o utilizador pretende cerca de %d publicações por dia (ajusta tom de urgência levemente).", n.Data.PostsPerDay))
+			}
+			brief := strings.TrimSpace(expandEmailTemplates(n.Data.Caption, id, order, outputs, preds))
+			if brief == "" {
+				brief = strings.TrimSpace(expandEmailTemplates(n.Data.Prompt, id, order, outputs, preds))
+			}
+			if brief == "" {
+				step.Message = "caption ou prompt obrigatório"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: caption/prompt obrigatório", id)
+			}
+			userBits = append(userBits, "Brief / notas:\n"+brief)
+			fullUser := strings.Join(userBits, "\n\n")
+			out, err := llm(ctx, sys+"\n\n"+fullUser)
+			if err != nil {
+				step.Message = err.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("post_%s %s: %w", plat, id, err)
+			}
+			step.OK = true
+			outputs[id] = out
+			step.Message = "rascunho " + plat + " (sem API de publicação no servidor — copiar para a rede)"
+			if len(out) > 220 {
+				step.Message = step.Message + ": " + out[:220] + "…"
+			} else {
+				step.Message = step.Message + ": " + out
+			}
 
 		default:
 			step.Message = "tipo desconhecido: " + n.Type

@@ -32,23 +32,15 @@ import {
   transcribeModelProvider,
 } from "@/lib/llmRouting";
 import { isApiUnauthorized } from "@/lib/apiErrors";
-import { buildEmailSendPayload, parseEmailMessageMeta } from "@/lib/emailChatMetadata";
+import {
+  buildEmailSendPayload,
+  emailBodyLooksReadyForAutosend,
+  parseEmailMessageMeta,
+} from "@/lib/emailChatMetadata";
 import { messageIndicatesTaskListInteraction, parseTaskListMessageMeta } from "@/lib/taskListChatMetadata";
 import { applyTaskListBatch } from "@/lib/taskListsApi";
-import { parseSchedMessageMeta } from "@/lib/scheduleChatMetadata";
-import {
-  createScheduledTask,
-  updateScheduledTask,
-  deleteScheduledTask,
-  type CreateScheduledTaskInput,
-  type UpdateScheduledTaskInput,
-} from "@/lib/scheduleApi";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { parseDashboardMeta } from "@/lib/dashboardMetadata";
-import {
-  builderDataFromAssistantMetadata,
-  findLatestBuilderDataInMessages,
-} from "@/lib/builderMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import * as mail from "@/lib/mailApi";
@@ -84,8 +76,6 @@ type ConversationWorkspaceValue = {
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   pinConversation: (id: string, pinned: boolean) => Promise<void>;
-  /** Carrega mensagens, extrai o último projecto Builder e abre o painel de preview. */
-  openBuilderPreviewForConversation: (conversationId: string) => Promise<boolean>;
 };
 
 const ConversationWorkspaceContext =
@@ -99,15 +89,7 @@ export function ConversationWorkspaceProvider({
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { openPlugin } = useAppLaunch();
-  const {
-    setDashboardData,
-    setBuilderData,
-    setBuilderProgress,
-    setBuilderStreamFiles,
-    openTaskListsPreview,
-    closeTaskListsPreview,
-    setActiveApp,
-  } = useWorkspace();
+  const { setDashboardData, openTaskListsPreview, closeTaskListsPreview } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
@@ -254,8 +236,6 @@ export function ConversationWorkspaceProvider({
       setError(null);
       setEmailSendNotice(null);
       setTaskListNotice(null);
-      setBuilderProgress(null);
-      setBuilderStreamFiles([]);
       try {
         let cid = activeConversationId;
         if (!cid) {
@@ -278,10 +258,8 @@ export function ConversationWorkspaceProvider({
           cidFinal,
           streamBody,
           (event: StreamEvent) => {
-            if (event.type === "progress") {
-              setBuilderProgress({ step: event.step, label: event.label });
-            } else if (event.type === "file") {
-              setBuilderStreamFiles((prev) => [...prev, event.file]);
+            if (event.type === "progress" || event.type === "file") {
+              /* ignorado — reservado para extensões futuras */
             } else if (event.type === "messages_saved") {
               finalMessages = event.messages;
               setMessages(event.messages);
@@ -289,11 +267,6 @@ export function ConversationWorkspaceProvider({
               const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
               const db = parseDashboardMeta(lastAssistant?.metadata);
               if (db) setDashboardData(db);
-              const bd = builderDataFromAssistantMetadata(lastAssistant?.metadata);
-              if (bd) {
-                setBuilderData(bd);
-                setBuilderStreamFiles([]);
-              }
               if (messageIndicatesTaskListInteraction(lastAssistant?.metadata)) {
                 openTaskListsPreview();
               }
@@ -317,10 +290,17 @@ export function ConversationWorkspaceProvider({
           try {
             const smtp = await mail.getSmtpSettings(token);
             if (smtp.email_chat_skip_confirmation) {
-              await mail.sendEmail(token, buildEmailSendPayload(em.email_send_draft));
-              setEmailSendNotice("E-mail enviado automaticamente.");
-              const refreshed = await fetchMessages(token, cidFinal);
-              setMessages(refreshed);
+              const draftBody = em.email_send_draft.body ?? "";
+              if (!emailBodyLooksReadyForAutosend(draftBody)) {
+                setEmailSendNotice(
+                  "Envio automático não efectuado: o corpo do e-mail ainda parece incompleto. Confirma o texto ou pede uma versão final.",
+                );
+              } else {
+                await mail.sendEmail(token, buildEmailSendPayload(em.email_send_draft));
+                setEmailSendNotice("E-mail enviado automaticamente.");
+                const refreshed = await fetchMessages(token, cidFinal);
+                setMessages(refreshed);
+              }
             }
           } catch (e) {
             setError(e instanceof Error ? e.message : "Falha no envio automático do e-mail");
@@ -351,36 +331,6 @@ export function ConversationWorkspaceProvider({
           }
         }
 
-        const sm = parseSchedMessageMeta(lastAssistant?.metadata);
-        if (
-          sm?.scheduled_task_ops_pending &&
-          sm.scheduled_task_ops &&
-          sm.scheduled_task_ops.length > 0 &&
-          !sm.scheduled_task_ops_blocked
-        ) {
-          const errors: string[] = [];
-          for (const op of sm.scheduled_task_ops) {
-            const opName = String(op.op ?? "");
-            try {
-              if (opName === "create") {
-                await createScheduledTask(op as unknown as CreateScheduledTaskInput);
-              } else if (opName === "update") {
-                const { op: _, id, ...rest } = op as Record<string, unknown>;
-                await updateScheduledTask(String(id), rest as UpdateScheduledTaskInput);
-              } else if (opName === "delete") {
-                await deleteScheduledTask(String(op.id));
-              } else if (opName === "toggle") {
-                await updateScheduledTask(String(op.id), { active: Boolean(op.active) });
-              }
-            } catch (e) {
-              errors.push(`${opName}: ${e instanceof Error ? e.message : "erro"}`);
-            }
-          }
-          if (errors.length > 0) {
-            setError(`Automações agendadas: ${errors.join("; ")}`);
-          }
-        }
-
         await refreshConversations();
       } catch (e) {
         if (isApiUnauthorized(e)) {
@@ -390,7 +340,6 @@ export function ConversationWorkspaceProvider({
         setError(e instanceof Error ? e.message : "Falha ao enviar");
       } finally {
         setSending(false);
-        setBuilderProgress(null);
       }
     },
     [
@@ -402,9 +351,6 @@ export function ConversationWorkspaceProvider({
       openPlugin,
       onSessionUnauthorized,
       setDashboardData,
-      setBuilderData,
-      setBuilderProgress,
-      setBuilderStreamFiles,
       openTaskListsPreview,
     ],
   );
@@ -445,54 +391,6 @@ export function ConversationWorkspaceProvider({
       await refreshConversations();
     },
     [token, refreshConversations, onSessionUnauthorized],
-  );
-
-  const openBuilderPreviewForConversation = useCallback(
-    async (conversationId: string): Promise<boolean> => {
-      if (!token) return false;
-      setError(null);
-      try {
-        const msgs = await fetchMessages(token, conversationId);
-        const bd = findLatestBuilderDataInMessages(msgs);
-        if (!bd) {
-          setError(
-            "Esta conversa não tem um projecto com ficheiros para abrir no painel.",
-          );
-          return false;
-        }
-        setActiveApp(null);
-        setDashboardData(null);
-        setBuilderData(bd);
-        setBuilderStreamFiles([]);
-        setBuilderProgress(null);
-        closeTaskListsPreview();
-        setActiveConversationId(conversationId);
-        setMessages(msgs);
-        const conv = conversations.find((c) => c.id === conversationId);
-        if (conv?.default_model_provider) {
-          setLlmSelectValue(conv.default_model_provider);
-        }
-        return true;
-      } catch (e) {
-        if (isApiUnauthorized(e)) {
-          onSessionUnauthorized();
-          return false;
-        }
-        setError(e instanceof Error ? e.message : "Falha ao carregar o projecto");
-        return false;
-      }
-    },
-    [
-      token,
-      conversations,
-      setActiveApp,
-      setDashboardData,
-      setBuilderData,
-      setBuilderProgress,
-      setBuilderStreamFiles,
-      closeTaskListsPreview,
-      onSessionUnauthorized,
-    ],
   );
 
   const pinConversation = useCallback(
@@ -557,7 +455,6 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
-      openBuilderPreviewForConversation,
     }),
     [
       conversations,
@@ -582,7 +479,6 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
-      openBuilderPreviewForConversation,
     ],
   );
 

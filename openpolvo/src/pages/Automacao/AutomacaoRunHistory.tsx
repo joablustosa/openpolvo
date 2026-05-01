@@ -1,17 +1,9 @@
 /**
- * Painel de histórico de execuções — mostra os últimos runs de uma automação
- * com o log por passo (em que parte do processo ocorreu o erro/sucesso).
- *
- * Para ScheduledTask: constrói um histórico sintético a partir de last_run_at/
- * last_error/last_result (o backend não guarda runs individuais para tasks).
- *
- * Para Workflow: usa WorkflowRunDTO[] com step_log real.
+ * Painel de histórico de execuções — runs de workflow com step_log.
  */
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { buildTaskSteps, type StepStatus } from "./AutomacaoLinearFlow";
-import type { ScheduledTaskDTO } from "@/lib/scheduleApi";
 import type { WorkflowRunDTO } from "@/lib/workflowsApi";
 
 // ── Tipos internos ─────────────────────────────────────────────────────────────
@@ -31,36 +23,6 @@ type HistoryEntry = {
   status: "success" | "error" | "running";
   steps: HistoryStep[];
 };
-
-// ── Conversor ScheduledTask → HistoryEntry ────────────────────────────────────
-
-function taskToHistoryEntry(task: ScheduledTaskDTO, running: boolean): HistoryEntry | null {
-  if (!task.last_run_at && !running) return null;
-
-  const steps = buildTaskSteps(task, running);
-  const stepsMapped: HistoryStep[] = steps
-    .filter((s) => s.status !== "skipped")
-    .map((s) => ({
-      id: s.id,
-      label: s.label,
-      ok: s.status === "success",
-      running: s.status === "running",
-      message: s.message,
-    }));
-
-  const status: HistoryEntry["status"] = running
-    ? "running"
-    : task.last_error
-      ? "error"
-      : "success";
-
-  return {
-    id: "last",
-    runAt: running ? new Date().toISOString() : (task.last_run_at ?? new Date().toISOString()),
-    status,
-    steps: stepsMapped,
-  };
-}
 
 // ── Conversor WorkflowRunDTO → HistoryEntry ───────────────────────────────────
 
@@ -99,11 +61,6 @@ function StepStatusIcon({ ok, running }: { ok: boolean; running?: boolean }) {
   if (ok) return <CheckCircle2 className="size-3 text-emerald-500" />;
   return <XCircle className="size-3 text-red-500" />;
 }
-
-function stepStatusFor(s: StepStatus): boolean {
-  return s === "success";
-}
-void stepStatusFor; // usado externamente
 
 function HistoryEntryRow({ entry, index }: { entry: HistoryEntry; index: number }) {
   const [open, setOpen] = useState(index === 0); // primeiro expandido por defeito
@@ -218,39 +175,28 @@ function HistoryEntryRow({ entry, index }: { entry: HistoryEntry; index: number 
 // ── Componente público ─────────────────────────────────────────────────────────
 
 interface AutomacaoRunHistoryProps {
-  kind: "task" | "workflow";
-  task?: ScheduledTaskDTO;
-  wfRuns?: WorkflowRunDTO[];
+  wfRuns: WorkflowRunDTO[];
   running?: boolean;
   loadingRuns?: boolean;
 }
 
 export function AutomacaoRunHistory({
-  kind,
-  task,
   wfRuns,
   running = false,
   loadingRuns = false,
 }: AutomacaoRunHistoryProps) {
   const entries: HistoryEntry[] = [];
 
-  if (kind === "task" && task) {
-    const entry = taskToHistoryEntry(task, running);
-    if (entry) entries.push(entry);
-    // Se nunca correu, entries ficará vazio
-  } else if (kind === "workflow" && wfRuns) {
-    for (const run of wfRuns.slice(0, 5)) {
-      entries.push(wfRunToHistoryEntry(run));
-    }
-    // Injectar estado "running" se necessário (a correr agora)
-    if (running && (entries.length === 0 || entries[0].status !== "running")) {
-      entries.unshift({
-        id: "running-now",
-        runAt: new Date().toISOString(),
-        status: "running",
-        steps: [],
-      });
-    }
+  for (const run of wfRuns.slice(0, 5)) {
+    entries.push(wfRunToHistoryEntry(run));
+  }
+  if (running && (entries.length === 0 || entries[0].status !== "running")) {
+    entries.unshift({
+      id: "running-now",
+      runAt: new Date().toISOString(),
+      status: "running",
+      steps: [],
+    });
   }
 
   return (

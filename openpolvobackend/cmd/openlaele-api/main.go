@@ -36,8 +36,6 @@ import (
 	sqsqlite "github.com/open-polvo/open-polvo/internal/schedulequeue/adapters/sqlite"
 	sqapp "github.com/open-polvo/open-polvo/internal/schedulequeue/application"
 	sqports "github.com/open-polvo/open-polvo/internal/schedulequeue/ports"
-	schedsqlite "github.com/open-polvo/open-polvo/internal/scheduledtasks/adapters/sqlite"
-	schedapp "github.com/open-polvo/open-polvo/internal/scheduledtasks/application"
 	socialsqlite "github.com/open-polvo/open-polvo/internal/social/adapters/sqlite"
 	socialapp "github.com/open-polvo/open-polvo/internal/social/application"
 	"github.com/open-polvo/open-polvo/internal/social/scheduler"
@@ -66,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := platformdb.Open(cfg.DBPath)
+	db, err := platformdb.Open(cfg)
 	if err != nil {
 		slog.Error("db open", "err", err)
 		os.Exit(1)
@@ -206,7 +204,6 @@ func main() {
 		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
 			return metaContextLoader.ForReply(ctx, userID)
 		},
-		// ScheduledTasksForReply será ligado abaixo após criar schedTaskRepo.
 	}
 	sendMailUC := &mailapp.SendUserEmail{Repo: smtpRepo, Cfg: cfg}
 	mailHandlers := &httptransport.MailHandlers{
@@ -231,6 +228,8 @@ func main() {
 		wfLLM = intel
 	}
 	createWF := &wfapp.CreateWorkflow{Workflows: wfRepo}
+	postMetaUC := &metaapp.PostMetaContent{Repo: metaRepo, Cfg: cfg, Client: metaClient}
+	sendMetaUC := &metaapp.SendMetaMessage{Repo: metaRepo, Cfg: cfg, Client: metaClient}
 	runWfUC := &wfapp.RunWorkflow{
 		Workflows:    wfRepo,
 		Runs:         runRepo,
@@ -240,6 +239,8 @@ func main() {
 		RunnerCfg:    wfapp.DefaultRunnerConfig(),
 		SendEmail:    sendMailUC,
 		GetContact:   getContactUC,
+		PostMeta:     postMetaUC,
+		SendWhatsApp: sendMetaUC,
 	}
 	wfHandlers = &httptransport.WorkflowHandlers{
 		Create: createWF,
@@ -314,7 +315,6 @@ func main() {
 		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
 			return metaContextLoader.ForReply(ctx, userID)
 		},
-		// ScheduledTasksForReply ligado abaixo.
 	}
 	convHandlers := &httptransport.ConversationHandlers{
 		CreateConversation: createConvUC,
@@ -384,8 +384,8 @@ func main() {
 		GetMeta:             &metaapp.GetMyMeta{Repo: metaRepo},
 		PutMeta:             &metaapp.PutMyMeta{Repo: metaRepo, Cfg: cfg},
 		TestMeta:            &metaapp.TestMetaConnection{Repo: metaRepo, Cfg: cfg, Client: metaClient},
-		PostContent:         &metaapp.PostMetaContent{Repo: metaRepo, Cfg: cfg, Client: metaClient},
-		SendMessage:         &metaapp.SendMetaMessage{Repo: metaRepo, Cfg: cfg, Client: metaClient},
+		PostContent:         postMetaUC,
+		SendMessage:         sendMetaUC,
 		WebhookVerifyToken:  cfg.MetaWebhookVerifyToken,
 		AppSecretForWebhook:  cfg.MetaCredentialsKey,
 		SocialReplyHandler:   socialReplyHandler,
@@ -394,36 +394,6 @@ func main() {
 	financeHandlers := &httptransport.FinanceHandlers{
 		Repo:      financeStore,
 		TaskItems: taskItemRepo,
-	}
-
-	// Scheduled tasks
-	schedTaskRepo := &schedsqlite.ScheduledTaskRepository{DB: db}
-	schedLoader := func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief {
-		tasks, err := schedTaskRepo.ListByUser(ctx, userID)
-		if err != nil || len(tasks) == 0 {
-			return nil
-		}
-		briefs := make([]agentports.ScheduledTaskBrief, len(tasks))
-		for i, t := range tasks {
-			briefs[i] = agentports.ScheduledTaskBrief{
-				ID:       t.ID.String(),
-				Name:     t.Name,
-				TaskType: string(t.TaskType),
-				CronExpr: t.CronExpr,
-				Timezone: t.Timezone,
-				Active:   t.Active,
-			}
-		}
-		return briefs
-	}
-	sendMsgUC.ScheduledTasksForReply = schedLoader
-	streamMsgUC.ScheduledTasksForReply = schedLoader
-	schedHandlers := &httptransport.ScheduleHandlers{
-		Create: &schedapp.CreateScheduledTask{Repo: schedTaskRepo},
-		Get:    &schedapp.GetScheduledTask{Repo: schedTaskRepo},
-		List:   &schedapp.ListScheduledTasks{Repo: schedTaskRepo},
-		Update: &schedapp.UpdateScheduledTask{Repo: schedTaskRepo},
-		Delete: &schedapp.DeleteScheduledTask{Repo: schedTaskRepo},
 	}
 
 	handler := httptransport.NewRouter(httptransport.Deps{
@@ -439,7 +409,7 @@ func main() {
 		Finance:       financeHandlers,
 		Meta:          metaHandlers,
 		Social:        socialHandlers,
-		Schedule:      schedHandlers,
+		Schedule:      nil,
 		Audio:         audioH,
 		TokenParser:   issuer,
 		ReadyCheck:    readyCheck,
@@ -525,37 +495,6 @@ func main() {
 		}
 		go socialRunner.Start(schedCtx, interval)
 	}
-	if scheduledTasksRunnerEnabled() {
-		interval := time.Minute
-		if s := strings.TrimSpace(os.Getenv("SCHED_TASKS_INTERVAL")); s != "" {
-			if d, err := time.ParseDuration(s); err == nil && d >= 30*time.Second {
-				interval = d
-			}
-		}
-		schedRunner := &schedapp.Runner{
-			Repo:        schedTaskRepo,
-			Agent:       chatOrch,
-			Mail:        sendMailUC,
-			RunTaskList: runTL,
-			Loaders: schedapp.ContextLoaders{
-				SMTP:      smtpLoader.ForReply,
-				Contacts:  func(ctx context.Context, uid uuid.UUID) []agentports.ContactBrief { return contactsReply.ForReply(ctx, uid) },
-				TaskLists: func(ctx context.Context, uid uuid.UUID) []agentports.TaskListBrief { return taskListsReplyLoader.ForReply(ctx, uid) },
-				Finance:   financeReplyLoader.ForReply,
-				Meta:      metaContextLoader.ForReply,
-			},
-			Log: slog.Default(),
-		}
-		if queueEnabled {
-			schedRunner.Queue = &scheduleQueueRepo
-			if queueWorker != nil {
-				queueWorker.ScheduledTasks = schedRunner
-			}
-		}
-		go schedRunner.Start(schedCtx, interval)
-		// Permite execução manual via endpoint /run-now.
-		schedHandlers.Runner = schedRunner
-	}
 	if queueEnabled && queueWorker != nil {
 		queueWorker.Start(schedCtx)
 	}
@@ -591,14 +530,6 @@ func workflowSchedulerEnabled() bool {
 
 func socialSchedulerEnabled() bool {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv("SOCIAL_SCHEDULER_ENABLED")))
-	if v == "" {
-		return true
-	}
-	return v == "1" || v == "true" || v == "yes"
-}
-
-func scheduledTasksRunnerEnabled() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("SCHED_TASKS_ENABLED")))
 	if v == "" {
 		return true
 	}

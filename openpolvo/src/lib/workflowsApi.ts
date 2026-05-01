@@ -36,6 +36,16 @@ export type WorkflowNode = {
     contact_id?: string;
     email_subject?: string;
     email_body?: string;
+    /** post_*: legenda/corpo; {{previous}} / {{output:ID}} */
+    caption?: string;
+    image_url?: string;
+    video_url?: string;
+    link_url?: string;
+    whatsapp_to?: string;
+    /** YouTube: short | long */
+    youtube_format?: string;
+    /** Metadado UI (cadência real = cron do nó schedule) */
+    posts_per_day?: number;
   };
 };
 

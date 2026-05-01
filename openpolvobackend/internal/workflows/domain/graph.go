@@ -8,7 +8,7 @@ type GraphJSON struct {
 
 type GraphNode struct {
 	ID       string             `json:"id"`
-	Type     string             `json:"type"`               // schedule, goto, click, fill, wait, llm, send_email
+	Type     string             `json:"type"`               // schedule, goto, …, send_email, post_facebook, …
 	Position map[string]float64 `json:"position,omitempty"` // x, y — opcional no servidor
 	Data     NodeData           `json:"data"`
 }
@@ -47,6 +47,14 @@ type NodeData struct {
 	Cron            string `json:"cron,omitempty"`
 	Timezone        string `json:"timezone,omitempty"`
 	ScheduleEnabled bool   `json:"schedule_enabled,omitempty"`
+	// Redes sociais (post_*): legenda/corpo; {{previous}} / {{output:ID}} como em send_email.
+	Caption       string `json:"caption,omitempty"`
+	ImageURL      string `json:"image_url,omitempty"`
+	VideoURL      string `json:"video_url,omitempty"`
+	LinkURL       string `json:"link_url,omitempty"`
+	WhatsAppTo    string `json:"whatsapp_to,omitempty"`    // E.164 ou ID aceite pela API Meta
+	YoutubeFormat string `json:"youtube_format,omitempty"` // short | long
+	PostsPerDay   int    `json:"posts_per_day,omitempty"`  // metadado (UI); o cron define a cadência real
 }
 
 type GraphEdge struct {

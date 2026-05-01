@@ -18,7 +18,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Bot, CheckCircle2, Clock, Loader2, Mail, MousePointer, Pencil, Wand2, XCircle, Search } from "lucide-react";
+import { Bot, CheckCircle2, Clock, Loader2, Mail, MousePointer, Pencil, Search, Share2, Wand2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WorkflowDTO, WorkflowRunDTO } from "@/lib/workflowsApi";
 
@@ -72,6 +72,9 @@ function injectExecState(
 // ── Nó customizado com estado de execução ─────────────────────────────────────
 
 function nodeIcon(type: string) {
+  if (type.startsWith("post_")) {
+    return <Share2 className="size-3 text-sky-500" />;
+  }
   switch (type) {
     case "schedule":  return <Clock className="size-3 text-violet-500" />;
     case "send_email": return <Mail className="size-3 text-amber-500" />;
@@ -150,7 +153,15 @@ const execNodeTypes = {
   fill: ExecNode,
   wait: ExecNode,
   llm: ExecNode,
+  web_search: ExecNode,
   send_email: ExecNode,
+  post_facebook: ExecNode,
+  post_instagram: ExecNode,
+  post_linkedin: ExecNode,
+  post_whatsapp: ExecNode,
+  post_x: ExecNode,
+  post_twitter: ExecNode,
+  post_youtube: ExecNode,
 };
 
 // ── Converter WorkflowGraph para XYFlow ───────────────────────────────────────

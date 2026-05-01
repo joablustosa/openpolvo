@@ -1,20 +1,5 @@
 /**
- * Página unificada de Automação.
- *
- * Une "Automações agendadas" (ScheduledTask) e Workflows num só ecrã:
- *
- *  ┌──────────────────┬───────────────────────────────────────┬─────────────┐
- *  │  Lista unificada │  Grafo visual (execução ou editor)    │  Painel Dir │
- *  │  (tarefas +      │  • exec: linear/XYFlow só-leitura     │  • task form│
- *  │   workflows)     │  • edit: XYFlow editável + inspector  │  • wf insp. │
- *  │                  ├───────────────────────────────────────┤             │
- *  │                  │  Histórico de runs (só modo exec)     │             │
- *  └──────────────────┴───────────────────────────────────────┴─────────────┘
- *
- * Indicadores:
- *  - Ponto pulsante azul  : a executar agora
- *  - Badge verde          : última execução com sucesso
- *  - Badge vermelho       : última execução com erro
+ * Automação por workflows (grafo com agendamento cron, LLM, e-mail e redes sociais).
  */
 import {
   createContext,
@@ -46,12 +31,10 @@ import "@xyflow/react/dist/style.css";
 import {
   AlertCircle,
   ArrowLeft,
-  Bot,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
-  ListTodo,
   Loader2,
   Mail,
   Pencil,
@@ -61,6 +44,7 @@ import {
   PowerOff,
   RefreshCw,
   Save,
+  Share2,
   Trash2,
   Wand2,
   Workflow,
@@ -90,18 +74,7 @@ import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
 import { fetchLlmProfiles, type LlmProfileDTO } from "@/lib/llmProfilesApi";
 import { parseLlmRoutingSelect } from "@/lib/llmRouting";
 import * as contactsApi from "@/lib/contactsApi";
-import {
-  listScheduledTasks,
-  createScheduledTask,
-  updateScheduledTask,
-  deleteScheduledTask,
-  runScheduledTaskNow,
-  cronToHuman,
-  type ScheduledTaskDTO,
-  type CreateScheduledTaskInput,
-  type TaskType,
-} from "@/lib/scheduleApi";
-import { fetchTaskLists, type TaskListDTO } from "@/lib/taskListsApi";
+import { cronToHuman } from "@/lib/cronHumanPt";
 import * as wf from "@/lib/workflowsApi";
 import type {
   WorkflowDTO,
@@ -110,7 +83,6 @@ import type {
   WorkflowNode,
   WorkflowRunDTO,
 } from "@/lib/workflowsApi";
-import { AutomacaoLinearFlow } from "./AutomacaoLinearFlow";
 import { AutomacaoWorkflowFlow } from "./AutomacaoWorkflowFlow";
 import { AutomacaoRunHistory } from "./AutomacaoRunHistory";
 
@@ -125,6 +97,13 @@ const WF_TYPES = [
   "llm",
   "web_search",
   "send_email",
+  "post_facebook",
+  "post_instagram",
+  "post_linkedin",
+  "post_whatsapp",
+  "post_x",
+  "post_twitter",
+  "post_youtube",
 ] as const;
 
 const TZ_PRESETS = [
@@ -160,6 +139,34 @@ const WF_NODE_CATALOG: Record<
     labelPt: "Enviar e-mail",
     descricaoCurta: "Envio SMTP no servidor",
   },
+  post_facebook: {
+    labelPt: "Facebook (Meta)",
+    descricaoCurta: "Publicar legenda/imagem via API Meta",
+  },
+  post_instagram: {
+    labelPt: "Instagram (Meta)",
+    descricaoCurta: "Publicar legenda/imagem via API Meta",
+  },
+  post_linkedin: {
+    labelPt: "LinkedIn (rascunho)",
+    descricaoCurta: "Gera texto com IA para colar na rede",
+  },
+  post_whatsapp: {
+    labelPt: "WhatsApp (Meta)",
+    descricaoCurta: "Mensagem de texto para número configurado",
+  },
+  post_x: {
+    labelPt: "X / Twitter (rascunho)",
+    descricaoCurta: "Gera post com IA (copiar para X)",
+  },
+  post_twitter: {
+    labelPt: "Twitter (alias X)",
+    descricaoCurta: "Igual a X — rascunho por IA",
+  },
+  post_youtube: {
+    labelPt: "YouTube (rascunho)",
+    descricaoCurta: "Título/descrição Short ou vídeo longo",
+  },
 };
 
 function defaultDataForWfType(t: WfType): Record<string, unknown> {
@@ -194,9 +201,224 @@ function defaultDataForWfType(t: WfType): Record<string, unknown> {
         email_subject: "Assunto",
         email_body: "Corpo do e-mail",
       };
+    case "post_facebook":
+    case "post_instagram":
+      return {
+        label: meta.labelPt,
+        caption: "{{previous}}",
+        image_url: "",
+        posts_per_day: 1,
+      };
+    case "post_whatsapp":
+      return {
+        label: meta.labelPt,
+        whatsapp_to: "",
+        caption: "{{previous}}",
+        posts_per_day: 3,
+      };
+    case "post_linkedin":
+    case "post_x":
+    case "post_twitter":
+      return {
+        label: meta.labelPt,
+        prompt:
+          "Tom profissional PT-PT. Inclui hashtags relevantes (máx. 5). Respeita limites da plataforma.",
+        caption: "",
+        link_url: "",
+        video_url: "",
+        posts_per_day: 1,
+      };
+    case "post_youtube":
+      return {
+        label: meta.labelPt,
+        youtube_format: "short",
+        prompt:
+          "Gera título chamativo, descrição com capítulos sugeridos e tags para YouTube em português.",
+        caption: "Tema ou ângulo do vídeo…",
+        link_url: "",
+        video_url: "",
+        posts_per_day: 1,
+      };
     default:
       return { label: meta.labelPt };
   }
+}
+
+type WorkflowTemplateKey =
+  | "email"
+  | "facebook"
+  | "instagram"
+  | "linkedin"
+  | "whatsapp"
+  | "x"
+  | "youtube_short"
+  | "youtube_long";
+
+const TEMPLATE_TITLES: Record<WorkflowTemplateKey, string> = {
+  email: "Workflow — e-mail agendado",
+  facebook: "Workflow — Facebook",
+  instagram: "Workflow — Instagram",
+  linkedin: "Workflow — LinkedIn (rascunho)",
+  whatsapp: "Workflow — WhatsApp",
+  x: "Workflow — X (Twitter)",
+  youtube_short: "Workflow — YouTube Shorts",
+  youtube_long: "Workflow — YouTube (vídeo longo)",
+};
+
+/** Grafo inicial: schedule → LLM → nó de acção (ajuste cron e prompts). */
+function workflowTemplateGraph(key: WorkflowTemplateKey): WorkflowGraph {
+  const p = Date.now();
+  const sched = `sched-${p}`;
+  const llm = `llm-${p}`;
+  const tail = `act-${p}`;
+  const baseSched = {
+    label: "Agendamento",
+    cron: "0 9 * * *",
+    timezone: "Europe/Lisbon",
+    schedule_enabled: true,
+  };
+  const nodes: WorkflowGraph["nodes"] = [
+    { id: sched, type: "schedule", position: { x: 60, y: 30 }, data: { ...baseSched } },
+    {
+      id: llm,
+      type: "llm",
+      position: { x: 60, y: 170 },
+      data: {
+        label: "Conteúdo (IA)",
+        prompt: "",
+      },
+    },
+  ];
+  const edges: WorkflowGraph["edges"] = [
+    { id: `e-${sched}-${llm}`, source: sched, target: llm },
+  ];
+
+  if (key === "email") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Escreve o corpo de um e-mail claro em português com base no tema do negócio. Usa tom profissional e call-to-action no fim.",
+    };
+    nodes.push({
+      id: tail,
+      type: "send_email",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Enviar e-mail",
+        email_to: "",
+        email_subject: "{{previous}}",
+        email_body: "{{previous}}",
+      },
+    });
+  } else if (key === "facebook") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Especialista Facebook: legenda até ~500 caracteres, tom humano, 1–3 emojis no máximo, pergunta no fim para engagement. Inclui linha opcional com #hashtags relevantes (máx. 5).",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_facebook",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Publicar Facebook",
+        caption: "{{previous}}",
+        image_url: "",
+        posts_per_day: 1,
+      },
+    });
+  } else if (key === "instagram") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Especialista Instagram: legenda com gancho na 1ª linha, corpo com valor ou história, hashtags no bloco final (10–20), tom autêntico.",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_instagram",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Publicar Instagram",
+        caption: "{{previous}}",
+        image_url: "",
+        posts_per_day: 1,
+      },
+    });
+  } else if (key === "linkedin") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Especialista LinkedIn: post B2B, primeira linha forte, parágrafos curtos, insight ou opinião, CTA suave. Sem hashtag excessiva (3–5).",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_linkedin",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Rascunho LinkedIn",
+        caption: "{{previous}}",
+        link_url: "",
+        posts_per_day: 1,
+      },
+    });
+  } else if (key === "whatsapp") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Especialista WhatsApp: mensagem curta, cordial, objectivo claro (lembrete, promoção ou follow-up). Evita spam; máx. ~400 caracteres.",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_whatsapp",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Enviar WhatsApp",
+        whatsapp_to: "",
+        caption: "{{previous}}",
+        posts_per_day: 3,
+      },
+    });
+  } else if (key === "x") {
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt:
+        "Especialista X (Twitter): até 280 caracteres se possível, voz directa, 0–2 hashtags, opcional thread (se pedido, separa com ---).",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_x",
+      position: { x: 60, y: 320 },
+      data: {
+        label: "Rascunho X",
+        caption: "{{previous}}",
+        posts_per_day: 4,
+      },
+    });
+  } else {
+    const isShort = key === "youtube_short";
+    nodes[1].data = {
+      ...nodes[1].data,
+      prompt: isShort
+        ? "Especialista YouTube Shorts: título <60 caracteres, descrição curta com 2–3 hashtags, gancho nos primeiros segundos sugeridos em texto."
+        : "Especialista YouTube longo: título SEO, descrição com timestamps sugeridos, tags e parágrafo sobre o público-alvo.",
+    };
+    nodes.push({
+      id: tail,
+      type: "post_youtube",
+      position: { x: 60, y: 320 },
+      data: {
+        label: isShort ? "Rascunho Shorts" : "Rascunho vídeo longo",
+        youtube_format: isShort ? "short" : "long",
+        caption: "{{previous}}",
+        link_url: "",
+        video_url: "",
+        posts_per_day: 1,
+      },
+    });
+  }
+
+  edges.push({ id: `e-${llm}-${tail}`, source: llm, target: tail });
+  return { nodes, edges };
 }
 
 const WfGraphActionsContext = createContext<{
@@ -250,6 +472,13 @@ function flowToGraph(nodes: Node[], edges: Edge[]): WorkflowGraph {
       contact_id: (n.data as { contact_id?: string }).contact_id,
       email_subject: (n.data as { email_subject?: string }).email_subject,
       email_body: (n.data as { email_body?: string }).email_body,
+      caption: (n.data as { caption?: string }).caption,
+      image_url: (n.data as { image_url?: string }).image_url,
+      video_url: (n.data as { video_url?: string }).video_url,
+      link_url: (n.data as { link_url?: string }).link_url,
+      whatsapp_to: (n.data as { whatsapp_to?: string }).whatsapp_to,
+      youtube_format: (n.data as { youtube_format?: string }).youtube_format,
+      posts_per_day: (n.data as { posts_per_day?: number }).posts_per_day,
     },
   }));
   const ge: WorkflowEdge[] = edges.map((e) => ({
@@ -270,6 +499,7 @@ function WfEditNode(props: NodeProps) {
   const typePt = WF_NODE_CATALOG[t]?.labelPt ?? String(props.type ?? "—");
   const isSchedule = String(props.type) === "schedule";
   const isSendEmail = String(props.type) === "send_email";
+  const isSocial = String(props.type ?? "").startsWith("post_");
   return (
     <>
       <Handle
@@ -284,7 +514,9 @@ function WfEditNode(props: NodeProps) {
             ? "border-violet-500/60 ring-1 ring-violet-500/25"
             : isSendEmail
               ? "border-amber-500/60 ring-1 ring-amber-500/25"
-              : "border-border",
+              : isSocial
+                ? "border-sky-500/55 ring-1 ring-sky-500/20"
+                : "border-border",
         )}
       >
         <div className="flex items-center gap-1 font-medium text-foreground">
@@ -292,6 +524,8 @@ function WfEditNode(props: NodeProps) {
             <Clock className="size-3 shrink-0 text-violet-600 dark:text-violet-400" />
           ) : isSendEmail ? (
             <Mail className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+          ) : isSocial ? (
+            <Share2 className="size-3 shrink-0 text-sky-600 dark:text-sky-400" />
           ) : null}
           <span className="truncate">{label}</span>
         </div>
@@ -349,225 +583,18 @@ const wfEditNodeTypes = {
   llm: WfEditNode,
   web_search: WfEditNode,
   send_email: WfEditNode,
+  post_facebook: WfEditNode,
+  post_instagram: WfEditNode,
+  post_linkedin: WfEditNode,
+  post_whatsapp: WfEditNode,
+  post_x: WfEditNode,
+  post_twitter: WfEditNode,
+  post_youtube: WfEditNode,
 };
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
-type Selection =
-  | { kind: "task"; id: string }
-  | { kind: "workflow"; id: string }
-  | null;
-
 type WfMode = "exec" | "edit";
-
-type FormState = {
-  name: string;
-  description: string;
-  task_type: TaskType;
-  cron_expr: string;
-  timezone: string;
-  active: boolean;
-  prompt: string;
-  send_email: boolean;
-  email_subject: string;
-  include_tasks: boolean;
-  include_finance: boolean;
-  task_list_id: string;
-  task_list_name: string;
-};
-
-const DEFAULT_FORM: FormState = {
-  name: "",
-  description: "",
-  task_type: "agent_prompt",
-  cron_expr: "0 20 * * *",
-  timezone: "America/Sao_Paulo",
-  active: true,
-  prompt: "",
-  send_email: false,
-  email_subject: "",
-  include_tasks: true,
-  include_finance: false,
-  task_list_id: "",
-  task_list_name: "",
-};
-
-const CRON_PRESETS = [
-  { label: "Todo dia às 8h",      value: "0 8 * * *" },
-  { label: "Todo dia às 12h",     value: "0 12 * * *" },
-  { label: "Todo dia às 20h",     value: "0 20 * * *" },
-  { label: "Toda segunda às 9h",  value: "0 9 * * 1" },
-  { label: "Dias úteis às 8h",    value: "0 8 * * 1-5" },
-  { label: "A cada hora",         value: "0 * * * *" },
-  { label: "1º do mês às 9h",     value: "0 9 1 * *" },
-];
-
-// ── Helpers de form ────────────────────────────────────────────────────────────
-
-function taskToForm(t: ScheduledTaskDTO): FormState {
-  const p = (t.payload || {}) as Record<string, unknown>;
-  return {
-    name: t.name,
-    description: t.description ?? "",
-    task_type: t.task_type,
-    cron_expr: t.cron_expr,
-    timezone: t.timezone,
-    active: t.active,
-    prompt: String(p.prompt ?? ""),
-    send_email: Boolean(p.send_email),
-    email_subject: String(p.email_subject ?? ""),
-    include_tasks: p.include_tasks !== false,
-    include_finance: Boolean(p.include_finance),
-    task_list_id: String(p.task_list_id ?? ""),
-    task_list_name: String(p.task_list_name ?? ""),
-  };
-}
-
-function formToInput(f: FormState): CreateScheduledTaskInput {
-  const payload: Record<string, unknown> =
-    f.task_type === "agent_prompt"
-      ? {
-          prompt: f.prompt.trim(),
-          send_email: f.send_email,
-          email_subject: f.email_subject.trim(),
-          include_tasks: f.include_tasks,
-          include_finance: f.include_finance,
-        }
-      : {
-          task_list_id: f.task_list_id,
-          task_list_name: f.task_list_name,
-        };
-  return {
-    name: f.name.trim(),
-    description: f.description.trim() || undefined,
-    task_type: f.task_type,
-    cron_expr: f.cron_expr.trim(),
-    timezone: f.timezone.trim() || "America/Sao_Paulo",
-    active: f.active,
-    payload,
-  };
-}
-
-// ── Toggle interno ─────────────────────────────────────────────────────────────
-
-function Toggle({ id, checked, onChange, label }: {
-  id: string; checked: boolean; onChange: (v: boolean) => void; label: string;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <label htmlFor={id} className="cursor-pointer text-xs">{label}</label>
-      <button
-        id={id} type="button" role="switch" aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${checked ? "bg-primary" : "bg-input"}`}
-      >
-        <span className={`pointer-events-none inline-block size-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${checked ? "translate-x-4" : "translate-x-0"}`} />
-      </button>
-    </div>
-  );
-}
-
-// ── Badge de estado da última execução ────────────────────────────────────────
-
-function LastRunBadge({ lastRunAt, lastError, active }: {
-  lastRunAt?: string | null; lastError?: string | null; active: boolean;
-}) {
-  if (!lastRunAt) {
-    return (
-      <span className="text-[10px] text-muted-foreground/60">
-        {active ? "nunca executado" : "inactivo"}
-      </span>
-    );
-  }
-  if (lastError) {
-    return (
-      <span className="flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400">
-        <AlertCircle className="size-3" />
-        erro
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
-      <CheckCircle2 className="size-3" />
-      ok
-    </span>
-  );
-}
-
-// ── Item da lista (tarefa agendada) ───────────────────────────────────────────
-
-function TaskListItem({
-  task, isSelected, isRunning, onSelect, onDelete,
-}: {
-  task: ScheduledTaskDTO;
-  isSelected: boolean;
-  isRunning: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  const isPrompt = task.task_type === "agent_prompt";
-  return (
-    <div
-      className={cn(
-        "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-        isSelected
-          ? "bg-primary/10 text-foreground"
-          : "hover:bg-muted/60 text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="min-w-0 flex flex-1 items-center gap-2.5 text-left"
-      >
-      <div className="relative shrink-0">
-        <div className={cn(
-          "flex size-7 items-center justify-center rounded-md",
-          isSelected ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary",
-        )}>
-          {isPrompt ? <Bot className="size-3.5" /> : <ListTodo className="size-3.5" />}
-        </div>
-        {isRunning ? (
-          <span className="absolute -right-0.5 -top-0.5 flex size-2.5 items-center justify-center">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-blue-500" />
-          </span>
-        ) : task.last_error ? (
-          <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-red-500" />
-        ) : task.last_run_at ? (
-          <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-emerald-500" />
-        ) : null}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-medium leading-tight">{task.name}</p>
-        <p className="truncate text-[10px] text-muted-foreground/70">{cronToHuman(task.cron_expr)}</p>
-      </div>
-      <div className="shrink-0">
-        {!task.active ? (
-          <span className="text-[9px] text-muted-foreground/50">pausado</span>
-        ) : (
-          <LastRunBadge lastRunAt={task.last_run_at} lastError={task.last_error} active={task.active} />
-        )}
-      </div>
-      </button>
-
-      <Button
-        size="icon"
-        variant="ghost"
-        className="size-7 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
-        title="Apagar"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDelete();
-        }}
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
-    </div>
-  );
-}
 
 // ── Item da lista (workflow) ───────────────────────────────────────────────────
 
@@ -662,37 +689,31 @@ function WorkflowListItem({
 // ── Cabeçalho do item seleccionado ────────────────────────────────────────────
 
 function DetailHeader({
-  kind, task, workflow, running, wfMode,
-  onRunNow, onEdit, onToggleActive, onDelete, onExitEdit,
+  workflow, running, wfMode,
+  onRunNow, onEdit, onDelete, onExitEdit,
   onToggleWorkflowSchedule, workflowScheduleToggleBusy,
 }: {
-  kind: "task" | "workflow";
-  task?: ScheduledTaskDTO;
-  workflow?: WorkflowDTO;
+  workflow: WorkflowDTO;
   running: boolean;
   wfMode?: WfMode;
   onRunNow: () => void;
   onEdit: () => void;
-  onToggleActive?: () => void;
   onDelete: () => void;
   onExitEdit?: () => void;
-  /** Só workflows em modo execução: pausa/retoma o nó schedule no grafo. */
   onToggleWorkflowSchedule?: () => void;
   workflowScheduleToggleBusy?: boolean;
 }) {
-  const name = kind === "task" ? task?.name : workflow?.title;
-  const cron = kind === "task" ? task?.cron_expr : workflow?.schedule_cron;
-  const tz = kind === "task" ? task?.timezone : workflow?.schedule_timezone;
-  const isActive = kind === "task" ? task?.active : workflow?.schedule_enabled;
+  const name = workflow.title;
+  const cron = workflow.schedule_cron;
+  const tz = workflow.schedule_timezone;
+  const isActive = workflow.schedule_enabled;
 
   return (
     <div className="flex shrink-0 flex-wrap items-start gap-3 border-b border-border bg-card/40 px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold">{name}</h2>
-          <Badge variant={kind === "task" ? "outline" : "secondary"} className="text-[10px]">
-            {kind === "task" ? (task?.task_type === "agent_prompt" ? "agente" : "lista") : "workflow"}
-          </Badge>
+          <Badge variant="secondary" className="text-[10px]">workflow</Badge>
           {wfMode === "edit" && (
             <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-700 dark:text-amber-400">
               modo editor
@@ -737,10 +758,7 @@ function DetailHeader({
                 <><Play className="size-3" />Executar agora</>
               )}
             </Button>
-            {kind === "workflow" &&
-            cron &&
-            String(cron).trim() !== "" &&
-            onToggleWorkflowSchedule ? (
+            {cron && String(cron).trim() !== "" && onToggleWorkflowSchedule ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -750,31 +768,17 @@ function DetailHeader({
               >
                 {workflowScheduleToggleBusy ? (
                   <><Loader2 className="size-3 animate-spin" />A actualizar…</>
-                ) : workflow?.schedule_enabled ? (
+                ) : workflow.schedule_enabled ? (
                   <><PowerOff className="size-3" />Pausar agendamento</>
                 ) : (
                   <><Power className="size-3" />Retomar agendamento</>
                 )}
               </Button>
             ) : null}
-            {kind === "workflow" ? (
-              <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={onEdit}>
-                <Pencil className="size-3" />
-                Editar
-              </Button>
-            ) : (
-              <>
-                {onToggleActive ? (
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={onToggleActive}>
-                    {isActive ? <><PowerOff className="size-3" />Pausar</> : <><Power className="size-3" />Activar</>}
-                  </Button>
-                ) : null}
-                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={onEdit}>
-                  <Pencil className="size-3" />
-                  Editar
-                </Button>
-              </>
-            )}
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={onEdit}>
+              <Pencil className="size-3" />
+              Editar
+            </Button>
           </>
         )}
         <Button
@@ -1051,7 +1055,7 @@ function WfInspectorPanel({
                         Assunto: nós anteriores
                       </Button>
                     </div>
-                    {wfGraphNodes.some((n) => n.type === "llm" || n.type === "web_search") ? (
+                    {wfGraphNodes.some((n) => n.type === "llm" || n.type === "web_search" || String(n.type ?? "").startsWith("post_")) ? (
                       <div className="space-y-1">
                         <label className="text-[10px] text-muted-foreground">Inserir saída de um nó no corpo</label>
                         <select
@@ -1069,7 +1073,7 @@ function WfInspectorPanel({
                         >
                           <option value="">— Escolher nó —</option>
                           {wfGraphNodes
-                            .filter((n) => n.type === "llm" || n.type === "web_search")
+                            .filter((n) => n.type === "llm" || n.type === "web_search" || String(n.type ?? "").startsWith("post_"))
                             .map((n) => {
                               const d = n.data as Record<string, unknown>;
                               const lb = String(d?.label ?? n.id);
@@ -1124,6 +1128,159 @@ function WfInspectorPanel({
                     className="min-h-[80px] text-xs"
                     value={String(nd?.email_body ?? "")}
                     onChange={(e) => onUpdateNodeData({ email_body: e.target.value })}
+                  />
+                </div>
+              ) : null}
+
+              {/* Redes sociais (post_*) */}
+              {["post_facebook", "post_instagram"].includes(nodeType) ? (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Publicação via Meta. Use{" "}
+                    <code className="rounded bg-muted px-0.5">{"{{previous}}"}</code> após um nó LLM para usar o texto gerado como legenda.
+                  </p>
+                  <Textarea
+                    placeholder="Legenda / caption"
+                    className="min-h-[72px] text-xs"
+                    value={String(nd?.caption ?? "")}
+                    onChange={(e) => onUpdateNodeData({ caption: e.target.value })}
+                  />
+                  <Input
+                    placeholder="URL da imagem (opcional)"
+                    className="h-8 text-xs"
+                    value={String((nd as { image_url?: string })?.image_url ?? "")}
+                    onChange={(e) => onUpdateNodeData({ image_url: e.target.value })}
+                  />
+                  <label className="text-[10px] text-muted-foreground">Publicações por dia (referência para o copy)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24}
+                    className="h-8 text-xs"
+                    value={String((nd as { posts_per_day?: number })?.posts_per_day ?? 1)}
+                    onChange={(e) => onUpdateNodeData({ posts_per_day: Number(e.target.value) || 1 })}
+                  />
+                </div>
+              ) : null}
+
+              {nodeType === "post_whatsapp" ? (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Número destino (formato aceite pela API Meta, ex. E.164). Mensagem em caption ou{" "}
+                    <code className="rounded bg-muted px-0.5">{"{{previous}}"}</code>.
+                  </p>
+                  <Input
+                    placeholder="whatsapp_to — ex. +351912345678"
+                    className="h-8 font-mono text-[11px]"
+                    value={String((nd as { whatsapp_to?: string })?.whatsapp_to ?? "")}
+                    onChange={(e) => onUpdateNodeData({ whatsapp_to: e.target.value })}
+                  />
+                  <Textarea
+                    placeholder="Texto da mensagem"
+                    className="min-h-[64px] text-xs"
+                    value={String(nd?.caption ?? "")}
+                    onChange={(e) => onUpdateNodeData({ caption: e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={50}
+                    className="h-8 text-xs"
+                    value={String((nd as { posts_per_day?: number })?.posts_per_day ?? 3)}
+                    onChange={(e) => onUpdateNodeData({ posts_per_day: Number(e.target.value) || 1 })}
+                  />
+                </div>
+              ) : null}
+
+              {["post_linkedin", "post_x", "post_twitter"].includes(nodeType) ? (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Rascunho gerado no servidor (sem API de publicação). Preencha brief em caption ou prompt; opcional: link ou vídeo de referência.
+                  </p>
+                  <Textarea
+                    placeholder="Brief / notas (caption)"
+                    className="min-h-[56px] text-xs"
+                    value={String(nd?.caption ?? "")}
+                    onChange={(e) => onUpdateNodeData({ caption: e.target.value })}
+                  />
+                  <Textarea
+                    placeholder="Instruções extra para o modelo (prompt)"
+                    className="min-h-[56px] text-xs"
+                    value={String(nd?.prompt ?? "")}
+                    onChange={(e) => onUpdateNodeData({ prompt: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Link de referência (opcional)"
+                    className="h-8 text-xs"
+                    value={String((nd as { link_url?: string })?.link_url ?? "")}
+                    onChange={(e) => onUpdateNodeData({ link_url: e.target.value })}
+                  />
+                  <Input
+                    placeholder="URL de vídeo de referência (opcional)"
+                    className="h-8 text-xs"
+                    value={String((nd as { video_url?: string })?.video_url ?? "")}
+                    onChange={(e) => onUpdateNodeData({ video_url: e.target.value })}
+                  />
+                  <label className="text-[10px] text-muted-foreground">Meta: posts por dia</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={24}
+                    className="h-8 text-xs"
+                    value={String((nd as { posts_per_day?: number })?.posts_per_day ?? 1)}
+                    onChange={(e) => onUpdateNodeData({ posts_per_day: Number(e.target.value) || 1 })}
+                  />
+                </div>
+              ) : null}
+
+              {nodeType === "post_youtube" ? (
+                <div className="space-y-2 border-t border-border pt-2">
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Rascunho título/descrição/tags. Escolha Short ou vídeo longo; o cron do nó «Agendamento» define quando corre.
+                  </p>
+                  <Select
+                    value={String((nd as { youtube_format?: string })?.youtube_format ?? "short")}
+                    onValueChange={(v) => onUpdateNodeData({ youtube_format: v })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="short">Shorts</SelectItem>
+                      <SelectItem value="long">Vídeo longo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    placeholder="Brief do vídeo (caption) ou {{previous}}"
+                    className="min-h-[56px] text-xs"
+                    value={String(nd?.caption ?? "")}
+                    onChange={(e) => onUpdateNodeData({ caption: e.target.value })}
+                  />
+                  <Textarea
+                    placeholder="Instruções ao modelo (prompt)"
+                    className="min-h-[56px] text-xs"
+                    value={String(nd?.prompt ?? "")}
+                    onChange={(e) => onUpdateNodeData({ prompt: e.target.value })}
+                  />
+                  <Input
+                    placeholder="Link relacionado (opcional)"
+                    className="h-8 text-xs"
+                    value={String((nd as { link_url?: string })?.link_url ?? "")}
+                    onChange={(e) => onUpdateNodeData({ link_url: e.target.value })}
+                  />
+                  <Input
+                    placeholder="URL do vídeo no YouTube (opcional)"
+                    className="h-8 text-xs"
+                    value={String((nd as { video_url?: string })?.video_url ?? "")}
+                    onChange={(e) => onUpdateNodeData({ video_url: e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    className="h-8 text-xs"
+                    value={String((nd as { posts_per_day?: number })?.posts_per_day ?? 1)}
+                    onChange={(e) => onUpdateNodeData({ posts_per_day: Number(e.target.value) || 1 })}
                   />
                 </div>
               ) : null}
@@ -1224,167 +1381,18 @@ function WfInspectorPanel({
   );
 }
 
-// ── Formulário (criar / editar tarefa) ────────────────────────────────────────
-
-function TaskFormPanel({
-  form, setForm, taskLists, editingId, saving, error, onSave, onCancel,
-}: {
-  form: FormState;
-  setForm: React.Dispatch<React.SetStateAction<FormState>>;
-  taskLists: TaskListDTO[];
-  editingId: string | null;
-  saving: boolean;
-  error: string | null;
-  onSave: () => void;
-  onCancel: () => void;
-}) {
-  const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
-    setForm((p) => ({ ...p, [k]: v }));
-
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold">
-          {editingId ? "Editar automação" : "Nova automação agendada"}
-        </h3>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onCancel}>
-          <X className="size-3.5" />
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {error ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium">Nome *</label>
-          <Input
-            value={form.name} onChange={(e) => set("name", e.target.value)}
-            placeholder="Ex: Resumo diário às 20h" className="h-8 text-sm"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium">Tipo</label>
-          <Select value={form.task_type} onValueChange={(v) => set("task_type", v as TaskType)}>
-            <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="agent_prompt">Prompt ao agente</SelectItem>
-              <SelectItem value="run_task_list">Executar lista de tarefas</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {form.task_type === "agent_prompt" && (
-          <>
-            <div className="space-y-1">
-              <label className="text-xs font-medium">Prompt *</label>
-              <Textarea
-                value={form.prompt} onChange={(e) => set("prompt", e.target.value)}
-                placeholder="Ex: Resume as minhas tarefas de hoje e envia por email."
-                rows={3} className="text-sm resize-none"
-              />
-            </div>
-            <Toggle id="send-email" checked={form.send_email} onChange={(v) => set("send_email", v)} label="Enviar resultado por email" />
-            {form.send_email && (
-              <div className="space-y-1">
-                <label className="text-xs font-medium">Assunto do email</label>
-                <Input
-                  value={form.email_subject} onChange={(e) => set("email_subject", e.target.value)}
-                  placeholder="Ex: Resumo do dia — Open Polvo" className="h-8 text-sm"
-                />
-              </div>
-            )}
-            <Toggle id="inc-tasks" checked={form.include_tasks} onChange={(v) => set("include_tasks", v)} label="Incluir contexto de tarefas" />
-            <Toggle id="inc-finance" checked={form.include_finance} onChange={(v) => set("include_finance", v)} label="Incluir contexto de finanças" />
-          </>
-        )}
-
-        {form.task_type === "run_task_list" && (
-          <div className="space-y-1">
-            <label className="text-xs font-medium">Lista de tarefas *</label>
-            <Select
-              value={form.task_list_id}
-              onValueChange={(v) => {
-                const id = v ?? "";
-                const tl = taskLists.find((t) => t.id === id);
-                set("task_list_id", id);
-                if (tl) set("task_list_name", tl.title);
-              }}
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue placeholder="Seleccionar lista…" />
-              </SelectTrigger>
-              <SelectContent>
-                {taskLists.map((tl) => (
-                  <SelectItem key={tl.id} value={tl.id}>{tl.title}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium">Expressão CRON *</label>
-          <div className="flex gap-2">
-            <Input
-              value={form.cron_expr} onChange={(e) => set("cron_expr", e.target.value)}
-              placeholder="0 20 * * *" className="h-8 text-sm font-mono flex-1"
-            />
-            <Select onValueChange={(v) => set("cron_expr", String(v ?? ""))}>
-              <SelectTrigger className="h-8 text-sm w-36">
-                <SelectValue placeholder="Preset…" />
-              </SelectTrigger>
-              <SelectContent>
-                {CRON_PRESETS.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {form.cron_expr && (
-            <p className="text-[10px] text-muted-foreground">↳ {cronToHuman(form.cron_expr)}</p>
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium">Fuso horário</label>
-          <Input
-            value={form.timezone} onChange={(e) => set("timezone", e.target.value)}
-            placeholder="America/Sao_Paulo" className="h-8 text-sm"
-          />
-        </div>
-
-        <Toggle id="task-active" checked={form.active} onChange={(v) => set("active", v)} label="Activar ao guardar" />
-      </div>
-
-      <div className="flex shrink-0 gap-2 border-t border-border px-4 py-3">
-        <Button size="sm" className="flex-1" onClick={onSave} disabled={saving}>
-          {saving ? <><Loader2 className="size-3 animate-spin" /> A guardar…</> : (editingId ? "Guardar" : "Criar automação")}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>Cancelar</Button>
-      </div>
-    </div>
-  );
-}
-
 // ── Página principal ───────────────────────────────────────────────────────────
 
 export function AutomacaoPage() {
   const { token } = useAuth();
 
   // ── Dados ─────────────────────────────────────────────────────────────────────
-  const [tasks, setTasks] = useState<ScheduledTaskDTO[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowDTO[]>([]);
-  const [taskLists, setTaskLists] = useState<TaskListDTO[]>([]);
   const [loadingAll, setLoadingAll] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
   // ── Selecção ─────────────────────────────────────────────────────────────────
-  const [selected, setSelected] = useState<Selection>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
   // ── Execução ─────────────────────────────────────────────────────────────────
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -1393,12 +1401,6 @@ export function AutomacaoPage() {
   const [wfRuns, setWfRuns] = useState<WorkflowRunDTO[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(false);
 
-  // ── Formulário de tarefa (criar/editar) ───────────────────────────────────────
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
 
   // ── Painel de histórico ────────────────────────────────────────────────────────
   const [historyExpanded, setHistoryExpanded] = useState(true);
@@ -1439,15 +1441,9 @@ export function AutomacaoPage() {
     setLoadingAll(true);
     setGlobalError(null);
     try {
-      const [ts, wfs, tls] = await Promise.all([
-        listScheduledTasks(token),
-        wf.fetchWorkflows(token),
-        fetchTaskLists(token),
-      ]);
+      const wfs = await wf.fetchWorkflows(token);
       if (!mountedRef.current) return;
-      setTasks(ts);
       setWorkflows(wfs);
-      setTaskLists(tls);
     } catch (e) {
       if (mountedRef.current) setGlobalError(String(e));
     } finally {
@@ -1459,11 +1455,11 @@ export function AutomacaoPage() {
 
   // Carregar runs quando workflow seleccionado (em modo exec)
   useEffect(() => {
-    if (!token || !selected || selected.kind !== "workflow") {
+    if (!token || !selected) {
       setWfRuns([]);
       return;
     }
-    const id = selected.id;
+    const id = selected;
     setLoadingRuns(true);
     wf.fetchWorkflowRuns(token, id)
       .then((runs) => { if (mountedRef.current) setWfRuns(runs); })
@@ -1475,17 +1471,11 @@ export function AutomacaoPage() {
 
   const handleRunNow = useCallback(async () => {
     if (!token || !selected || runningId) return;
-    const id = selected.id;
+    const id = selected;
     setRunningId(id);
     try {
-      if (selected.kind === "task") {
-        await runScheduledTaskNow(token, id);
-        const updated = await listScheduledTasks(token);
-        if (mountedRef.current) setTasks(updated);
-      } else {
-        const run = await wf.runWorkflow(token, id);
-        if (mountedRef.current) setWfRuns((prev) => [run, ...prev.slice(0, 4)]);
-      }
+      const run = await wf.runWorkflow(token, id);
+      if (mountedRef.current) setWfRuns((prev) => [run, ...prev.slice(0, 4)]);
     } catch (e) {
       if (mountedRef.current) setGlobalError(String(e));
     } finally {
@@ -1493,19 +1483,6 @@ export function AutomacaoPage() {
     }
   }, [token, selected, runningId]);
 
-  // ── Toggle activo (tasks) ─────────────────────────────────────────────────────
-
-  const handleToggleActive = useCallback(async () => {
-    if (!token || !selected || selected.kind !== "task") return;
-    const task = tasks.find((t) => t.id === selected.id);
-    if (!task) return;
-    try {
-      await updateScheduledTask(token, selected.id, { active: !task.active });
-      setTasks((prev) => prev.map((t) => t.id === selected.id ? { ...t, active: !task.active } : t));
-    } catch (e) {
-      setGlobalError(String(e));
-    }
-  }, [token, selected, tasks]);
 
   // ── Apagar ────────────────────────────────────────────────────────────────────
 
@@ -1513,71 +1490,15 @@ export function AutomacaoPage() {
     if (!token || !selected) return;
     if (!confirm("Apagar esta automação?")) return;
     try {
-      if (selected.kind === "task") {
-        await deleteScheduledTask(token, selected.id);
-        setTasks((prev) => prev.filter((t) => t.id !== selected.id));
-      } else {
-        await wf.deleteWorkflow(token, selected.id);
-        setWorkflows((prev) => prev.filter((w) => w.id !== selected.id));
-        setWfMode("exec");
-      }
+      await wf.deleteWorkflow(token, selected);
+      setWorkflows((prev) => prev.filter((w) => w.id !== selected));
+      setWfMode("exec");
       setSelected(null);
     } catch (e) {
       setGlobalError(String(e));
     }
   }, [token, selected]);
 
-  // ── Formulário de task ────────────────────────────────────────────────────────
-
-  const openNew = () => {
-    setEditingId(null);
-    setForm(DEFAULT_FORM);
-    setFormError(null);
-    setShowForm(true);
-    setSelected(null);
-    setWfMode("exec");
-  };
-
-  const openEdit = (task: ScheduledTaskDTO) => {
-    setEditingId(task.id);
-    setForm(taskToForm(task));
-    setFormError(null);
-    setShowForm(true);
-  };
-
-  const handleSave = async () => {
-    if (!token) return;
-    if (!form.name.trim() || !form.cron_expr.trim()) {
-      setFormError("Nome e CRON são obrigatórios.");
-      return;
-    }
-    if (form.task_type === "agent_prompt" && !form.prompt.trim()) {
-      setFormError("O prompt é obrigatório.");
-      return;
-    }
-    if (form.task_type === "run_task_list" && !form.task_list_id) {
-      setFormError("Seleccione uma lista de tarefas.");
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const input = formToInput(form);
-      if (editingId) {
-        const updated = await updateScheduledTask(token, editingId, input);
-        setTasks((prev) => prev.map((t) => t.id === editingId ? updated : t));
-      } else {
-        const created = await createScheduledTask(token, input);
-        setTasks((prev) => [created, ...prev]);
-        setSelected({ kind: "task", id: created.id });
-      }
-      setShowForm(false);
-    } catch (e) {
-      setFormError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   // ── Editor de workflow ────────────────────────────────────────────────────────
 
@@ -1605,7 +1526,6 @@ export function AutomacaoPage() {
     setGenPrompt("");
     setRecording("");
     setWfMode("edit");
-    setShowForm(false);
     setSelected(null);
   }, [setWfNodes, setWfEdges]);
 
@@ -1622,16 +1542,33 @@ export function AutomacaoPage() {
       setWfEditorId(id);
       setWfSelNodeId(null);
       setWfMode("edit");
-      setShowForm(false);
     } catch (e) {
       setGlobalError(String(e));
     }
   }, [token, setWfNodes, setWfEdges]);
 
+  const applyWorkflowTemplate = useCallback(
+    (key: WorkflowTemplateKey) => {
+      const g = workflowTemplateGraph(key);
+      const { nodes: ns, edges: es } = graphToFlow(g);
+      setWfNodes(ns);
+      setWfEdges(es);
+      setWfTitle(TEMPLATE_TITLES[key]);
+      setWfEditorId(null);
+      setWfSelNodeId(null);
+      setWfError(null);
+      setGenPrompt("");
+      setRecording("");
+      setWfMode("edit");
+      setSelected(null);
+    },
+    [setWfNodes, setWfEdges],
+  );
+
   /** Pausa ou retoma o agendamento (primeiro nó schedule no grafo). */
   const toggleWorkflowSchedule = useCallback(async () => {
-    if (!token || !selected || selected.kind !== "workflow") return;
-    const wid = selected.id;
+    if (!token || !selected) return;
+    const wid = selected;
     setWfScheduleToggleBusy(true);
     setGlobalError(null);
     try {
@@ -1677,7 +1614,7 @@ export function AutomacaoPage() {
         const created = await wf.createWorkflow(token, { title: wfTitle, graph });
         setWorkflows((prev) => [created, ...prev]);
         setWfEditorId(created.id);
-        setSelected({ kind: "workflow", id: created.id });
+        setSelected(created.id);
       }
     } catch (e) {
       setWfError(e instanceof Error ? e.message : "Erro ao guardar");
@@ -1789,9 +1726,8 @@ export function AutomacaoPage() {
 
   // ── Dados derivados ───────────────────────────────────────────────────────────
 
-  const selectedTask = selected?.kind === "task" ? tasks.find((t) => t.id === selected.id) ?? null : null;
-  const selectedWorkflow = selected?.kind === "workflow" ? workflows.find((w) => w.id === selected.id) ?? null : null;
-  const isRunning = runningId === selected?.id;
+  const selectedWorkflow = selected ? workflows.find((w) => w.id === selected) ?? null : null;
+  const isRunning = runningId !== null && runningId === selected;
   const lastWfRun = wfRuns[0] ?? null;
   const scheduledWorkflows = workflows.filter((w) => w.schedule_cron && w.schedule_enabled);
 
@@ -1809,17 +1745,34 @@ export function AutomacaoPage() {
         <Zap className="size-4 text-primary" />
         <h1 className="text-sm font-semibold">Automação</h1>
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{tasks.filter((t) => t.active).length + scheduledWorkflows.length} activas</span>
+          <span>{scheduledWorkflows.length} com agendamento activo</span>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
           <Button variant="ghost" size="icon" className="size-7" onClick={() => void loadAll()} title="Actualizar">
             <RefreshCw className={cn("size-3.5", loadingAll && "animate-spin")} />
           </Button>
-          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={openNew}>
-            <Plus className="size-3" />
-            Nova agendada
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              nativeButton
+              render={
+                <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]">
+                  <Plus className="size-3" />
+                  Modelos
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" className="max-h-[min(70vh,360px)] w-[220px] overflow-y-auto">
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("email")}>E-mail agendado</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("facebook")}>Facebook</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("instagram")}>Instagram</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("linkedin")}>LinkedIn (rascunho)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("whatsapp")}>WhatsApp</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("x")}>X (Twitter)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("youtube_short")}>YouTube Shorts</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyWorkflowTemplate("youtube_long")}>YouTube vídeo longo</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={newWfDraft}>
             <Workflow className="size-3" />
             Novo workflow
@@ -1846,34 +1799,6 @@ export function AutomacaoPage() {
               </div>
             ) : (
               <>
-                {/* Tarefas agendadas */}
-                {tasks.length > 0 ? (
-                  <div className="mb-3">
-                    <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                      Agendadas ({tasks.length})
-                    </p>
-                    <div className="space-y-0.5">
-                      {tasks.map((t) => (
-                        <TaskListItem
-                          key={t.id}
-                          task={t}
-                          isSelected={selected?.kind === "task" && selected.id === t.id}
-                          isRunning={runningId === t.id}
-                          onSelect={() => {
-                            setSelected({ kind: "task", id: t.id });
-                            setShowForm(false);
-                            setWfMode("exec");
-                          }}
-                          onDelete={() => {
-                            setSelected({ kind: "task", id: t.id });
-                            void handleDelete();
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 {/* Workflows */}
                 {workflows.length > 0 ? (
                   <div className="mb-3">
@@ -1885,16 +1810,15 @@ export function AutomacaoPage() {
                         <WorkflowListItem
                           key={wfItem.id}
                           workflow={wfItem}
-                          isSelected={selected?.kind === "workflow" && selected.id === wfItem.id}
+                          isSelected={selected === wfItem.id}
                           isRunning={runningId === wfItem.id}
-                          lastRun={selected?.kind === "workflow" && selected.id === wfItem.id ? lastWfRun : null}
+                          lastRun={selected === wfItem.id ? lastWfRun : null}
                           onSelect={() => {
-                            setSelected({ kind: "workflow", id: wfItem.id });
-                            setShowForm(false);
+                            setSelected(wfItem.id);
                             setWfMode("exec");
                           }}
                           onDelete={() => {
-                            setSelected({ kind: "workflow", id: wfItem.id });
+                            setSelected(wfItem.id);
                             void handleDelete();
                           }}
                         />
@@ -1903,13 +1827,12 @@ export function AutomacaoPage() {
                   </div>
                 ) : null}
 
-                {tasks.length === 0 && workflows.length === 0 ? (
+                {workflows.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                    <Clock className="size-8 text-muted-foreground/30" />
-                    <p className="text-xs text-muted-foreground">Sem automações</p>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={openNew}>
-                      <Plus className="size-3 mr-1" />
-                      Criar
+                    <Workflow className="size-8 text-muted-foreground/30" />
+                    <p className="text-xs text-muted-foreground">Sem workflows</p>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => applyWorkflowTemplate("email")}>
+                      Modelo e-mail
                     </Button>
                   </div>
                 ) : null}
@@ -1925,9 +1848,8 @@ export function AutomacaoPage() {
           {wfMode === "edit" ? (
             <>
               {/* Cabeçalho do editor (quando editando workflow existente) */}
-              {selected?.kind === "workflow" && selectedWorkflow ? (
+              {selected && selectedWorkflow ? (
                 <DetailHeader
-                  kind="workflow"
                   workflow={selectedWorkflow}
                   running={false}
                   wfMode="edit"
@@ -1999,55 +1921,38 @@ export function AutomacaoPage() {
               </div>
             </>
           ) : /* ── Modo execução ─────────────────────────────────────────────── */
-          !selected && !showForm ? (
+          !selected ? (
             /* Estado vazio */
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
               <div className="flex size-16 items-center justify-center rounded-2xl bg-muted/40">
                 <Zap className="size-8 text-muted-foreground/40" />
               </div>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Seleccione uma automação</p>
+                <p className="text-sm font-medium text-muted-foreground">Seleccione um workflow</p>
                 <p className="mt-1 text-xs text-muted-foreground/60 max-w-xs">
-                  Clique numa automação para ver o grafo de execução e o histórico de runs.
+                  Clique num workflow na lista para ver o grafo de execução e o histórico de runs.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={openNew} className="gap-1.5">
-                  <Plus className="size-3" />
-                  Nova agendada
-                </Button>
+              <div className="flex flex-wrap justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={newWfDraft} className="gap-1.5">
                   <Workflow className="size-3" />
                   Novo workflow
                 </Button>
               </div>
             </div>
-          ) : selected && !showForm ? (
+          ) : selected && selectedWorkflow ? (
             <>
               {/* Cabeçalho do item seleccionado */}
-              {selected.kind === "task" && selectedTask ? (
-                <DetailHeader
-                  kind="task"
-                  task={selectedTask}
-                  running={isRunning}
-                  onRunNow={() => void handleRunNow()}
-                  onEdit={() => openEdit(selectedTask)}
-                  onToggleActive={() => void handleToggleActive()}
-                  onDelete={() => void handleDelete()}
-                />
-              ) : selected.kind === "workflow" && selectedWorkflow ? (
-                <DetailHeader
-                  kind="workflow"
-                  workflow={selectedWorkflow}
-                  running={isRunning}
-                  wfMode="exec"
-                  onRunNow={() => void handleRunNow()}
-                  onEdit={() => void loadWfForEdit(selectedWorkflow.id)}
-                  onDelete={() => void handleDelete()}
-                  onToggleWorkflowSchedule={() => void toggleWorkflowSchedule()}
-                  workflowScheduleToggleBusy={wfScheduleToggleBusy}
-                />
-              ) : null}
+              <DetailHeader
+                workflow={selectedWorkflow}
+                running={isRunning}
+                wfMode="exec"
+                onRunNow={() => void handleRunNow()}
+                onEdit={() => void loadWfForEdit(selectedWorkflow.id)}
+                onDelete={() => void handleDelete()}
+                onToggleWorkflowSchedule={() => void toggleWorkflowSchedule()}
+                workflowScheduleToggleBusy={wfScheduleToggleBusy}
+              />
 
               {/* Grafo visual + histórico */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -2056,15 +1961,11 @@ export function AutomacaoPage() {
                   className="relative min-h-0 flex-1 overflow-hidden border-b border-border bg-muted/5"
                   style={{ minHeight: "180px" }}
                 >
-                  {selected.kind === "task" && selectedTask ? (
-                    <AutomacaoLinearFlow task={selectedTask} running={isRunning} />
-                  ) : selected.kind === "workflow" && selectedWorkflow ? (
-                    <AutomacaoWorkflowFlow
-                      workflow={selectedWorkflow}
-                      lastRun={lastWfRun}
-                      running={isRunning}
-                    />
-                  ) : null}
+                  <AutomacaoWorkflowFlow
+                    workflow={selectedWorkflow}
+                    lastRun={lastWfRun}
+                    running={isRunning}
+                  />
 
                   {isRunning ? (
                     <div className="absolute inset-x-0 top-0 flex items-center justify-center gap-2 bg-blue-500/10 py-1.5 text-[11px] text-blue-700 dark:text-blue-300 backdrop-blur-sm">
@@ -2097,11 +1998,7 @@ export function AutomacaoPage() {
                   </button>
                   {historyExpanded ? (
                     <div className="h-[calc(100%-36px)] overflow-y-auto px-3 pb-3">
-                      {selected.kind === "task" && selectedTask ? (
-                        <AutomacaoRunHistory kind="task" task={selectedTask} running={isRunning} />
-                      ) : selected.kind === "workflow" ? (
-                        <AutomacaoRunHistory kind="workflow" wfRuns={wfRuns} running={isRunning} loadingRuns={loadingRuns} />
-                      ) : null}
+                      <AutomacaoRunHistory wfRuns={wfRuns} running={isRunning} loadingRuns={loadingRuns} />
                     </div>
                   ) : null}
                 </div>
@@ -2138,19 +2035,6 @@ export function AutomacaoPage() {
             onSetNodeType={setWfNodeType}
             onClose={() => setWfMode("exec")}
           />
-        ) : showForm ? (
-          <div className="w-[320px] shrink-0 overflow-hidden border-l border-border">
-            <TaskFormPanel
-              form={form}
-              setForm={setForm}
-              taskLists={taskLists}
-              editingId={editingId}
-              saving={saving}
-              error={formError}
-              onSave={() => void handleSave()}
-              onCancel={() => setShowForm(false)}
-            />
-          </div>
         ) : null}
       </div>
     </div>

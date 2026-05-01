@@ -16,6 +16,7 @@ import (
 	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
 	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
+	metaapp "github.com/open-polvo/open-polvo/internal/meta/application"
 	wfdomain "github.com/open-polvo/open-polvo/internal/workflows/domain"
 	"github.com/open-polvo/open-polvo/internal/workflows/engine"
 	"github.com/open-polvo/open-polvo/internal/workflows/ports"
@@ -33,6 +34,8 @@ type RunWorkflow struct {
 	RunnerCfg    engine.RunnerConfig
 	SendEmail    *mailapp.SendUserEmail
 	GetContact   *contactsapp.GetContact
+	PostMeta     *metaapp.PostMetaContent
+	SendWhatsApp *metaapp.SendMetaMessage
 }
 
 var runSem = make(chan struct{}, 3)
@@ -139,7 +142,39 @@ func (uc *RunWorkflow) Execute(ctx context.Context, userID, workflowID uuid.UUID
 	}
 
 	mailDeps := MailDepsForWorkflowUser(userID, uc.SendEmail, uc.GetContact)
-	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn, mailDeps)
+	var social *engine.SocialDeps
+	if uc.PostMeta != nil || uc.SendWhatsApp != nil {
+		social = &engine.SocialDeps{}
+		if uc.PostMeta != nil {
+			pm := uc.PostMeta
+			social.PostMeta = func(c context.Context, platform string, message string, imageURL string) (string, error) {
+				r, err := pm.Execute(c, userID, metaapp.PostMetaContentInput{
+					Platform: platform,
+					Message:  message,
+					ImageURL: imageURL,
+				})
+				if err != nil {
+					return "", err
+				}
+				return r.PostID, nil
+			}
+		}
+		if uc.SendWhatsApp != nil {
+			sw := uc.SendWhatsApp
+			social.SendWA = func(c context.Context, to string, text string) (string, error) {
+				r, err := sw.Execute(c, userID, metaapp.SendMetaMessageInput{
+					Platform: "whatsapp",
+					To:       to,
+					Text:     text,
+				})
+				if err != nil {
+					return "", err
+				}
+				return r.MessageID, nil
+			}
+		}
+	}
+	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn, mailDeps, social)
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.StepLog = logs
