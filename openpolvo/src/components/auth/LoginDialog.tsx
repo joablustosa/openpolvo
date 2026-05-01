@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthContext";
-import { apiBaseUrl, apiUrl } from "@/lib/api";
+import { apiBaseUrlForDisplay, apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -102,7 +102,7 @@ export function LoginDialog({ open, onOpenChange }: Props) {
       setRememberDesktop(false);
     } catch {
       setError(
-        `Não foi possível contactar o servidor (API: ${apiBaseUrl()}). Confirme que o backend está a correr ou ajuste VITE_API_BASE_URL.`,
+        `Não foi possível contactar o servidor (API: ${apiBaseUrlForDisplay()}). Confirme que o backend Go está a correr ou ajuste VITE_API_BASE_URL.`,
       );
     } finally {
       setLoading(false);
@@ -126,7 +126,7 @@ export function LoginDialog({ open, onOpenChange }: Props) {
         </DialogHeader>
         <form className="space-y-4" onSubmit={onSubmit}>
           {error ? (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p className="whitespace-pre-wrap break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </p>
           ) : null}

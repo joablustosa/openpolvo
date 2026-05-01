@@ -190,6 +190,7 @@ func NewRouter(d Deps) http.Handler {
 					r.Delete("/categories/{id}", d.Finance.DeleteCategory)
 					r.Post("/transactions", d.Finance.PostTransaction)
 					r.Get("/transactions", d.Finance.GetTransactions)
+					r.Patch("/transactions/{id}", d.Finance.PatchTransaction)
 					r.Delete("/transactions/{id}", d.Finance.DeleteTransaction)
 					r.Post("/subscriptions", d.Finance.PostSubscription)
 					r.Get("/subscriptions", d.Finance.GetSubscriptions)

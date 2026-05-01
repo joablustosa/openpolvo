@@ -51,17 +51,11 @@ export function AgentAppMenuToolbar({
   const { requestNewChat } = useHomeChatControls();
   const { clearWorkspace } = useConversationWorkspace();
   const { openPlugin } = useAppLaunch();
-  const { builderData } = useWorkspace();
+  useWorkspace();
 
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const canOpenBuilderPanel =
-    Array.isArray(builderData?.files) && builderData.files.length > 0;
-
-  const goToBuilderPanel = () => {
-    if (!canOpenBuilderPanel) return;
-    navigate("/");
-  };
+  const goToPolvoCode = () => openPlugin("polvo_code");
 
   const newChat = () => {
     if (token) {
@@ -102,6 +96,9 @@ export function AgentAppMenuToolbar({
                 >
                   Definições do agente
                   <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openPlugin("polvo_code")}>
+                  Polvo Code (IDE)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
@@ -144,17 +141,9 @@ export function AgentAppMenuToolbar({
                 <DropdownMenuItem onClick={onToggleSidebar}>
                   {sidebarCollapsed ? "Mostrar barra lateral" : "Ocultar barra lateral"}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!canOpenBuilderPanel}
-                  onClick={goToBuilderPanel}
-                  title={
-                    canOpenBuilderPanel
-                      ? "Mostra o painel do projecto (Vite ao vivo) na área principal"
-                      : "Gere uma aplicação primeiro; o painel abre automaticamente ao concluir"
-                  }
-                >
-                  Painel do projecto
-                </DropdownMenuItem>
+                    <DropdownMenuItem onClick={goToPolvoCode}>
+                      Polvo Code (IDE)
+                    </DropdownMenuItem>
                 <DropdownMenuItem disabled>Tema</DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>

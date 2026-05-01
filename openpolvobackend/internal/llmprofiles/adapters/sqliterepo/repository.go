@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,77 @@ type Repository struct {
 
 var _ ports.Repository = (*Repository)(nil)
 
+func pragmaTableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid, notnull, pk int
+			name, typ        string
+			dflt             sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		out[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	return out, rows.Err()
+}
+
+// migrateLLMProfilesColumns alinha tabelas antigas (CREATE IF NOT EXISTS não altera esquema existente).
+func (r *Repository) migrateLLMProfilesColumns(ctx context.Context) error {
+	have, err := pragmaTableColumns(ctx, r.DB, "laele_llm_profiles")
+	if err != nil {
+		return err
+	}
+	if len(have) == 0 {
+		return nil
+	}
+	add := []struct{ name, ddl string }{
+		{"display_name", `TEXT NOT NULL DEFAULT ''`},
+		{"provider", `TEXT NOT NULL DEFAULT ''`},
+		{"model_id", `TEXT NOT NULL DEFAULT ''`},
+		{"api_key_enc", `BLOB NOT NULL DEFAULT X''`},
+		{"sort_order", `INTEGER NOT NULL DEFAULT 0`},
+		{"created_at", `TEXT NOT NULL DEFAULT ''`},
+		{"updated_at", `TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, col := range add {
+		if have[col.name] {
+			continue
+		}
+		q := fmt.Sprintf(`ALTER TABLE laele_llm_profiles ADD COLUMN %s %s`, col.name, col.ddl)
+		if _, err := r.DB.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("llm_profiles add column %s: %w", col.name, err)
+		}
+		have[col.name] = true
+	}
+	return nil
+}
+
+func (r *Repository) migrateLLMAgentPrefsColumns(ctx context.Context) error {
+	have, err := pragmaTableColumns(ctx, r.DB, "laele_llm_agent_prefs")
+	if err != nil {
+		return err
+	}
+	if len(have) == 0 {
+		return nil
+	}
+	if have["default_profile_id"] {
+		return nil
+	}
+	if _, err := r.DB.ExecContext(ctx,
+		`ALTER TABLE laele_llm_agent_prefs ADD COLUMN default_profile_id TEXT NULL`,
+	); err != nil {
+		return fmt.Errorf("laele_llm_agent_prefs add default_profile_id: %w", err)
+	}
+	return nil
+}
+
 // ensureLLMSchema cria tabelas de perfis/prefs se ainda não existirem (BD antiga ou migração 019 por aplicar).
 func (r *Repository) ensureLLMSchema(ctx context.Context) error {
 	r.llmSchemaMu.Lock()
@@ -48,31 +120,44 @@ func (r *Repository) ensureLLMSchema(ctx context.Context) error {
 	if r.llmSchemaOK {
 		return nil
 	}
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS laele_llm_profiles (
+	if _, err := r.DB.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS laele_llm_profiles (
 			id TEXT NOT NULL PRIMARY KEY,
 			display_name TEXT NOT NULL,
-			provider TEXT NOT NULL CHECK (provider IN ('openai','google')),
+			provider TEXT NOT NULL,
 			model_id TEXT NOT NULL,
 			api_key_enc BLOB NOT NULL,
 			sort_order INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_laele_llm_profiles_sort ON laele_llm_profiles (sort_order, created_at)`,
-		`CREATE TABLE IF NOT EXISTS laele_llm_agent_prefs (
-			id TEXT NOT NULL PRIMARY KEY CHECK (id = 'singleton'),
-			agent_mode TEXT NOT NULL DEFAULT 'auto' CHECK (agent_mode IN ('auto','profile')),
-			default_profile_id TEXT NULL,
-			updated_at TEXT NOT NULL,
-			FOREIGN KEY (default_profile_id) REFERENCES laele_llm_profiles(id) ON DELETE SET NULL
-		)`,
-		`INSERT OR IGNORE INTO laele_llm_agent_prefs (id, agent_mode, updated_at) VALUES ('singleton', 'auto', datetime('now'))`,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`); err != nil {
+		return err
 	}
-	for _, q := range stmts {
-		if _, err := r.DB.ExecContext(ctx, q); err != nil {
-			return err
-		}
+	if err := r.migrateLLMProfilesColumns(ctx); err != nil {
+		return err
+	}
+	if _, err := r.DB.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_laele_llm_profiles_sort ON laele_llm_profiles (sort_order, created_at)`,
+	); err != nil {
+		return err
+	}
+	if _, err := r.DB.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS laele_llm_agent_prefs (
+			id TEXT NOT NULL PRIMARY KEY,
+			agent_mode TEXT NOT NULL DEFAULT 'auto',
+			default_profile_id TEXT NULL,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (default_profile_id) REFERENCES laele_llm_profiles(id) ON DELETE SET NULL
+		)`); err != nil {
+		return err
+	}
+	if err := r.migrateLLMAgentPrefsColumns(ctx); err != nil {
+		return err
+	}
+	if _, err := r.DB.ExecContext(ctx,
+		`INSERT OR IGNORE INTO laele_llm_agent_prefs (id, agent_mode, updated_at) VALUES ('singleton', 'auto', datetime('now'))`,
+	); err != nil {
+		return err
 	}
 	r.llmSchemaOK = true
 	return nil
@@ -269,7 +354,7 @@ func (r *Repository) SetAgentPrefs(ctx context.Context, mode string, defaultProf
 	if defaultProfileID != nil {
 		def = defaultProfileID.String()
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO laele_llm_agent_prefs (id, agent_mode, default_profile_id, updated_at)
 		VALUES ('singleton', ?, ?, ?)
@@ -277,7 +362,7 @@ func (r *Repository) SetAgentPrefs(ctx context.Context, mode string, defaultProf
 			agent_mode = excluded.agent_mode,
 			default_profile_id = excluded.default_profile_id,
 			updated_at = excluded.updated_at
-	`, mode, def, now)
+	`, mode, def, now.UTC().Format(time.RFC3339Nano))
 	return err
 }
 

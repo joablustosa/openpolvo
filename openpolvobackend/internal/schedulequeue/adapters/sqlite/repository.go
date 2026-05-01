@@ -19,30 +19,6 @@ type Repository struct {
 
 var _ ports.Repository = (*Repository)(nil)
 
-// formatQueueTime grava instantes em texto de largura fixa (UTC) para comparações
-// lexicográficas correctas em SQLite (TEXT). Evita RFC3339Nano com fracções de
-// comprimento variável, que quebram `scheduled_for <= ?`.
-func formatQueueTime(t time.Time) string {
-	return t.UTC().Format("2006-01-02 15:04:05")
-}
-
-func parseQueueTime(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, errors.New("empty time")
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC(), nil
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC(), nil
-	}
-	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
-		return t.UTC(), nil
-	}
-	return time.Time{}, errors.New("unrecognized time: " + s)
-}
-
 func (r Repository) Enqueue(ctx context.Context, it domain.Item) (bool, error) {
 	if r.DB == nil {
 		return false, errors.New("db não configurada")
@@ -65,15 +41,16 @@ func (r Repository) Enqueue(ctx context.Context, it domain.Item) (bool, error) {
 		VALUES (?, ?, ?, ?, ?, 'queued', 0, NULL, '', ?, ?)
 		ON CONFLICT(kind, entity_id, scheduled_for) DO NOTHING
 	`, it.ID.String(), string(it.Kind), it.EntityID.String(), it.UserID.String(),
-		formatQueueTime(it.ScheduledFor.UTC()),
-		formatQueueTime(it.CreatedAt.UTC()),
-		formatQueueTime(it.UpdatedAt.UTC()),
+		it.ScheduledFor.UTC(),
+		it.CreatedAt.UTC(),
+		it.UpdatedAt.UTC(),
 	)
 	if err != nil {
 		return false, err
 	}
 	aff, _ := res.RowsAffected()
-	return aff > 0, nil
+	// MySQL costuma retornar 1 (insert) ou 2 (update por duplicate key). Queremos "true" apenas quando inseriu.
+	return aff == 1, nil
 }
 
 func (r Repository) ClaimNext(ctx context.Context, now time.Time, lockTTL time.Duration) (*domain.Item, error) {
@@ -93,22 +70,19 @@ func (r Repository) ClaimNext(ctx context.Context, now time.Time, lockTTL time.D
 	defer func() { _ = tx.Rollback() }()
 
 	var (
-		idS, kindS, entS, userS, schedS string
-		attempts                         int
+		idS, kindS, entS, userS string
+		scheduledFor           time.Time
+		attempts               int
 	)
-	// julianday() interpreta ISO8601 e "YYYY-MM-DD HH:MM:SS", evitando comparação TEXT
-	// incorrecta entre formatos antigos (RFC3339Nano) e novos.
-	nowS := formatQueueTime(now)
 	err = tx.QueryRowContext(ctx, `
 		SELECT id, kind, entity_id, user_id, scheduled_for, attempts
 		FROM laele_schedule_queue
 		WHERE status='queued'
-		  AND julianday(scheduled_for) <= julianday(?)
-		  AND (locked_until IS NULL OR trim(locked_until) = ''
-		       OR julianday(locked_until) <= julianday(?))
-		ORDER BY julianday(scheduled_for) ASC
+		  AND scheduled_for <= ?
+		  AND (locked_until IS NULL OR locked_until <= ?)
+		ORDER BY scheduled_for ASC
 		LIMIT 1
-	`, nowS, nowS).Scan(&idS, &kindS, &entS, &userS, &schedS, &attempts)
+	`, now, now).Scan(&idS, &kindS, &entS, &userS, &scheduledFor, &attempts)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -120,7 +94,7 @@ func (r Repository) ClaimNext(ctx context.Context, now time.Time, lockTTL time.D
 		UPDATE laele_schedule_queue
 		SET status='running', attempts=attempts+1, locked_until=?, updated_at=?
 		WHERE id=? AND status='queued'
-	`, formatQueueTime(lockUntil), formatQueueTime(now), idS)
+	`, lockUntil, now, idS)
 	if err != nil {
 		return nil, err
 	}
@@ -137,10 +111,6 @@ func (r Repository) ClaimNext(ctx context.Context, now time.Time, lockTTL time.D
 	id, _ := uuid.Parse(idS)
 	ent, _ := uuid.Parse(entS)
 	user, _ := uuid.Parse(userS)
-	scheduledFor, perr := parseQueueTime(schedS)
-	if perr != nil {
-		return nil, perr
-	}
 	it := &domain.Item{
 		ID:           id,
 		Kind:         domain.Kind(strings.TrimSpace(kindS)),
@@ -161,7 +131,7 @@ func (r Repository) MarkDone(ctx context.Context, id uuid.UUID, finishedAt time.
 		UPDATE laele_schedule_queue
 		SET status='done', locked_until=NULL, updated_at=?
 		WHERE id=?
-	`, formatQueueTime(finishedAt.UTC()), id.String())
+	`, finishedAt.UTC(), id.String())
 	return err
 }
 
@@ -173,7 +143,7 @@ func (r Repository) MarkError(ctx context.Context, id uuid.UUID, errMsg string, 
 		UPDATE laele_schedule_queue
 		SET status='error', last_error=?, locked_until=NULL, updated_at=?
 		WHERE id=?
-	`, truncate(errMsg, 500), formatQueueTime(finishedAt.UTC()), id.String())
+	`, truncate(errMsg, 500), finishedAt.UTC(), id.String())
 	return err
 }
 

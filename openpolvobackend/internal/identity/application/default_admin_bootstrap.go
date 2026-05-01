@@ -17,7 +17,14 @@ type DefaultAdminBootstrap struct {
 	Hasher ports.PasswordHasher
 }
 
-// Ensure cria o admin se ainda não existir (por email). Devolve created=true quando inseriu.
+// Ensure garante que o admin existe e tem a password correcta do env.
+//
+// Comportamento:
+//   - Se o utilizador não existe: cria-o (created=true).
+//   - Se o utilizador já existe: actualiza o hash da password para corresponder ao env (created=false).
+//
+// Isto garante que, após uma reinstalação ou redefinição, a password do admin
+// corresponde SEMPRE à que está no backend.env — mesmo que a BD não tenha sido apagada.
 func (b *DefaultAdminBootstrap) Ensure(ctx context.Context, email, password string) (created bool, err error) {
 	if email == "" || password == "" {
 		return false, nil
@@ -29,17 +36,20 @@ func (b *DefaultAdminBootstrap) Ensure(ctx context.Context, email, password stri
 	if err := domain.ValidatePasswordPlain(password); err != nil {
 		return false, err
 	}
-	_, err = b.Users.GetByEmail(ctx, em)
-	if err == nil {
-		return false, nil
-	}
-	if !errors.Is(err, ports.ErrNotFound) {
-		return false, err
-	}
 	hash, err := b.Hasher.Hash(password)
 	if err != nil {
 		return false, err
 	}
+	_, err = b.Users.GetByEmail(ctx, em)
+	if err == nil {
+		// Utilizador já existe — actualiza password para sincronizar com o env.
+		// Essencial após reinstalação sem apagar a BD (evita "invalid credentials").
+		return false, b.Users.UpdatePasswordHash(ctx, em, hash)
+	}
+	if !errors.Is(err, ports.ErrNotFound) {
+		return false, err
+	}
+	// Utilizador não existe — cria-o.
 	now := time.Now().UTC()
 	u := &domain.User{
 		ID:           uuid.New(),

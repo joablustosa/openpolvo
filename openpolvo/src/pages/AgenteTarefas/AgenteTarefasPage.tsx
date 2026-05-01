@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/core/WorkspaceContext";
 
 /**
- * A rota `/agente-tarefas` abre as listas no painel direito da conversa (como o
- * preview do builder) e redirecciona para `/`.
+ * A rota `/agente-tarefas` abre as listas no painel direito da conversa e
+ * redirecciona para `/`.
  */
 export function AgenteTarefasPage() {
   const navigate = useNavigate();

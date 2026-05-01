@@ -1,5 +1,9 @@
 /bin/
 /dist/
+# SQLite local (desenvolvimento; nunca dados reais no Git)
+*.db
+*.db-shm
+*.db-wal
 *.exe
 *.test
 .env

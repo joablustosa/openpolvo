@@ -74,7 +74,7 @@ func (r SMTPSettingsRepository) GetByUserID(ctx context.Context, userID uuid.UUI
 }
 
 func (r SMTPSettingsRepository) Upsert(ctx context.Context, s *domain.UserSMTPSettings, passwordEnc []byte) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	useTLS := 0
 	if s.UseTLS {
 		useTLS = 1
@@ -87,9 +87,15 @@ func (r SMTPSettingsRepository) Upsert(ctx context.Context, s *domain.UserSMTPSe
 		`INSERT INTO laele_user_smtp_settings (user_id, host, port, username, password_enc, from_email, from_name, use_tls, email_chat_skip_confirmation, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET
-		   host = excluded.host, port = excluded.port, username = excluded.username,
-		   password_enc = excluded.password_enc, from_email = excluded.from_email, from_name = excluded.from_name,
-		   use_tls = excluded.use_tls, email_chat_skip_confirmation = excluded.email_chat_skip_confirmation, updated_at = excluded.updated_at`,
+		   host = excluded.host,
+		   port = excluded.port,
+		   username = excluded.username,
+		   password_enc = excluded.password_enc,
+		   from_email = excluded.from_email,
+		   from_name = excluded.from_name,
+		   use_tls = excluded.use_tls,
+		   email_chat_skip_confirmation = excluded.email_chat_skip_confirmation,
+		   updated_at = excluded.updated_at`,
 		s.UserID, s.Host, s.Port, s.Username, passwordEnc, s.FromEmail, s.FromName, useTLS, skip, now,
 	)
 	return err

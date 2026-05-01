@@ -1,6 +1,7 @@
 import {
   Bus,
   Camera,
+  Code2,
   Globe2,
   Home,
   Mail,
@@ -19,6 +20,7 @@ import { useWorkspace } from "@/core/WorkspaceContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 
 const PLUGIN_ICON: Record<AppId, LucideIcon> = {
+  polvo_code: Code2,
   whatsapp: MessageCircle,
   instagram: Camera,
   facebook: Share2,
@@ -53,10 +55,23 @@ export function AppsMenuItems({ onNavigate }: Props) {
           <span className="ml-auto text-[10px] text-muted-foreground">ativo</span>
         ) : null}
       </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => {
+          openPlugin("polvo_code");
+          onNavigate?.();
+        }}
+        className="gap-2"
+      >
+        <Code2 className="size-4 opacity-80" />
+        Polvo Code
+        {activeApp === "polvo_code" ? (
+          <span className="ml-auto text-[10px] text-muted-foreground">ativo</span>
+        ) : null}
+      </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuLabel className="text-xs">Plugins</DropdownMenuLabel>
       <div className="max-h-[min(60vh,320px)] overflow-y-auto">
-        {PLUGIN_IDS.map((id) => {
+        {PLUGIN_IDS.filter((id) => id !== "polvo_code").map((id) => {
           const Icon = PLUGIN_ICON[id];
           return (
             <DropdownMenuItem

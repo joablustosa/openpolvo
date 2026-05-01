@@ -116,6 +116,38 @@ func (s *Store) DeleteTransaction(ctx context.Context, id, userID uuid.UUID) err
 	return nil
 }
 
+func (s *Store) GetTransaction(ctx context.Context, id, userID uuid.UUID) (*domain.Transaction, error) {
+	row := s.DB.QueryRowContext(ctx,
+		`SELECT id, user_id, amount_minor, currency, direction, category_id, subcategory_id, occurred_at, description, source, created_at
+		 FROM laele_finance_transactions WHERE id = ? AND user_id = ?`,
+		id.String(), userID.String(),
+	)
+	t, err := scanTx(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+	return t, nil
+}
+
+func (s *Store) UpdateTransaction(ctx context.Context, t *domain.Transaction) error {
+	res, err := s.DB.ExecContext(ctx,
+		`UPDATE laele_finance_transactions SET category_id = ?, subcategory_id = ?, description = ?
+		 WHERE id = ? AND user_id = ?`,
+		nullableUUID(t.CategoryID), nullableUUID(t.SubcategoryID), t.Description, t.ID.String(), t.UserID.String(),
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) ListTransactionsByRange(ctx context.Context, userID uuid.UUID, from, to time.Time, direction *domain.Direction) ([]domain.Transaction, error) {
 	q := `SELECT id, user_id, amount_minor, currency, direction, category_id, subcategory_id, occurred_at, description, source, created_at
 		FROM laele_finance_transactions WHERE user_id = ? AND occurred_at >= ? AND occurred_at < ?`
@@ -180,7 +212,7 @@ func (s *Store) ListRecentTransactions(ctx context.Context, userID uuid.UUID, li
 func (s *Store) CreateSubscription(ctx context.Context, sub *domain.Subscription) error {
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO laele_finance_subscriptions
-		 (id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_at, created_at, updated_at)
+		 (id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_on, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sub.ID.String(), sub.UserID.String(), sub.Name, sub.AmountMinor, sub.Currency, string(sub.Cadence),
 		nullableInt8(sub.AnchorDay), sub.NextDueAt, string(sub.Status),
@@ -192,7 +224,7 @@ func (s *Store) CreateSubscription(ctx context.Context, sub *domain.Subscription
 func (s *Store) UpdateSubscription(ctx context.Context, sub *domain.Subscription) error {
 	res, err := s.DB.ExecContext(ctx,
 		`UPDATE laele_finance_subscriptions SET name = ?, amount_minor = ?, currency = ?, cadence = ?, anchor_day = ?,
-		 next_due_at = ?, status = ?, last_paid_at = ?, reminder_active = ?, last_reminder_sent_at = ?, updated_at = ?
+		 next_due_at = ?, status = ?, last_paid_at = ?, reminder_active = ?, last_reminder_sent_on = ?, updated_at = ?
 		 WHERE id = ? AND user_id = ?`,
 		sub.Name, sub.AmountMinor, sub.Currency, string(sub.Cadence), nullableInt8(sub.AnchorDay),
 		sub.NextDueAt, string(sub.Status), sub.LastPaidAt, boolTiny(sub.ReminderActive), nullableDate(sub.LastReminderSentAt),
@@ -225,7 +257,7 @@ func (s *Store) DeleteSubscription(ctx context.Context, id, userID uuid.UUID) er
 
 func (s *Store) ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) ([]domain.Subscription, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_at, created_at, updated_at
+		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_on, created_at, updated_at
 		 FROM laele_finance_subscriptions WHERE user_id = ? ORDER BY next_due_at ASC`,
 		userID.String(),
 	)
@@ -238,7 +270,7 @@ func (s *Store) ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) (
 
 func (s *Store) GetSubscription(ctx context.Context, id, userID uuid.UUID) (*domain.Subscription, error) {
 	row := s.DB.QueryRowContext(ctx,
-		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_at, created_at, updated_at
+		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_on, created_at, updated_at
 		 FROM laele_finance_subscriptions WHERE id = ? AND user_id = ?`,
 		id.String(), userID.String(),
 	)
@@ -247,7 +279,7 @@ func (s *Store) GetSubscription(ctx context.Context, id, userID uuid.UUID) (*dom
 
 func (s *Store) ListActiveDueOnOrBefore(ctx context.Context, userID uuid.UUID, t time.Time) ([]domain.Subscription, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_at, created_at, updated_at
+		`SELECT id, user_id, name, amount_minor, currency, cadence, anchor_day, next_due_at, status, last_paid_at, reminder_active, last_reminder_sent_on, created_at, updated_at
 		 FROM laele_finance_subscriptions WHERE user_id = ? AND status = 'active' AND next_due_at <= ?`,
 		userID.String(), t,
 	)
@@ -298,14 +330,15 @@ func (s *Store) GetDigestSettings(ctx context.Context, userID uuid.UUID) (*domai
 func (s *Store) UpsertDigestSettings(ctx context.Context, d *domain.DigestSettings) error {
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO laele_user_digest_settings (user_id, timezone, digest_hour, digest_enabled, include_finance_summary, include_tasks, last_digest_sent_on, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(user_id) DO UPDATE SET
-		   timezone = excluded.timezone, digest_hour = excluded.digest_hour,
-		   digest_enabled = excluded.digest_enabled,
-		   include_finance_summary = excluded.include_finance_summary,
-		   include_tasks = excluded.include_tasks,
-		   last_digest_sent_on = excluded.last_digest_sent_on,
-		   updated_at = excluded.updated_at`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?) AS new
+		 ON DUPLICATE KEY UPDATE
+		   timezone = new.timezone,
+		   digest_hour = new.digest_hour,
+		   digest_enabled = new.digest_enabled,
+		   include_finance_summary = new.include_finance_summary,
+		   include_tasks = new.include_tasks,
+		   last_digest_sent_on = new.last_digest_sent_on,
+		   updated_at = new.updated_at`,
 		d.UserID.String(), d.Timezone, d.DigestHour, d.DigestEnabled, d.IncludeFinanceSummary, d.IncludeTasks,
 		nullableDate(d.LastDigestSentOn), d.UpdatedAt,
 	)
@@ -356,11 +389,11 @@ type SubReminderRow struct {
 func (s *Store) ListSubscriptionReminders(ctx context.Context, dayUTC time.Time) ([]SubReminderRow, error) {
 	d := dayUTC.UTC().Format("2006-01-02")
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT s.id, s.user_id, s.name, s.amount_minor, s.currency, s.cadence, s.anchor_day, s.next_due_at, s.status, s.last_paid_at, s.reminder_active, s.last_reminder_sent_at, s.created_at, s.updated_at, u.email
+		`SELECT s.id, s.user_id, s.name, s.amount_minor, s.currency, s.cadence, s.anchor_day, s.next_due_at, s.status, s.last_paid_at, s.reminder_active, s.last_reminder_sent_on, s.created_at, s.updated_at, u.email
 		 FROM laele_finance_subscriptions s
 		 INNER JOIN laele_users u ON u.id = s.user_id
 		 WHERE s.status = 'active' AND DATE(s.next_due_at) <= ?
-		   AND (s.last_reminder_sent_at IS NULL OR s.last_reminder_sent_at < ?)`,
+		   AND (s.last_reminder_sent_on IS NULL OR s.last_reminder_sent_on < ?)`,
 		d, d,
 	)
 	if err != nil {
@@ -423,7 +456,7 @@ func (s *Store) MarkSubscriptionReminderSent(ctx context.Context, subID, userID 
 	d := dayUTC.UTC().Format("2006-01-02")
 	now := time.Now().UTC()
 	_, err := s.DB.ExecContext(ctx,
-		`UPDATE laele_finance_subscriptions SET last_reminder_sent_at = ?, reminder_active = 1, updated_at = ? WHERE id = ? AND user_id = ?`,
+		`UPDATE laele_finance_subscriptions SET last_reminder_sent_on = ?, reminder_active = 1, updated_at = ? WHERE id = ? AND user_id = ?`,
 		d, now, subID.String(), userID.String(),
 	)
 	return err

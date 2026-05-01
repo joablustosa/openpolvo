@@ -1,5 +1,10 @@
 node_modules
 dist
+# Pacotes Electron / instaladores / unpack (gerados por electron-builder ou scripts locais)
+dist-electron/
+dist-electron-*/
+out/
+release/
 .DS_Store
 *.log
 .env

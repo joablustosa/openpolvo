@@ -1,13 +1,13 @@
 CREATE TABLE IF NOT EXISTS laele_user_smtp_settings (
-    user_id TEXT NOT NULL,
-    host TEXT NOT NULL,
-    port INTEGER NOT NULL DEFAULT 587,
-    username TEXT NOT NULL DEFAULT '',
+    user_id VARCHAR(36) NOT NULL,
+    host VARCHAR(255) NOT NULL,
+    port INT NOT NULL DEFAULT 587,
+    username VARCHAR(255) NOT NULL DEFAULT '',
     password_enc BLOB NOT NULL,
-    from_email TEXT NOT NULL,
-    from_name TEXT NOT NULL DEFAULT '',
-    use_tls INTEGER NOT NULL DEFAULT 1,
-    updated_at TEXT NOT NULL,
+    from_email VARCHAR(320) NOT NULL,
+    from_name VARCHAR(255) NOT NULL DEFAULT '',
+    use_tls TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (user_id),
     FOREIGN KEY (user_id) REFERENCES laele_users (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,4 +1,5 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Mic, MicOff, Radio, SendHorizontal } from "lucide-react";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
@@ -7,14 +8,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
 import { EmailDraftActions } from "@/components/chat/EmailDraftActions";
+import { FinanceSuggestionActions } from "@/components/chat/FinanceSuggestionActions";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
 import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
-import { BuilderArtifactChip } from "@/components/builder/BuilderArtifactChip";
-import { BuilderProgressChecklist } from "@/components/builder/BuilderProgressChecklist";
-import { computeBuilderDiff, type FileDiff } from "@/lib/builderDiff";
 import { useAuth } from "@/auth/AuthContext";
 import { parseEmailMessageMeta } from "@/lib/emailChatMetadata";
-import { parseBuilderMeta, type BuilderData } from "@/lib/builderMetadata";
+import { parseFinanceSuggestionFromContent } from "@/lib/financeChatSuggestion";
 import { transcribeAudio } from "@/lib/audioApi";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import {
@@ -28,12 +27,9 @@ import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
   const { token } = useAuth();
-  const {
-    taskListsPreviewOpen,
-    setBuilderData,
-    builderProgress,
-    builderStreamFiles,
-  } = useWorkspace();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { taskListsPreviewOpen } = useWorkspace();
   const {
     messages,
     sending,
@@ -53,38 +49,11 @@ export function ChatPanel() {
   } = useConversationWorkspace();
 
   const [draft, setDraft] = useState("");
+  const chatDraftConsumedKey = useRef<string | null>(null);
   const [voiceWakeEnabled, setVoiceWakeEnabled] = useState(readVoiceWakePreference);
   const [wakeBusy, setWakeBusy] = useState(false);
   const [wakeError, setWakeError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  /**
-   * Pré-calcula, para cada mensagem do assistente com dados Builder, o snapshot e
-   * o diff em relação ao turno anterior (padrão Claude — artefacto por mensagem).
-   */
-  const msgBuilderInfo = useMemo(() => {
-    const map = new Map<
-      string,
-      { data: BuilderData; diff: FileDiff | null; isLatest: boolean }
-    >();
-    let prev: BuilderData | null = null;
-    let lastId: string | null = null;
-
-    for (const m of messages) {
-      if (m.role !== "assistant") continue;
-      const bd = parseBuilderMeta(m.metadata);
-      if (!bd) continue;
-      const diff = computeBuilderDiff(prev, bd);
-      map.set(m.id, { data: bd, diff, isLatest: false });
-      prev = bd;
-      lastId = m.id;
-    }
-    if (lastId) {
-      const entry = map.get(lastId)!;
-      map.set(lastId, { ...entry, isLatest: true });
-    }
-    return map;
-  }, [messages]);
 
   useEffect(() => {
     writeVoiceWakePreference(voiceWakeEnabled);
@@ -93,6 +62,21 @@ export function ChatPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  /** Pré-preenche o input vindo da página Finanças (`navigate("/", { state: { chatDraft } })`). */
+  useEffect(() => {
+    const st = location.state as { chatDraft?: string } | null | undefined;
+    const text = typeof st?.chatDraft === "string" ? st.chatDraft.trim() : "";
+    if (!text) return;
+    const key = `${location.key ?? ""}:${text}`;
+    if (chatDraftConsumedKey.current === key) return;
+    chatDraftConsumedKey.current = key;
+    setDraft((d) => (d.trim() ? d : text));
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: {} },
+    );
+  }, [location.state, location.key, location.pathname, location.search, location.hash, navigate]);
 
   function send(e: FormEvent) {
     e.preventDefault();
@@ -266,26 +250,25 @@ export function ChatPanel() {
                   }}
                 />
               ) : null}
-              {/* Artefacto Builder — chip clicável por turno (padrão Claude) */}
-              {m.role === "assistant" && (() => {
-                const info = msgBuilderInfo.get(m.id);
-                if (!info) return null;
-                return (
-                  <BuilderArtifactChip
-                    data={info.data}
-                    diff={info.diff}
-                    isLatest={info.isLatest}
-                    onClick={() => setBuilderData(info.data)}
-                  />
-                );
-              })()}
+              {m.role === "assistant" && token
+                ? (() => {
+                    const sug = parseFinanceSuggestionFromContent(m.content);
+                    if (!sug) return null;
+                    return (
+                      <FinanceSuggestionActions
+                        token={token}
+                        suggestion={sug}
+                        onRecorded={() => {
+                          if (activeConversationId) {
+                            void selectConversation(activeConversationId);
+                          }
+                        }}
+                      />
+                    );
+                  })()
+                : null}
             </div>
           ))}
-          {sending && (builderProgress || builderStreamFiles.length > 0) ? (
-            <div className="max-w-[min(92%,560px)] self-start">
-              <BuilderProgressChecklist progress={builderProgress} variant="compact" />
-            </div>
-          ) : null}
           {sending ? <OctopusTypingLoader active /> : null}
           <div ref={bottomRef} />
         </div>

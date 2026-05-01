@@ -23,16 +23,18 @@ from openpolvointeligence.graphs.task_list_metadata import (
     format_task_lists_for_prompt,
     task_list_ops_metadata_for_reply,
 )
-from openpolvointeligence.graphs.scheduled_task_metadata import (
-    format_sched_tasks_for_prompt,
-    sched_ops_metadata_for_reply,
-)
 from openpolvointeligence.graphs.agent_memory_utils import (
     finalize_reply_metadata,
     format_agent_memory_block,
     normalize_agent_memory,
 )
+from openpolvointeligence.graphs.preview_console_context import merge_preview_console_block
 from openpolvointeligence.graphs.skills_budget import skills_block_for_prompt
+from openpolvointeligence.graphs.email_send_quality import (
+    apply_email_quality_gate,
+    email_body_looks_raw_or_incomplete,
+    enrich_email_body_for_send,
+)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -232,13 +234,15 @@ _INTENT_ALIASES: dict[str, str] = {
     "pedido_dados": "pedido_dados",
     "execucao_automacao": "automacao",
     "automacao": "automacao",
-    "agendamento": "agendamento",
-    "agendar": "agendamento",
+    "agendamento": "geral",
+    "agendar": "geral",
     "gerencial_fallback": "geral",
     "geral": "geral",
     "resposta_email": "criacao_email",
     "monitorizacao_email": "criacao_email",
-    "criacao_app_interativa": "criacao_app_interativa",
+    # Geração de apps/sites removida — tratar como conversa geral.
+    "criacao_app_interativa": "geral",
+    "criacao_sistema_web": "geral",
 }
 
 # Rota normalizada → ficheiro de prompt em prompts/{stem}.md (sem extensão)
@@ -252,7 +256,6 @@ _ROUTE_TO_STEM: dict[str, str] = {
     "automacao": "specialist_automacao",
     "geral": "specialist_geral",
     "criacao_automacao": "specialist_criacao_automacao",
-    "criacao_sistema_web": "specialist_criacao_sistema_web",
     "post_instagram": "specialist_post_instagram",
     "post_facebook": "specialist_post_facebook",
     "post_linkedin": "specialist_post_linkedin",
@@ -264,10 +267,6 @@ _ROUTE_TO_STEM: dict[str, str] = {
     "geracao_midia_ai": "specialist_geracao_midia_ai",
     "gestao_tarefas_calendario": "specialist_gestao_tarefas_calendario",
     "financas_pessoais": "specialist_financas_pessoais",
-    "agendamento": "specialist_agendamento",
-    # O Builder é um sub-grafo (não um prompt de especialista), mas precisa de estar
-    # no mapa para passar pelo `route_intent`. O despacho acontece em `node_specialist`.
-    "criacao_app_interativa": "specialist_geral",
 }
 
 # Intenções válidas após normalização (chaves finais do router)
@@ -286,92 +285,6 @@ def route_intent(intent: str, confidence: float) -> str:
     if n in _ROUTABLE:
         return n
     return "geral"
-
-
-def _user_intent_requests_code_application(user_lower: str) -> bool:
-    """Sinais de pedido de código/site/app (Builder), não só tarefa na lista Open Polvo."""
-    code_hints = (
-        " aplic",
-        " website",
-        " site ",
-        " front",
-        " back",
-        " react",
-        " next",
-        " vite",
-        " crud",
-        " api ",
-        " interface",
-        " ui ",
-        " págin",
-        " pagin",
-        " html",
-        " css",
-        " javascript",
-        " typescript",
-        " projeto código",
-        " projeto codigo",
-        " código fonte",
-        " codigo fonte",
-        " webapp",
-        " web app",
-        " fullstack",
-        " deploy",
-        " servidor",
-        "localhost",
-        "kanban completo",
-        "app de tarefas",
-        "aplicação de tarefas",
-        "aplicacao de tarefas",
-    )
-    return any(h in user_lower for h in code_hints)
-
-
-def _prefer_task_lists_over_builder(
-    user_text: str,
-    task_lists_context: list[dict[str, Any]] | None,
-) -> bool:
-    """
-    Se o utilizador tem listas na app e o texto fala em tarefas/itens sem pedir
-    aplicação ou código, não despachar o Builder (evita confusão com «criar tarefa»).
-    """
-    if not isinstance(task_lists_context, list) or len(task_lists_context) == 0:
-        return False
-    t = (user_text or "").strip().lower()
-    if not t:
-        return False
-    list_hints = (
-        "lista de tarefas",
-        "minha lista",
-        "na lista",
-        "à lista",
-        "a lista",
-        "adiciona",
-        "adicionar",
-        "cria uma tarefa",
-        "criar uma tarefa",
-        "criar tarefa",
-        "nova tarefa",
-        "novo item",
-        "item na",
-        "marcar como",
-        "marca como",
-        "concluída",
-        "concluida",
-        "feito",
-        "pendente",
-        "apagar tarefa",
-        " remover ",
-        "renomear l",
-        "tarefas da",
-        "itens da",
-        "executor da lista",
-    )
-    if not any(h in t for h in list_hints):
-        return False
-    if _user_intent_requests_code_application(t):
-        return False
-    return True
 
 
 def _build_classification_ctx(analysis: dict[str, Any]) -> str:
@@ -413,6 +326,8 @@ class ZepState(TypedDict, total=False):
     finance_context: dict[str, Any] | None
     meta_context: dict[str, Any] | None
     scheduled_tasks_context: list[dict[str, Any]] | None
+    # Texto único: logs da consola do Preview (buffer + envio directo).
+    preview_console_block: str | None
     plugin_hit: bool
     assistant_text: str
     metadata: dict[str, Any]
@@ -469,6 +384,15 @@ def build_zepolvinho_graph(settings: Settings):
             pre.append(SystemMessage(content=sk))
         if mem_block:
             pre.append(SystemMessage(content=mem_block))
+        pcb = (state.get("preview_console_block") or "").strip()
+        if pcb:
+            pre.append(
+                SystemMessage(
+                    content="## Logs do Preview (consola)\n"
+                    "Eventos enviados pelo cliente; usa para classificar intenção quando relevante.\n\n"
+                    + pcb,
+                ),
+            )
         pre.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
         hist = _to_lc_messages(capped)
         resp = await chat.ainvoke([*pre, *hist])
@@ -495,61 +419,67 @@ def build_zepolvinho_graph(settings: Settings):
 
         tlc_raw = state.get("task_lists_context")
         tlc_list = tlc_raw if isinstance(tlc_raw, list) else None
-        if routed == "criacao_app_interativa" and _prefer_task_lists_over_builder(
-            last_user_text(msgs, 4000),
-            tlc_list,
-        ):
-            routed = "gestao_tarefas_calendario"
 
-        # Despacho para o sub-grafo Builder (Lovable-like): gera uma app completa
-        # com ficheiros + app ao vivo (WebContainer) em metadata.builder.
-        if routed == "criacao_app_interativa":
+        web_aux_block = ""
+        web_aux_meta: dict[str, Any] = {}
+        if routed == "pedido_dados" and (settings.serpapi_api_key or "").strip():
+            from openpolvointeligence.graphs.web_research_intent import user_requests_live_web_auxiliary
+
+            if user_requests_live_web_auxiliary(last_user_text(msgs, 6000)):
+                try:
+                    from openpolvointeligence.graphs.web_research_subgraph import (
+                        run_web_research_pipeline,
+                    )
+
+                    tw, wm = await run_web_research_pipeline(
+                        settings,
+                        state.get("model_provider"),
+                        msgs,
+                        summary,
+                    )
+                    web_aux_block = (
+                        "\n\n## Pesquisa web automática (SERP + páginas + unificador multi-site)\n"
+                        "O pipeline já correu buscas, visitou páginas seleccionadas e fundiu os resumos. "
+                        "Usa isto para eixos do gráfico e narrativa; só quantifica o que conste aqui — "
+                        "senão marca dados do JSON como ilustrativos.\n\n"
+                        + tw
+                    )
+                    web_aux_meta = {**wm, "web_auxiliary_for_charts": True}
+                except Exception as exc:
+                    import logging as _wax
+
+                    _wax.getLogger(__name__).warning("pesquisa web auxiliar (pedido_dados): %s", exc)
+
+        # Pesquisa web enriquecida: sub-grafo LangGraph (planeador → SerpAPI → síntese → crítica → refinamento).
+        if routed == "pesquisa_web_tempo_real" and (settings.serpapi_api_key or "").strip():
             try:
-                from openpolvointeligence.graphs.builder_subgraph import run_builder
+                from openpolvointeligence.graphs.web_research_subgraph import run_web_research_pipeline
 
-                user_req = last_user_text(msgs, 4000)
-                artifact = await run_builder(
+                text_wr, wr_meta = await run_web_research_pipeline(
                     settings,
-                    user_req,
                     state.get("model_provider"),
-                    agent_memory=state.get("agent_memory"),
+                    msgs,
+                    summary,
                 )
-                title = str(artifact.get("title") or "Aplicação")
-                desc = str(artifact.get("description") or "").strip()
-                msg = f"**{title}** pronta. Abre o painel à direita para ver a app ao vivo (Vite) e o código."
-                if desc:
-                    msg += f"\n\n{desc}"
-                meta_b: dict[str, Any] = {
+                meta_wr: dict[str, Any] = {
                     "model_provider": mp,
                     "intent": str(analysis.get("intent", "")),
                     "routed_intent": routed,
                     "intent_confidence": float(analysis.get("confidence", 0)),
                     "intent_reasoning": str(analysis.get("reasoning", "")),
-                    "builder": artifact,
                 }
-                meta_b = await finalize_reply_metadata(
-                    settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta_b,
+                meta_wr.update(wr_meta)
+                meta_wr = await finalize_reply_metadata(
+                    settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta_wr,
                 )
-                return {
-                    "assistant_text": msg,
-                    "metadata": meta_b,
-                }
-            except Exception as exc:  # noqa: BLE001 — fallback defensivo para não quebrar o chat
-                import logging as _lg
+                return {"assistant_text": text_wr, "metadata": meta_wr}
+            except Exception as exc:
+                import logging as _wr
 
-                _lg.getLogger(__name__).exception("builder subgraph failed: %s", exc)
-                return {
-                    "assistant_text": (
-                        "Tentei gerar a aplicação mas o Builder falhou. "
-                        "Tenta reformular o pedido com mais detalhes sobre o que queres construir."
-                    ),
-                    "metadata": {
-                        "model_provider": mp,
-                        "intent": str(analysis.get("intent", "")),
-                        "routed_intent": routed,
-                        "builder_error": str(exc)[:400],
-                    },
-                }
+                _wr.getLogger(__name__).warning(
+                    "web_research_pipeline falhou (%s) — fallback ao especialista só-LLM",
+                    exc,
+                )
 
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=False)
 
@@ -611,19 +541,6 @@ def build_zepolvinho_graph(settings: Settings):
                     "Contexto vindo da API Open Polvo (categorias, transacções recentes, totais do mês, assinaturas).\n"
                     + body_fc
                 )
-        sched_raw = state.get("scheduled_tasks_context")
-        sched_list = sched_raw if isinstance(sched_raw, list) else None
-        sched_block = ""
-        if isinstance(sched_list, list) and len(sched_list) > 0:
-            body_sc = format_sched_tasks_for_prompt(sched_list)
-            if body_sc:
-                sched_block = (
-                    "\n\n## Automações agendadas existentes\n"
-                    "O utilizador tem estas tarefas agendadas configuradas (IDs UUID reais — "
-                    "usa-os para update/delete/toggle, nunca inventes novos).\n"
-                    + body_sc
-                )
-
         meta_block = ""
         mc = state.get("meta_context")
         if isinstance(mc, dict):
@@ -652,6 +569,15 @@ def build_zepolvinho_graph(settings: Settings):
             hist_prefix.append(SystemMessage(content=mem_block))
         hist_sys = SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary)
 
+        pcb = (state.get("preview_console_block") or "").strip()
+        preview_sys = ""
+        if pcb:
+            preview_sys = (
+                "\n\n## Preview — consola\n"
+                "Se o utilizador reporta erros técnicos ligados a estes logs, incorpora-os na resposta.\n\n"
+                + pcb
+            )
+
         if routed == "geral":
             sys = (
                 _system_with_formatting(base, settings)
@@ -663,6 +589,7 @@ def build_zepolvinho_graph(settings: Settings):
                 sys += contacts_block
             if meta_block:
                 sys += meta_block
+            sys += preview_sys
             resp = await chat.ainvoke(
                 [SystemMessage(content=sys), *hist_prefix, hist_sys, *_to_lc_messages(capped)],
             )
@@ -676,10 +603,11 @@ def build_zepolvinho_graph(settings: Settings):
                 sys += task_lists_block
             if routed == "financas_pessoais" and finance_block:
                 sys += finance_block
-            if routed == "agendamento" and sched_block:
-                sys += sched_block
             if meta_block and routed in ("post_instagram", "post_facebook", "automacao", "pedido_conteudo"):
                 sys += meta_block
+            if routed == "pedido_dados" and web_aux_block:
+                sys += web_aux_block
+            sys += preview_sys
             resp = await chat.ainvoke(
                 [SystemMessage(content=sys), *hist_prefix, hist_sys, *_to_lc_messages(capped)],
             )
@@ -707,6 +635,33 @@ def build_zepolvinho_graph(settings: Settings):
                         cc if isinstance(cc, list) else None,
                     ),
                 )
+                if meta.get("email_send_pending") and isinstance(
+                    meta.get("email_send_draft"), dict,
+                ):
+                    draft0 = meta["email_send_draft"]
+                    b0 = str(draft0.get("body") or "")
+                    if email_body_looks_raw_or_incomplete(b0):
+                        try:
+                            summ = conversation_summary(capped)
+                            new_body = await enrich_email_body_for_send(
+                                settings,
+                                state.get("model_provider"),
+                                assistant_markdown=text,
+                                draft=draft0,
+                                conversation_summary=summ,
+                            )
+                            if new_body:
+                                raw_draft = dict(raw_draft)
+                                raw_draft["body"] = new_body
+                                meta.update(
+                                    _email_send_meta_from_extractor(
+                                        raw_draft,
+                                        cc if isinstance(cc, list) else None,
+                                    ),
+                                )
+                        except Exception:
+                            pass
+                    apply_email_quality_gate(meta)
             except Exception:
                 pass
         if routed in ("pedido_dados", "analise_dados_relatorios"):
@@ -726,19 +681,8 @@ def build_zepolvinho_graph(settings: Settings):
                 )
             except Exception:
                 pass
-        if routed == "agendamento":
-            try:
-                meta.update(
-                    await sched_ops_metadata_for_reply(
-                        settings,
-                        state.get("model_provider"),
-                        text,
-                        capped,
-                        sched_list,
-                    ),
-                )
-            except Exception:
-                pass
+        if web_aux_meta:
+            meta.update(web_aux_meta)
         meta = await finalize_reply_metadata(
             settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta,
         )
@@ -784,9 +728,12 @@ async def run_reply(
     *,
     conversation_id: str | None = None,
     agent_memory: dict[str, Any] | None = None,
+    sandbox_project_id: str | None = None,
+    preview_console_logs: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Executa o grafo LangGraph compilado."""
     graph = get_compiled_graph(settings)
+    preview_console_block = merge_preview_console_block(sandbox_project_id, preview_console_logs)
     out = await graph.ainvoke(
         {
             "messages": messages,
@@ -799,6 +746,7 @@ async def run_reply(
             "finance_context": finance_context,
             "meta_context": meta_context,
             "scheduled_tasks_context": scheduled_tasks_context,
+            "preview_console_block": preview_console_block,
         },
     )
     text = str(out.get("assistant_text", "")).strip()
@@ -821,22 +769,20 @@ async def run_reply_stream(
     *,
     conversation_id: str | None = None,
     agent_memory: dict[str, Any] | None = None,
+    sandbox_project_id: str | None = None,
+    preview_console_logs: list[dict[str, Any]] | None = None,
 ):
     """Versão SSE de run_reply — sem timeout HTTP.
 
     Estratégia:
     1. Verifica plugins nativos (instantâneo).
-    2. Corre APENAS o nó de análise de intenção (1 LLM call, <10s).
-    3. Se builder → delega ao run_builder_stream que emite ficheiros à medida
-       que são gerados, eliminando o context deadline exceeded.
-    4. Para outras intenções → corre o grafo completo (rápido, <30s) e emite
-       um único evento "done".
+    2. Corre o nó de análise de intenção (1 LLM call, <10s).
+    3. Corre o grafo completo e emite um único evento ``done``.
     """
     import logging as _lg
 
     from langchain_core.messages import SystemMessage
 
-    from openpolvointeligence.graphs.builder_subgraph import run_builder_stream
     from openpolvointeligence.graphs.message_utils import (
         conversation_summary,
         last_user_text,
@@ -847,6 +793,7 @@ async def run_reply_stream(
 
     _log = _lg.getLogger(__name__)
     mp = effective_provider(model_provider)
+    pcb_stream = merge_preview_console_block(sandbox_project_id, preview_console_logs)
 
     # ── Plugins nativos (resposta instantânea) ──────────────────────────────────
     last = last_user_text(messages, 2000)
@@ -879,6 +826,12 @@ async def run_reply_stream(
             pre_a.append(SystemMessage(content=sk))
         if mem_block:
             pre_a.append(SystemMessage(content=mem_block))
+        if pcb_stream:
+            pre_a.append(
+                SystemMessage(
+                    content="## Logs do Preview (consola)\n\n" + pcb_stream,
+                ),
+            )
         pre_a.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
         chat_analyze = get_chat_model(settings, model_provider, json_mode=True)
         resp = await chat_analyze.ainvoke([*pre_a, *_to_lc_messages(capped)])
@@ -890,50 +843,7 @@ async def run_reply_stream(
         _log.warning("análise de intenção falhou: %s — usando geral", exc)
         analysis = {"intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {}}
 
-    routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
-
-    if routed == "criacao_app_interativa" and _prefer_task_lists_over_builder(
-        last_user_text(messages, 4000),
-        task_lists_context,
-    ):
-        routed = "gestao_tarefas_calendario"
-
-    # ── Builder: streaming nó a nó ──────────────────────────────────────────────
-    if routed == "criacao_app_interativa":
-        user_req = last_user_text(messages, 4000)
-        try:
-            async for event in run_builder_stream(
-                settings, user_req, model_provider, agent_memory=agent_memory,
-            ):
-                if event.get("type") == "done":
-                    artifact = event.get("artifact", {})
-                    title = str(artifact.get("title") or "Aplicação")
-                    desc = str(artifact.get("description") or "").strip()
-                    msg = f"**{title}** pronta. Abre o painel à direita para ver a app ao vivo (Vite) e o código."
-                    if desc:
-                        msg += f"\n\n{desc}"
-                    meta_done: dict[str, Any] = {
-                        "model_provider": mp,
-                        "intent": "criacao_app_interativa",
-                        "routed_intent": "criacao_app_interativa",
-                        "builder": artifact,
-                    }
-                    meta_done = await finalize_reply_metadata(
-                        settings, model_provider, messages, agent_memory, meta_done,
-                    )
-                    yield {
-                        "type": "done",
-                        "assistant_text": msg,
-                        "metadata": meta_done,
-                    }
-                else:
-                    yield event
-        except Exception as exc:
-            _log.exception("run_builder_stream falhou: %s", exc)
-            yield {"type": "error", "detail": str(exc)[:400]}
-        return
-
-    # ── Outras intenções: grafo completo (rápido) ───────────────────────────────
+    # ── Grafo completo ─────────────────────────────────────────────────────────
     yield {"type": "progress", "step": "specialist", "label": "A preparar resposta..."}
     try:
         text, meta = await run_reply(
@@ -948,6 +858,8 @@ async def run_reply_stream(
             scheduled_tasks_context,
             conversation_id=conversation_id,
             agent_memory=agent_memory,
+            sandbox_project_id=sandbox_project_id,
+            preview_console_logs=preview_console_logs,
         )
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:

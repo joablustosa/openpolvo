@@ -2,6 +2,7 @@ import {
   Bus,
   Camera,
   Clock,
+  Code2,
   Globe2,
   Home,
   Mail,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
 const PLUGIN_ICON: Record<AppId, LucideIcon> = {
+  polvo_code: Code2,
   whatsapp: MessageCircle,
   instagram: Camera,
   facebook: Share2,
@@ -98,6 +100,20 @@ export function AppMenu() {
           {!sidebarCollapsed ? "Início" : null}
         </Button>
 
+        <Button
+          variant={activeApp === "polvo_code" ? "secondary" : "ghost"}
+          size="sm"
+          className={cn(
+            "justify-start gap-2 font-normal",
+            sidebarCollapsed && "justify-center px-0",
+          )}
+          onClick={() => openPlugin("polvo_code")}
+          title={sidebarCollapsed ? APP_LABELS.polvo_code : undefined}
+        >
+          <Code2 className="size-4 shrink-0 opacity-90" />
+          {!sidebarCollapsed ? "Polvo Code" : null}
+        </Button>
+
         <Separator className="my-2 bg-sidebar-border" />
 
         <p
@@ -108,7 +124,7 @@ export function AppMenu() {
         >
           Plugins
         </p>
-        {PLUGIN_IDS.map((id) => {
+        {PLUGIN_IDS.filter((id) => id !== "polvo_code").map((id) => {
           const Icon = PLUGIN_ICON[id];
           return (
             <Button

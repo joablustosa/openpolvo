@@ -11,7 +11,6 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import type { AppId } from "@/config/apps";
 import type { DashboardData } from "@/lib/dashboardMetadata";
-import type { BuilderData, BuilderFile } from "@/lib/builderMetadata";
 
 const SIDEBAR_KEY = "smartagent_sidebar_collapsed";
 
@@ -24,23 +23,19 @@ type WorkspaceContextValue = {
   /** Dashboard gerado pelo agente; null quando nenhum está activo. */
   dashboardData: DashboardData | null;
   setDashboardData: (data: DashboardData | null) => void;
-  /** Aplicação gerada pelo sub-grafo Builder (Lovable-like). */
-  builderData: BuilderData | null;
-  setBuilderData: (data: BuilderData | null) => void;
-  /** Progresso do stream Builder: etapa actual enquanto gera. */
-  builderProgress: { step: string; label: string } | null;
-  setBuilderProgress: (p: { step: string; label: string } | null) => void;
-  /** Ficheiros recebidos em stream antes do artefacto final estar pronto. */
-  builderStreamFiles: BuilderFile[];
-  setBuilderStreamFiles: (files: BuilderFile[] | ((prev: BuilderFile[]) => BuilderFile[])) => void;
   /** Preview de listas de tarefas ao lado do chat (respostas sobre to-do). */
   taskListsPreviewOpen: boolean;
   taskListsPreviewNonce: number;
   openTaskListsPreview: () => void;
   refreshTaskListsPreview: () => void;
   closeTaskListsPreview: () => void;
-  /** Fecha builder, dashboard, plugin, preview de listas — volta ao layout da página inicial. */
+  /** Fecha dashboard, plugin, preview de listas — volta ao layout da página inicial. */
   resetShellLayout: () => void;
+  /** Caminho do projecto Polvo Code no disco (Electron). */
+  polvoCodeWorkspacePath: string | null;
+  polvoCodeProjectTitle: string | null;
+  setPolvoCodeProject: (workspacePath: string | null, title?: string | null) => void;
+  clearPolvoCode: () => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -49,11 +44,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth();
   const [activeApp, setActiveAppState] = useState<AppId | null>(null);
   const [dashboardData, setDashboardDataState] = useState<DashboardData | null>(null);
-  const [builderData, setBuilderDataState] = useState<BuilderData | null>(null);
-  const [builderProgress, setBuilderProgressState] = useState<{ step: string; label: string } | null>(null);
-  const [builderStreamFiles, setBuilderStreamFilesState] = useState<BuilderFile[]>([]);
   const [taskListsPreviewOpen, setTaskListsPreviewOpen] = useState(false);
   const [taskListsPreviewNonce, setTaskListsPreviewNonce] = useState(0);
+  const [polvoCodeWorkspacePath, setPolvoCodeWorkspacePathState] = useState<string | null>(null);
+  const [polvoCodeProjectTitle, setPolvoCodeProjectTitleState] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem(SIDEBAR_KEY) === "1";
@@ -66,11 +60,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (prev && !token) {
       setActiveAppState(null);
       setDashboardDataState(null);
-      setBuilderDataState(null);
-      setBuilderProgressState(null);
-      setBuilderStreamFilesState([]);
       setTaskListsPreviewOpen(false);
       setTaskListsPreviewNonce(0);
+      setPolvoCodeWorkspacePathState(null);
+      setPolvoCodeProjectTitleState(null);
     }
   }, [token]);
 
@@ -81,21 +74,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const setDashboardData = useCallback((data: DashboardData | null) => {
     setDashboardDataState(data);
   }, []);
-
-  const setBuilderData = useCallback((data: BuilderData | null) => {
-    setBuilderDataState(data);
-  }, []);
-
-  const setBuilderProgress = useCallback((p: { step: string; label: string } | null) => {
-    setBuilderProgressState(p);
-  }, []);
-
-  const setBuilderStreamFiles = useCallback(
-    (files: BuilderFile[] | ((prev: BuilderFile[]) => BuilderFile[])) => {
-      setBuilderStreamFilesState(files);
-    },
-    [],
-  );
 
   const openTaskListsPreview = useCallback(() => {
     setTaskListsPreviewOpen(true);
@@ -113,11 +91,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const resetShellLayout = useCallback(() => {
     setActiveAppState(null);
     setDashboardDataState(null);
-    setBuilderDataState(null);
-    setBuilderProgressState(null);
-    setBuilderStreamFilesState([]);
     setTaskListsPreviewOpen(false);
     setTaskListsPreviewNonce(0);
+    setPolvoCodeWorkspacePathState(null);
+    setPolvoCodeProjectTitleState(null);
+  }, []);
+
+  const setPolvoCodeProject = useCallback((workspacePath: string | null, title?: string | null) => {
+    setPolvoCodeWorkspacePathState(workspacePath);
+    setPolvoCodeProjectTitleState(title ?? null);
+  }, []);
+
+  const clearPolvoCode = useCallback(() => {
+    setPolvoCodeWorkspacePathState(null);
+    setPolvoCodeProjectTitleState(null);
   }, []);
 
   const setSidebarCollapsed = useCallback((v: boolean) => {
@@ -144,18 +131,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setSidebarCollapsed,
       dashboardData,
       setDashboardData,
-      builderData,
-      setBuilderData,
-      builderProgress,
-      setBuilderProgress,
-      builderStreamFiles,
-      setBuilderStreamFiles,
       taskListsPreviewOpen,
       taskListsPreviewNonce,
       openTaskListsPreview,
       refreshTaskListsPreview,
       closeTaskListsPreview,
       resetShellLayout,
+      polvoCodeWorkspacePath,
+      polvoCodeProjectTitle,
+      setPolvoCodeProject,
+      clearPolvoCode,
     }),
     [
       activeApp,
@@ -165,18 +150,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setSidebarCollapsed,
       dashboardData,
       setDashboardData,
-      builderData,
-      setBuilderData,
-      builderProgress,
-      setBuilderProgress,
-      builderStreamFiles,
-      setBuilderStreamFiles,
       taskListsPreviewOpen,
       taskListsPreviewNonce,
       openTaskListsPreview,
       refreshTaskListsPreview,
       closeTaskListsPreview,
       resetShellLayout,
+      polvoCodeWorkspacePath,
+      polvoCodeProjectTitle,
+      setPolvoCodeProject,
+      clearPolvoCode,
     ],
   );
 

@@ -71,18 +71,18 @@ func (r MetaSettingsRepository) Upsert(ctx context.Context, s *domain.UserMetaSe
 		    fb_page_id, fb_page_token_enc,
 		    ig_account_id, ig_access_token_enc,
 		    webhook_verify_token, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(user_id) DO UPDATE SET
-		   app_id = excluded.app_id,
-		   app_secret_enc = excluded.app_secret_enc,
-		   wa_phone_number_id = excluded.wa_phone_number_id,
-		   wa_access_token_enc = excluded.wa_access_token_enc,
-		   fb_page_id = excluded.fb_page_id,
-		   fb_page_token_enc = excluded.fb_page_token_enc,
-		   ig_account_id = excluded.ig_account_id,
-		   ig_access_token_enc = excluded.ig_access_token_enc,
-		   webhook_verify_token = excluded.webhook_verify_token,
-		   updated_at = excluded.updated_at`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AS new
+		 ON DUPLICATE KEY UPDATE
+		   app_id = new.app_id,
+		   app_secret_enc = new.app_secret_enc,
+		   wa_phone_number_id = new.wa_phone_number_id,
+		   wa_access_token_enc = new.wa_access_token_enc,
+		   fb_page_id = new.fb_page_id,
+		   fb_page_token_enc = new.fb_page_token_enc,
+		   ig_account_id = new.ig_account_id,
+		   ig_access_token_enc = new.ig_access_token_enc,
+		   webhook_verify_token = new.webhook_verify_token,
+		   updated_at = new.updated_at`,
 		s.UserID, s.AppID, appSecretEnc,
 		s.WAPhoneNumberID, waTokenEnc,
 		s.FBPageID, fbTokenEnc,

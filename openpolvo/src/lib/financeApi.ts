@@ -199,6 +199,24 @@ export async function deleteTransaction(token: string, id: string): Promise<void
   if (!res.ok) throw new Error(`finance transaction delete: ${res.status}`);
 }
 
+export async function patchTransaction(
+  token: string,
+  id: string,
+  body: {
+    category_id?: string | null;
+    subcategory_id?: string | null;
+    description?: string | null;
+  },
+): Promise<TransactionDTO> {
+  const res = await fetchApi(`/v1/finance/transactions/${id}`, {
+    method: "PATCH",
+    headers: headersJson(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`finance transaction patch: ${res.status}`);
+  return res.json() as Promise<TransactionDTO>;
+}
+
 export async function getSubscriptions(token: string): Promise<SubscriptionDTO[]> {
   const res = await fetchApi("/v1/finance/subscriptions", {
     headers: headersJson(token),

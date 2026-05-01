@@ -1,0 +1,48 @@
+# Compila o Open Polvo para Windows (NSIS) e publica em GitHub Releases com actualização automática (latest.yml).
+# Requisitos do repositório: secrets não obrigatórios se usar GITHUB_TOKEN (permissões "contents: write" para workflows).
+
+name: Release desktop (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: openpolvo/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: npm ci + Vite build + electron-builder
+        working-directory: openpolvo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./build-desktop-artifacts.ps1
+          npm run build
+          npx electron-builder --win --publish always

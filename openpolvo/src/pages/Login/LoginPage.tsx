@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
-import { apiBaseUrl, apiUrl } from "@/lib/api";
+import { apiBaseUrlForDisplay, apiUrl } from "@/lib/api";
+import { desktopClipboard, desktopLogs, desktopServices } from "@/lib/desktopApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,12 +25,22 @@ import {
 export function LoginPage() {
   const { token, setSession } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rememberDesktop, setRememberDesktop] = useState(false);
   const [canStoreCreds, setCanStoreCreds] = useState(false);
+
+  useEffect(() => {
+    const st = location.state as
+      | { prefillEmail?: string; prefillPassword?: string }
+      | null
+      | undefined;
+    if (st?.prefillEmail) setEmail(st.prefillEmail);
+    if (st?.prefillPassword) setPassword(st.prefillPassword);
+  }, [location.state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +78,32 @@ export function LoginPage() {
         error?: string;
       };
       if (!res.ok) {
-        setError(data.error ?? "Não foi possível entrar.");
+        if (isElectronShell()) {
+          void desktopLogs.append(
+            "login",
+            `login failed status=${res.status} email=${email.trim()} error=${data.error ?? "(none)"}`,
+          );
+        }
+        // Em desktop, um erro genérico sem contexto é impossível de debugar.
+        // Anexa diagnóstico dos serviços (API/Python) quando disponível.
+        try {
+          if (isElectronShell()) {
+            const d = await desktopServices.getDiagnostics();
+            const apiLines = d.api.logs
+              .slice(-12)
+              .map((l) => (l.isError ? `stderr: ${l.line}` : `stdout: ${l.line}`))
+              .join("\n");
+            setError(
+              (data.error ?? "Não foi possível entrar.") +
+                `\n\nDiagnóstico:\n- API: ${d.api.status}\n- Intelligence: ${d.intelligence.status}` +
+                (apiLines ? `\n\nÚltimos logs da API:\n${apiLines}` : ""),
+            );
+          } else {
+            setError(data.error ?? "Não foi possível entrar.");
+          }
+        } catch {
+          setError(data.error ?? "Não foi possível entrar.");
+        }
         return;
       }
       if (!data.access_token) {
@@ -88,16 +124,52 @@ export function LoginPage() {
       }
 
       navigate("/", { replace: true });
-    } catch {
-      setError(
-        `Não foi possível contactar o servidor (API: ${apiBaseUrl()}). Confirme que o backend está a correr em :8080 ou ajuste VITE_API_BASE_URL.`,
-      );
+    } catch (e) {
+      if (isElectronShell()) {
+        void desktopLogs.append("login", `login exception: ${String((e as any)?.message ?? e)}`);
+      }
+      try {
+        if (isElectronShell()) {
+          const d = await desktopServices.getDiagnostics();
+          setError(
+            `Não foi possível contactar o servidor (API: ${apiBaseUrlForDisplay()}).\n\n` +
+              `Diagnóstico:\n- API: ${d.api.status}\n- Intelligence: ${d.intelligence.status}\n\n` +
+              `Tente: reiniciar serviços na bandeja do sistema.`,
+          );
+        } else {
+          setError(
+            `Não foi possível contactar o servidor (API: ${apiBaseUrlForDisplay()}). Confirme que o backend Go está a correr ou ajuste VITE_API_BASE_URL.`,
+          );
+        }
+      } catch {
+        setError(
+          `Não foi possível contactar o servidor (API: ${apiBaseUrlForDisplay()}). Confirme que o backend Go está a correr ou ajuste VITE_API_BASE_URL.`,
+        );
+      }
     } finally {
       setLoading(false);
     }
   }
 
   const showRememberOption = isElectronShell();
+
+  async function copyDiagnostics() {
+    try {
+      const paths = await desktopLogs.getPaths();
+      const tail = await desktopLogs.readTail(256_000);
+      const text =
+        `Open Polvo — diagnóstico (login)\n` +
+        `Gerado em: ${new Date().toISOString()}\n` +
+        `API base: ${apiBaseUrlForDisplay()}\n` +
+        `Log file: ${paths.ok ? paths.file : "(indisponível)"}\n\n` +
+        `--- log tail ---\n` +
+        (tail.ok ? tail.text : `Erro ao ler logs: ${tail.error}`);
+      await desktopClipboard.writeText(text);
+      setError((prev) => (prev ? `${prev}\n\n(Copiado diagnóstico para a área de transferência.)` : "Copiado diagnóstico para a área de transferência."));
+    } catch (e) {
+      setError(`Falha ao copiar diagnóstico.\n\n${String((e as any)?.message ?? e)}`);
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background px-4 py-12">
@@ -114,7 +186,7 @@ export function LoginPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             {error ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p className="whitespace-pre-wrap break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
               </p>
             ) : null}
@@ -165,6 +237,32 @@ export function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "A entrar…" : "Entrar"}
             </Button>
+
+            {isElectronShell() ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  onClick={() => void desktopLogs.openFolder()}
+                >
+                  Abrir pasta de logs
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  onClick={() => void desktopLogs.revealFile()}
+                >
+                  Mostrar arquivo de log
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  onClick={() => void copyDiagnostics()}
+                >
+                  Copiar diagnóstico
+                </button>
+              </div>
+            ) : null}
           </form>
         </CardContent>
       </Card>

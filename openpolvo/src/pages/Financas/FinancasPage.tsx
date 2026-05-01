@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Loader2, Wallet } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  Loader2,
+  MessageCircle,
+  Plus,
+  Wallet,
+} from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,9 +17,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/auth/AuthContext";
 import { cn } from "@/lib/utils";
 import * as fin from "@/lib/financeApi";
+import { FinSummaryStrip } from "./components/FinSummaryStrip";
+import { FinExpenseBarChart, type CategorySpendRow } from "./components/FinExpenseBarChart";
+import { FinTransactionFormFields } from "./components/FinTransactionFormFields";
+import { FinTransactionList } from "./components/FinTransactionList";
 
 function monthUtcRange(y: number, m0: number): { from: string; to: string } {
   const from = new Date(Date.UTC(y, m0, 1, 0, 0, 0));
@@ -26,6 +42,7 @@ function toRFC3339Local(d: Date): string {
 }
 
 export function FinancasPage() {
+  const navigate = useNavigate();
   const { token } = useAuth();
   const now = new Date();
   const [y, setY] = useState(now.getUTCFullYear());
@@ -37,6 +54,8 @@ export function FinancasPage() {
   const [categories, setCategories] = useState<fin.CategoryDTO[]>([]);
   const [txs, setTxs] = useState<fin.TransactionDTO[]>([]);
   const [subs, setSubs] = useState<fin.SubscriptionDTO[]>([]);
+  const [patchBusyId, setPatchBusyId] = useState<string | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const [newCat, setNewCat] = useState("");
   const [txAmount, setTxAmount] = useState("");
@@ -89,6 +108,36 @@ export function FinancasPage() {
     [categories],
   );
 
+  const categoryById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) {
+      m.set(c.id, c.name);
+    }
+    return m;
+  }, [categories]);
+
+  const { totalInMinor, totalOutMinor, currency, byCategoryOut } = useMemo(() => {
+    let inM = 0;
+    let outM = 0;
+    let cur = "EUR";
+    const agg = new Map<string, number>();
+    for (const t of txs) {
+      cur = t.currency || cur;
+      if (t.direction === "in") inM += t.amount_minor;
+      else outM += t.amount_minor;
+      if (t.direction === "out") {
+        const label = t.category_id ? (categoryById.get(t.category_id) ?? "Sem categoria") : "Sem categoria";
+        agg.set(label, (agg.get(label) ?? 0) + t.amount_minor);
+      }
+    }
+    const rows: CategorySpendRow[] = [...agg.entries()].map(([name, valueMinor]) => ({
+      name,
+      valueMinor,
+    }));
+    rows.sort((a, b) => b.valueMinor - a.valueMinor);
+    return { totalInMinor: inM, totalOutMinor: outM, currency: cur, byCategoryOut: rows };
+  }, [txs, categoryById]);
+
   async function addCategory() {
     if (!token || !newCat.trim()) return;
     setErr(null);
@@ -134,6 +183,7 @@ export function FinancasPage() {
       });
       setTxAmount("");
       setTxDesc("");
+      setQuickOpen(false);
       await loadAll();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erro");
@@ -185,6 +235,25 @@ export function FinancasPage() {
     }
   }
 
+  const onTxCategoryChange = useCallback(
+    async (txId: string, categoryId: string | null) => {
+      if (!token) return;
+      setPatchBusyId(txId);
+      setErr(null);
+      try {
+        await fin.patchTransaction(token, txId, {
+          category_id: categoryId,
+        });
+        await loadAll();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Erro ao actualizar");
+      } finally {
+        setPatchBusyId(null);
+      }
+    },
+    [token, loadAll],
+  );
+
   if (!token) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
@@ -196,33 +265,91 @@ export function FinancasPage() {
     );
   }
 
+  const formBlock = (
+    <FinTransactionFormFields
+      rootCategories={rootCategories}
+      txAmount={txAmount}
+      setTxAmount={setTxAmount}
+      txDir={txDir}
+      setTxDir={setTxDir}
+      txWhen={txWhen}
+      setTxWhen={setTxWhen}
+      txCat={txCat}
+      setTxCat={setTxCat}
+      txDesc={txDesc}
+      setTxDesc={setTxDesc}
+      onSubmit={() => void addTransaction()}
+    />
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto bg-background">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-        <Link to="/" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-2")}>
+      <header className="sticky top-0 z-10 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:gap-3 sm:px-4">
+        <Link
+          to="/"
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-2 shrink-0")}
+        >
           <ArrowLeft className="size-4" />
           Chat
         </Link>
-        <div className="h-4 w-px bg-border" />
-        <Wallet className="size-4 text-primary" />
-        <h1 className="text-sm font-semibold">Finanças</h1>
+        <div className="hidden h-4 w-px bg-border sm:block" />
+        <Wallet className="size-4 shrink-0 text-primary" />
+        <h1 className="min-w-0 flex-1 text-sm font-semibold sm:text-base">Finanças</h1>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-h-9 shrink-0 gap-1.5 text-[11px] sm:text-xs"
+          onClick={() =>
+            navigate("/", {
+              state: {
+                chatDraft:
+                  "Quero ajuda com as minhas finanças pessoais no Open Polvo: categorizar gastos e rever o mês.",
+              },
+            })
+          }
+        >
+          <MessageCircle className="size-3.5 shrink-0" />
+          <span className="hidden sm:inline">Assistente</span>
+          <span className="sm:hidden">Chat</span>
+        </Button>
       </header>
 
-      <div className="mx-auto w-full max-w-4xl flex-1 space-y-4 p-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>Mês (transacções):</span>
-          <Input
-            type="month"
-            className="h-8 w-40"
-            value={`${y}-${String(m0 + 1).padStart(2, "0")}`}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (!v) return;
-              const [yy, mm] = v.split("-").map(Number);
-              setY(yy);
-              setM0(mm - 1);
-            }}
-          />
+      <div className="mx-auto w-full max-w-6xl flex-1 space-y-4 p-3 pb-24 sm:space-y-5 sm:p-4 sm:pb-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0">Mês:</span>
+            <Input
+              type="month"
+              className="h-10 min-h-[44px] w-full max-w-[200px] sm:w-44"
+              value={`${y}-${String(m0 + 1).padStart(2, "0")}`}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                const [yy, mm] = v.split("-").map(Number);
+                setY(yy);
+                setM0(mm - 1);
+              }}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="min-h-10 w-full gap-2 sm:hidden"
+            onClick={() => setQuickOpen(true)}
+          >
+            <Plus className="size-4" />
+            Nova transacção
+          </Button>
+          <Dialog open={quickOpen} onOpenChange={setQuickOpen}>
+            <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Nova transacção</DialogTitle>
+              </DialogHeader>
+              {formBlock}
+            </DialogContent>
+          </Dialog>
         </div>
 
         {loading ? (
@@ -234,121 +361,77 @@ export function FinancasPage() {
           <p className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">{err}</p>
         ) : null}
 
+        <FinSummaryStrip
+          totalInMinor={totalInMinor}
+          totalOutMinor={totalOutMinor}
+          currency={currency}
+        />
+
         <Tabs defaultValue="tx" className="w-full">
-          <TabsList className="flex w-full flex-wrap">
-            <TabsTrigger value="tx">Transacções</TabsTrigger>
-            <TabsTrigger value="sub">Assinaturas</TabsTrigger>
-            <TabsTrigger value="cat">Categorias</TabsTrigger>
+          <TabsList className="flex h-auto min-h-11 w-full flex-wrap gap-1 p-1">
+            <TabsTrigger value="tx" className="min-h-10 flex-1 px-3 text-xs sm:text-sm">
+              Operações
+            </TabsTrigger>
+            <TabsTrigger value="sub" className="min-h-10 flex-1 px-3 text-xs sm:text-sm">
+              Assinaturas
+            </TabsTrigger>
+            <TabsTrigger value="cat" className="min-h-10 flex-1 px-3 text-xs sm:text-sm">
+              Categorias
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="tx" className="mt-4 space-y-4">
-            <div className="grid gap-2 rounded-lg border border-border bg-muted/10 p-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Valor (€)</label>
-                <Input value={txAmount} onChange={(e) => setTxAmount(e.target.value)} placeholder="12,50" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Sentido</label>
-                <Select value={txDir} onValueChange={(v) => setTxDir(v as "in" | "out")}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="out">Saída</SelectItem>
-                    <SelectItem value="in">Entrada</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-[11px] text-muted-foreground">Data e hora</label>
-                <Input type="datetime-local" value={txWhen} onChange={(e) => setTxWhen(e.target.value)} />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-[11px] text-muted-foreground">Categoria (opcional)</label>
-                <Select value={txCat || "__none__"} onValueChange={(v) => setTxCat(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="—" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">—</SelectItem>
-                    {rootCategories.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1 sm:col-span-2 lg:col-span-4">
-                <label className="text-[11px] text-muted-foreground">Descrição</label>
-                <Input value={txDesc} onChange={(e) => setTxDesc(e.target.value)} placeholder="Supermercado" />
-              </div>
-              <Button type="button" size="sm" onClick={() => void addTransaction()}>
-                Adicionar transacção
-              </Button>
+            <div className="hidden sm:block">
+              <div className="rounded-xl border border-border bg-muted/10 p-4">{formBlock}</div>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[480px] text-left text-xs">
-                <thead className="border-b border-border bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="p-2 font-medium">Data</th>
-                    <th className="p-2 font-medium">Descrição</th>
-                    <th className="p-2 font-medium">Valor</th>
-                    <th className="p-2 font-medium">Tipo</th>
-                    <th className="p-2 font-medium" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {txs.map((t) => (
-                    <tr key={t.id} className="border-b border-border/60">
-                      <td className="p-2 whitespace-nowrap">{new Date(t.occurred_at).toLocaleString()}</td>
-                      <td className="p-2">{t.description}</td>
-                      <td className="p-2 whitespace-nowrap">
-                        {(t.amount_minor / 100).toFixed(2)} {t.currency}
-                      </td>
-                      <td className="p-2">{t.direction}</td>
-                      <td className="p-2 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-destructive"
-                          onClick={() => {
-                            void (async () => {
-                              try {
-                                await fin.deleteTransaction(token, t.id);
-                                await loadAll();
-                              } catch (e) {
-                                setErr(e instanceof Error ? e.message : "Erro");
-                              }
-                            })();
-                          }}
-                        >
-                          Apagar
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid gap-4 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <FinExpenseBarChart rows={byCategoryOut} currency={currency} />
+              </div>
+              <div className="lg:col-span-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Movimentos
+                </h3>
+                <FinTransactionList
+                  txs={txs}
+                  rootCategories={rootCategories}
+                  onCategoryChange={(id, cat) => void onTxCategoryChange(id, cat)}
+                  onDelete={(id) => {
+                    void (async () => {
+                      try {
+                        await fin.deleteTransaction(token, id);
+                        await loadAll();
+                      } catch (e) {
+                        setErr(e instanceof Error ? e.message : "Erro");
+                      }
+                    })();
+                  }}
+                  patchBusyId={patchBusyId}
+                />
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="sub" className="mt-4 space-y-4">
-            <div className="grid gap-2 rounded-lg border border-border bg-muted/10 p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 rounded-xl border border-border bg-muted/10 p-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-1 lg:col-span-2">
                 <label className="text-[11px] text-muted-foreground">Nome</label>
-                <Input value={subName} onChange={(e) => setSubName(e.target.value)} placeholder="Netflix" />
+                <Input
+                  className="min-h-10"
+                  value={subName}
+                  onChange={(e) => setSubName(e.target.value)}
+                  placeholder="Netflix"
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] text-muted-foreground">Valor (€)</label>
-                <Input value={subAmount} onChange={(e) => setSubAmount(e.target.value)} />
+                <Input className="min-h-10" value={subAmount} onChange={(e) => setSubAmount(e.target.value)} />
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] text-muted-foreground">Cadência</label>
                 <Select value={subCadence} onValueChange={setSubCadence}>
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="min-h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -360,38 +443,83 @@ export function FinancasPage() {
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-[11px] text-muted-foreground">Próximo vencimento</label>
-                <Input type="datetime-local" value={subNext} onChange={(e) => setSubNext(e.target.value)} />
+                <Input
+                  type="datetime-local"
+                  className="min-h-10"
+                  value={subNext}
+                  onChange={(e) => setSubNext(e.target.value)}
+                />
               </div>
-              <Button type="button" size="sm" onClick={() => void addSubscription()}>
+              <Button type="button" className="min-h-10 w-full sm:w-auto" onClick={() => void addSubscription()}>
                 Adicionar assinatura
               </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="space-y-2 sm:hidden">
+              {subs.map((s) => (
+                <div key={s.id} className="rounded-xl border border-border bg-card p-3">
+                  <p className="font-medium">{s.name}</p>
+                  <p className="text-sm tabular-nums text-muted-foreground">
+                    {(s.amount_minor / 100).toFixed(2)} {s.currency}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Próximo: {new Date(s.next_due_at).toLocaleString()}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => void toggleReminder(s)}>
+                      {s.reminder_active ? "Lembrete: sim" : "Lembrete: não"}
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void markPaid(s.id)}>
+                      Paguei
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive"
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            await fin.deleteSubscription(token, s.id);
+                            await loadAll();
+                          } catch (e) {
+                            setErr(e instanceof Error ? e.message : "Erro");
+                          }
+                        })();
+                      }}
+                    >
+                      Apagar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-xl border border-border sm:block">
               <table className="w-full min-w-[520px] text-left text-xs">
                 <thead className="border-b border-border bg-muted/40 text-muted-foreground">
                   <tr>
-                    <th className="p-2 font-medium">Nome</th>
-                    <th className="p-2 font-medium">Valor</th>
-                    <th className="p-2 font-medium">Próximo</th>
-                    <th className="p-2 font-medium">Lembrete</th>
-                    <th className="p-2 font-medium" />
+                    <th className="p-2.5 font-medium">Nome</th>
+                    <th className="p-2.5 font-medium">Valor</th>
+                    <th className="p-2.5 font-medium">Próximo</th>
+                    <th className="p-2.5 font-medium">Lembrete</th>
+                    <th className="p-2.5 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
                   {subs.map((s) => (
                     <tr key={s.id} className="border-b border-border/60">
-                      <td className="p-2">{s.name}</td>
-                      <td className="p-2 whitespace-nowrap">
+                      <td className="p-2.5">{s.name}</td>
+                      <td className="p-2.5 whitespace-nowrap">
                         {(s.amount_minor / 100).toFixed(2)} {s.currency}
                       </td>
-                      <td className="p-2 whitespace-nowrap">{new Date(s.next_due_at).toLocaleString()}</td>
-                      <td className="p-2">
+                      <td className="p-2.5 whitespace-nowrap">{new Date(s.next_due_at).toLocaleString()}</td>
+                      <td className="p-2.5">
                         <Button type="button" variant="outline" size="sm" onClick={() => void toggleReminder(s)}>
                           {s.reminder_active ? "Lembrete: sim" : "Lembrete: não"}
                         </Button>
                       </td>
-                      <td className="p-2 space-x-1 text-right">
+                      <td className="p-2.5 space-x-1 text-right">
                         <Button type="button" size="sm" onClick={() => void markPaid(s.id)}>
                           Paguei
                         </Button>
@@ -422,24 +550,24 @@ export function FinancasPage() {
           </TabsContent>
 
           <TabsContent value="cat" className="mt-4 space-y-3">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Input
-                className="max-w-xs"
+                className="max-w-full min-h-10 sm:max-w-xs"
                 placeholder="Nova categoria raiz"
                 value={newCat}
                 onChange={(e) => setNewCat(e.target.value)}
               />
-              <Button type="button" size="sm" onClick={() => void addCategory()}>
+              <Button type="button" className="min-h-10 w-full sm:w-auto" onClick={() => void addCategory()}>
                 Criar
               </Button>
             </div>
-            <ul className="space-y-1 text-sm">
+            <ul className="space-y-2 text-sm">
               {rootCategories.map((c) => (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between rounded border border-border bg-card px-3 py-2"
+                  className="flex min-h-11 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2"
                 >
-                  <span>{c.name}</span>
+                  <span className="min-w-0 truncate">{c.name}</span>
                   <Button type="button" variant="ghost" size="sm" onClick={() => void removeCategory(c.id)}>
                     Apagar
                   </Button>
@@ -448,6 +576,19 @@ export function FinancasPage() {
             </ul>
           </TabsContent>
         </Tabs>
+      </div>
+
+      {/* FAB mobile: abre o mesmo diálogo */}
+      <div className="fixed bottom-4 right-4 z-20 sm:hidden">
+        <Button
+          type="button"
+          size="icon"
+          className="size-14 rounded-full shadow-lg"
+          onClick={() => setQuickOpen(true)}
+          aria-label="Nova transacção"
+        >
+          <Plus className="size-6" />
+        </Button>
       </div>
     </div>
   );

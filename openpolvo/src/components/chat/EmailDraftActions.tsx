@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   buildEmailSendPayload,
+  emailBodyLooksRawOrIncomplete,
   parseEmailMessageMeta,
   type EmailSendDraft,
 } from "@/lib/emailChatMetadata";
@@ -104,6 +105,12 @@ export function EmailDraftActions({ token, messageId, metadata, onSent }: Props)
     const payload = buildEmailSendPayload(d);
     if (!payload.subject || !payload.body) {
       return { ok: false, msg: "Assunto e corpo são obrigatórios." };
+    }
+    if (emailBodyLooksRawOrIncomplete(payload.body)) {
+      return {
+        ok: false,
+        msg: "O corpo ainda parece incompleto (ex.: só links ou «Resultados Google»). Edita o texto ou pede uma versão final no chat antes de enviar.",
+      };
     }
     if (!payload.contact_id && !(payload.to && payload.to.includes("@"))) {
       return { ok: false, msg: "Destinatário inválido." };

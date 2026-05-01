@@ -5,11 +5,19 @@ import { APP_LABELS, getPluginUrl, type AppId } from "@/config/apps";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
-import { BuilderPanel } from "@/components/builder/BuilderPanel";
-import { BuilderStreamingPanel } from "@/components/builder/BuilderStreamingPanel";
 import { TaskListsWorkspaceBody } from "@/pages/AgenteTarefas/TaskListsWorkspaceBody";
 import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
+import { PolvoCodePanel } from "@/components/polvo/PolvoCodePanel";
+import { WorkspaceRightEmptyState } from "@/components/workspace/WorkspaceRightEmptyState";
+import { useWorkspaceLayoutOptional } from "@/core/WorkspaceLayoutContext";
+
+/** `<webview>` do Electron expõe `reload`/`getURL` em runtime; os tipos DOM genéricos não cobrem isto. */
+type ElectronWebviewElement = HTMLElement & {
+  src: string;
+  reload?: () => void;
+  getURL?: () => string;
+};
 
 function isElectronShell(): boolean {
   if (typeof window === "undefined") return false;
@@ -33,14 +41,15 @@ export function SitePanel() {
   const {
     activeApp,
     dashboardData, setDashboardData,
-    builderData, setBuilderData,
-    builderProgress, builderStreamFiles,
     taskListsPreviewOpen,
     taskListsPreviewNonce,
     closeTaskListsPreview,
     refreshTaskListsPreview,
+    clearPolvoCode,
+    setActiveApp,
   } = useWorkspace();
-  const webviewRef = useRef<HTMLWebViewElement | null>(null);
+  const workspaceLayout = useWorkspaceLayoutOptional();
+  const webviewRef = useRef<ElectronWebviewElement | null>(null);
   const isElectron = isElectronShell();
   const desktopDownloadUrl = getDesktopDownloadUrl();
 
@@ -81,17 +90,14 @@ export function SitePanel() {
     }
   }, [isElectron, src]);
 
-  // Builder (Lovable-like) tem prioridade máxima
-  if (builderData) {
-    return <BuilderPanel data={builderData} onClose={() => setBuilderData(null)} />;
-  }
-
-  // Painel de progresso durante o stream do Builder
-  if (builderProgress || builderStreamFiles.length > 0) {
+  // Polvo Code — só quando o plugin nativo está activo (evita mascarar outros webviews).
+  if (activeApp === "polvo_code") {
     return (
-      <BuilderStreamingPanel
-        progress={builderProgress}
-        files={builderStreamFiles}
+      <PolvoCodePanel
+        onClose={() => {
+          clearPolvoCode();
+          setActiveApp(null);
+        }}
       />
     );
   }
@@ -139,7 +145,13 @@ export function SitePanel() {
     );
   }
 
-  if (!activeApp) return null;
+  if (!activeApp) {
+    return (
+      <WorkspaceRightEmptyState
+        onCollapseRightPanel={workspaceLayout?.collapseRightPanel}
+      />
+    );
+  }
 
   const app = activeApp;
   const title = APP_LABELS[app];
@@ -188,11 +200,11 @@ export function SitePanel() {
           <webview
             key={src}
             ref={(el) => {
-              webviewRef.current = el;
+              webviewRef.current = el as ElectronWebviewElement | null;
             }}
             src={src}
             partition="persist:smartagent"
-            allowpopups="true"
+            allowpopups={true}
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 p-6 text-center">

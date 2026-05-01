@@ -8,6 +8,7 @@ export const SMARTBUS_URL =
   "https://preprod-guanabara-backoffice-smartbus.smarttravelit.com/#/login" as const;
 
 export type AppId =
+  | "polvo_code"
   | "whatsapp"
   | "instagram"
   | "facebook"
@@ -19,6 +20,7 @@ export type AppId =
 
 /** Ordem no menu Plugins e nos submenus. */
 export const PLUGIN_IDS: readonly AppId[] = [
+  "polvo_code",
   "whatsapp",
   "instagram",
   "facebook",
@@ -30,6 +32,7 @@ export const PLUGIN_IDS: readonly AppId[] = [
 ] as const;
 
 export const APP_LABELS: Record<AppId, string> = {
+  polvo_code: "Polvo Code",
   whatsapp: "WhatsApp",
   instagram: "Instagram",
   facebook: "Facebook",
@@ -42,6 +45,8 @@ export const APP_LABELS: Record<AppId, string> = {
 
 /** URLs alinhadas com internal/agents/zepolvinho/native_plugins.go */
 export const PLUGIN_URLS: Record<AppId, string> = {
+  /** Painel nativo (Electron); não usar como URL de `<webview>`. */
+  polvo_code: "",
   whatsapp: "https://web.whatsapp.com/",
   instagram: "https://www.instagram.com/",
   facebook: "https://www.facebook.com/",
@@ -54,6 +59,11 @@ export const PLUGIN_URLS: Record<AppId, string> = {
 
 export function getPluginUrl(id: AppId): string {
   return PLUGIN_URLS[id];
+}
+
+/** Apps que não são websites — o `SitePanel` renderiza um painel nativo. */
+export function isNativePluginApp(id: AppId): boolean {
+  return id === "polvo_code";
 }
 
 export function isAppId(s: string): s is AppId {

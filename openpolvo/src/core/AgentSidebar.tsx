@@ -20,7 +20,6 @@ import {
   Trash2,
   Users,
   Wallet,
-  PanelRight,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +42,6 @@ import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { AppLogo } from "@/components/brand/AppLogo";
 import { displayNameFromToken } from "@/lib/userDisplay";
-import { findLatestBuilderDataInMessages } from "@/lib/builderMetadata";
 import { type ConversationDTO } from "@/lib/conversationsApi";
 import { partitionConversationsForNav } from "@/lib/conversationNavOrder";
 import { cn } from "@/lib/utils";
@@ -51,23 +49,18 @@ import { cn } from "@/lib/utils";
 type ConversationItemProps = {
   conv: ConversationDTO;
   isActive: boolean;
-  /** null = não sabemos (outra conversa ou a carregar); true/false só para a conversa activa. */
-  builderPreviewAvailable: boolean | null;
   onSelect: () => void;
   onRename: (id: string, newTitle: string) => void;
   onPin: (id: string, pinned: boolean) => void;
-  onOpenBuilderPreview: () => void | Promise<void>;
   onDelete: (id: string) => void;
 };
 
 function ConversationItem({
   conv,
   isActive,
-  builderPreviewAvailable,
   onSelect,
   onRename,
   onPin,
-  onOpenBuilderPreview,
   onDelete,
 }: ConversationItemProps) {
   const [editing, setEditing] = useState(false);
@@ -145,20 +138,6 @@ function ConversationItem({
           }
         />
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem
-            disabled={builderPreviewAvailable === false}
-            title={
-              builderPreviewAvailable === false
-                ? "Não há projecto com ficheiros nesta conversa"
-                : builderPreviewAvailable === null
-                  ? "Abre o painel ao lado (Vite) se existir projecto Builder nesta conversa"
-                  : undefined
-            }
-            onClick={() => void onOpenBuilderPreview()}
-          >
-            <PanelRight className="mr-2 size-3.5" />
-            Abrir painel do projecto
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={startEdit}>
             <Pencil className="mr-2 size-3.5" />
             Renomear
@@ -199,33 +178,14 @@ export function AgentSidebar() {
   const {
     conversations,
     activeConversationId,
-    messages,
-    loadingMessages,
     selectConversation,
     clearWorkspace,
     loadingList,
     deleteConversation,
     renameConversation,
     pinConversation,
-    openBuilderPreviewForConversation,
   } = useConversationWorkspace();
 
-  const builderPreviewAvailableFor = useCallback(
-    (convId: string): boolean | null => {
-      if (convId !== activeConversationId) return null;
-      if (loadingMessages) return null;
-      return findLatestBuilderDataInMessages(messages) != null;
-    },
-    [activeConversationId, loadingMessages, messages],
-  );
-
-  const handleOpenBuilderPreview = useCallback(
-    async (convId: string) => {
-      const ok = await openBuilderPreviewForConversation(convId);
-      if (ok) navigate("/");
-    },
-    [openBuilderPreviewForConversation, navigate],
-  );
   const newChat = useCallback(() => {
     if (token) {
       clearWorkspace();
@@ -432,11 +392,9 @@ export function AgentSidebar() {
                   key={c.id}
                   conv={c}
                   isActive={activeConversationId === c.id}
-                  builderPreviewAvailable={builderPreviewAvailableFor(c.id)}
                   onSelect={() => handleSelect(c)}
                   onRename={handleRename}
                   onPin={handlePin}
-                  onOpenBuilderPreview={() => void handleOpenBuilderPreview(c.id)}
                   onDelete={handleDelete}
                 />
               ))}
@@ -467,11 +425,9 @@ export function AgentSidebar() {
                   key={c.id}
                   conv={c}
                   isActive={activeConversationId === c.id}
-                  builderPreviewAvailable={builderPreviewAvailableFor(c.id)}
                   onSelect={() => handleSelect(c)}
                   onRename={handleRename}
                   onPin={handlePin}
-                  onOpenBuilderPreview={() => void handleOpenBuilderPreview(c.id)}
                   onDelete={handleDelete}
                 />
               ))}

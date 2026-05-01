@@ -35,6 +35,13 @@ func (f *fakeRepo) Create(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
+func (f *fakeRepo) UpdatePasswordHash(ctx context.Context, email string, hash string) error {
+	if u, ok := f.byEmail[email]; ok {
+		u.PasswordHash = hash
+	}
+	return nil
+}
+
 type fakeHasher struct{}
 
 func (fakeHasher) Hash(plain string) (string, error) { return "hashed", nil }

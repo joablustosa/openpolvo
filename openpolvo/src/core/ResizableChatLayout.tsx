@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft } from "lucide-react";
+import { useWorkspaceLayout } from "@/core/WorkspaceLayoutContext";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "smartagent_chat_width";
@@ -12,6 +14,7 @@ type Props = {
 };
 
 export function ResizableChatLayout({ chat, site, className }: Props) {
+  const { rightPanelCollapsed, expandRightPanel } = useWorkspaceLayout();
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   const widthRef = useRef(420);
@@ -62,6 +65,34 @@ export function ResizableChatLayout({ chat, site, className }: Props) {
       window.removeEventListener("mouseup", endDrag);
     };
   }, [onMove, endDrag]);
+
+  if (rightPanelCollapsed) {
+    return (
+      <div
+        className={cn("flex h-full min-h-0 w-full flex-1", className)}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          {chat}
+        </div>
+        <button
+          type="button"
+          onClick={expandRightPanel}
+          title="Mostrar área de trabalho"
+          aria-label="Mostrar painel direito da área de trabalho"
+          className={cn(
+            "flex h-full min-w-0 shrink-0 flex-col items-center justify-center gap-1 border-l border-border",
+            "bg-muted/40 px-1 py-4 text-muted-foreground transition-colors",
+            "hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          <ChevronLeft className="size-4 shrink-0" aria-hidden />
+          <span className="max-w-[2rem] select-none text-center text-[10px] font-medium leading-tight">
+            Área
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div

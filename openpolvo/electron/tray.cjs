@@ -18,6 +18,8 @@ const { Tray, Menu, nativeImage, app } = require("electron");
 let tray = null;
 let _onQuit = () => {};
 let _onShow = () => {};
+/** Itens extra antes de "Sair" (ex.: actualizações). */
+let _menuExtras = [];
 
 // ── Auto-launch ────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,8 @@ function buildMenu() {
       click: () => _onShow(),
     },
     { type: "separator" },
+    ..._menuExtras,
+    ...(_menuExtras.length ? [{ type: "separator" }] : []),
     {
       label: process.platform === "darwin" ? "Iniciar ao arrancar o Mac" : "Iniciar com o Windows",
       type: "checkbox",
@@ -81,10 +85,12 @@ function buildMenu() {
  * @param {string}   opts.iconPath  Caminho absoluto para o PNG do ícone
  * @param {() => void} opts.onQuit  Chamado quando o utilizador clica em "Sair"
  * @param {() => void} opts.onShow  Chamado para mostrar/focar a janela principal
+ * @param {import("electron").MenuItemConstructorOptions[]} [opts.menuExtras]  Itens extra antes de "Sair"
  */
-function createTray({ iconPath, onQuit, onShow }) {
+function createTray({ iconPath, onQuit, onShow, menuExtras }) {
   _onQuit = onQuit;
   _onShow = onShow;
+  _menuExtras = Array.isArray(menuExtras) ? menuExtras : [];
 
   let icon;
   try {

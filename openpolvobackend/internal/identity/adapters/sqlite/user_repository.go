@@ -40,6 +40,15 @@ func (r UserRepository) Create(ctx context.Context, u *domain.User) error {
 	return err
 }
 
+func (r UserRepository) UpdatePasswordHash(ctx context.Context, email string, hash string) error {
+	now := time.Now().UTC()
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE laele_users SET password_hash = ?, updated_at = ? WHERE email = ?`,
+		hash, now, email,
+	)
+	return err
+}
+
 func (r UserRepository) scanUser(row *sql.Row) (*domain.User, error) {
 	var (
 		idStr, email, hash string

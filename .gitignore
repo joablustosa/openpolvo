@@ -33,6 +33,11 @@ application_default_credentials.json
 # Node / front (openpolvo)
 node_modules/
 dist/
+# Desktop Electron — nunca versionar binários/pastas unpack (ex.: dist-electron-0.1.x, win-unpacked)
+openpolvo/dist-electron/
+openpolvo/dist-electron-*/
+openpolvo/out/
+openpolvo/release/
 *.log
 
 # Go (openpolvobackend)

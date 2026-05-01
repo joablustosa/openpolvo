@@ -39,6 +39,37 @@ export function parseEmailMessageMeta(
   };
 }
 
+/** Heurística alinhada ao Intelligence: evita envio automático com corpo bruto. */
+export function emailBodyLooksRawOrIncomplete(body: string): boolean {
+  const b = (body ?? "").trim().toLowerCase();
+  if (b.length < 80) return true;
+  const markers = [
+    "resultados google",
+    "resultados duckduckgo",
+    "serpapi.com",
+    "### motor:",
+    "engine: google",
+    "engine: duckduckgo",
+  ];
+  if (markers.some((m) => b.includes(m))) return true;
+  const lines = (body ?? "")
+    .split("\n")
+    .map((ln) => ln.trim())
+    .filter(Boolean);
+  if (lines.length >= 3) {
+    const urlLines = lines.filter((ln) => /^https?:\/\//i.test(ln)).length;
+    if (urlLines >= 3 && b.length < 1200) return true;
+  }
+  const words = (b.match(/[a-záàâãéêíóôõúç]{3,}/gi) ?? []).length;
+  const urls = ((body ?? "").match(/https?:\/\/[^\s)]+/gi) ?? []).length;
+  if (urls >= 3 && words < 40) return true;
+  return false;
+}
+
+export function emailBodyLooksReadyForAutosend(body: string): boolean {
+  return !emailBodyLooksRawOrIncomplete(body);
+}
+
 export function buildEmailSendPayload(draft: EmailSendDraft): {
   to?: string;
   subject: string;

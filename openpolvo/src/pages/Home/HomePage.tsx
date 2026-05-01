@@ -1,7 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Eye,
   Image as ImageIcon,
   MessageCircle,
   Mic,
@@ -16,7 +15,6 @@ import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
-import { findLatestBuilderDataInMessages } from "@/lib/builderMetadata";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -74,7 +72,7 @@ export function HomePage() {
   const { canSendAsAnonymous, afterAnonymousUserMessage } = useAnonymousChat();
   const workspace = useConversationWorkspace();
   const { clearWorkspace } = workspace;
-  const { setBuilderData } = useWorkspace();
+  useWorkspace(); // mantém provider activo; preview antigo removido
 
   const [guestMessages, setGuestMessages] = useState<GuestMsg[]>(
     initialGuestMessages,
@@ -103,22 +101,6 @@ export function HomePage() {
 
   const displayName = displayNameFromToken(token);
   const greeting = token ? `${displayName} está de volta!` : "Bem-vindo!";
-
-  const savedConversationProject = useMemo(() => {
-    if (
-      !token ||
-      !workspace.activeConversationId ||
-      workspace.loadingMessages
-    ) {
-      return null;
-    }
-    return findLatestBuilderDataInMessages(workspace.messages);
-  }, [
-    token,
-    workspace.activeConversationId,
-    workspace.loadingMessages,
-    workspace.messages,
-  ]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -187,32 +169,18 @@ export function HomePage() {
             </p>
           ) : null}
 
-          {token && savedConversationProject ? (
-            <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-left shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium uppercase tracking-wide text-primary/90">
-                    Projecto nesta conversa
-                  </p>
-                  <p className="truncate font-medium text-foreground">
-                    {savedConversationProject.title}
-                  </p>
-                  {savedConversationProject.description ? (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                      {savedConversationProject.description}
-                    </p>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => setBuilderData(savedConversationProject)}
-                >
-                  <Eye className="size-3.5" aria-hidden />
-                  Abrir preview
-                </Button>
-              </div>
+          {token &&
+          (workspace.loadingList || workspace.loadingMessages) &&
+          workspace.messages.length === 0 &&
+          !workspace.sending ? (
+            <div
+              className="mb-4 space-y-3 rounded-2xl border border-border/60 bg-card/50 p-4"
+              aria-hidden
+            >
+              <p className="text-xs text-muted-foreground">A carregar a conversa…</p>
+              <div className="h-3 w-2/3 max-w-sm animate-pulse rounded bg-muted" />
+              <div className="h-20 w-full max-w-lg animate-pulse rounded-md bg-muted/80" />
+              <div className="h-3 w-1/2 max-w-xs animate-pulse rounded bg-muted/60" />
             </div>
           ) : null}
 

@@ -20,8 +20,12 @@ type Config struct {
 	JWTSecret           string
 	JWTIssuer           string
 	JWTAccessTTL        time.Duration
-	// Base de dados SQLite local.
-	DBPath        string
+	// Base de dados (driver + DSN). Em produção, usar MySQL.
+	DBDriver string // mysql | sqlite
+	// DSN do MySQL (ex.: user:pass@tcp(host:3306)/dbname?parseTime=true&multiStatements=true)
+	DBDSN string
+	// Base de dados SQLite local (apenas quando DBDriver=sqlite).
+	DBPath string
 	RunMigrations bool
 	MigrationsPath string
 	AuthAllowRegister   bool
@@ -69,6 +73,8 @@ func Load() (Config, error) {
 		CORSAllowNullOrigin:  parseBool(getEnv("CORS_ALLOW_NULL_ORIGIN", "true")),
 		JWTSecret:            strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		JWTIssuer:            getEnv("JWT_ISSUER", "open-polvo"),
+		DBDriver:             strings.ToLower(strings.TrimSpace(getEnv("DB_DRIVER", "mysql"))),
+		DBDSN:                strings.TrimSpace(firstNonEmpty(os.Getenv("DB_DSN"), os.Getenv("DATABASE_URL"))),
 		DBPath:               getEnv("DB_PATH", "openpolvo.db"),
 		RunMigrations:        parseBool(getEnv("RUN_MIGRATIONS", "true")),
 		MigrationsPath:       getEnv("MIGRATIONS_PATH", "migrations"),
@@ -129,6 +135,18 @@ func Load() (Config, error) {
 	if cfg.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
+
+	switch cfg.DBDriver {
+	case "", "mysql":
+		cfg.DBDriver = "mysql"
+		if strings.TrimSpace(cfg.DBDSN) == "" {
+			return Config{}, fmt.Errorf("DB_DSN (or DATABASE_URL) is required when DB_DRIVER=mysql")
+		}
+	case "sqlite":
+		// DB_PATH usado
+	default:
+		return Config{}, fmt.Errorf("DB_DRIVER must be mysql or sqlite")
+	}
 	// Compat: permitir usar GOOGLE_OAUTH_CLIENT_ID singular.
 	if len(cfg.GoogleOAuthClientIDs) == 0 {
 		if v := strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_ID")); v != "" {
@@ -167,4 +185,13 @@ func splitComma(s string) []string {
 		}
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

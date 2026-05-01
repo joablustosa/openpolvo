@@ -46,6 +46,14 @@ class ReplyRequest(BaseModel):
         default=None,
         description="Tarefas agendadas do utilizador (id, name, task_type, cron_expr, timezone, active).",
     )
+    sandbox_project_id: str | None = Field(
+        default=None,
+        description="ID do projecto sandbox — o agente lê o buffer de logs da consola do Preview no servidor.",
+    )
+    preview_console_logs: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Eventos da consola enviados pelo cliente neste turno (level, message, source?, stack?).",
+    )
 
 
 class ReplyResponse(BaseModel):
@@ -105,3 +113,80 @@ class SocialGenerateResponse(BaseModel):
     image_prompt: str = ""
     source_url: str = ""
     source_title: str = ""
+
+
+# --- Sandbox / File Manager (ficheiros gerados pelo agente) -----------------
+
+
+class SandboxCreateRequest(BaseModel):
+    """Se `project_id` for omitido, gera-se um UUID hex."""
+
+    project_id: str | None = Field(default=None, description="Apenas [a-zA-Z0-9._-], max 64 chars")
+
+
+class SandboxCreateResponse(BaseModel):
+    project_id: str
+
+
+class SandboxWriteRequest(BaseModel):
+    path: str = Field(..., description="Caminho relativo ao root do projecto (POSIX)")
+    content: str
+    encoding: str = "utf-8"
+
+
+class SandboxFileEntry(BaseModel):
+    size_bytes: int
+    updated_at: str
+
+
+class SandboxManifestResponse(BaseModel):
+    version: int = 1
+    project_id: str
+    created_at: str
+    updated_at: str
+    files: dict[str, SandboxFileEntry] = Field(default_factory=dict)
+
+
+class SandboxTreeResponse(BaseModel):
+    paths: list[str]
+    refreshed_manifest: bool = False
+
+
+class SandboxReadResponse(BaseModel):
+    path: str
+    content: str
+    encoding: str = "utf-8"
+
+
+class SandboxDevServerStartRequest(BaseModel):
+    port: int = Field(default=5175, ge=1024, le=65535)
+    command: str | None = Field(
+        default=None,
+        description="Comando tokenizado (ex.: npx vite --host 127.0.0.1 --port 5175). Se omitido: npm run dev.",
+    )
+
+
+class SandboxDevServerStartResponse(BaseModel):
+    project_id: str
+    port: int
+
+
+class SandboxConsoleEntry(BaseModel):
+    level: str = Field(default="log", description="error | warn | log | info | debug")
+    message: str
+    source: str | None = None
+    stack: str | None = None
+    ts: float | None = None
+
+
+class SandboxConsoleIngestRequest(BaseModel):
+    entries: list[SandboxConsoleEntry] = Field(default_factory=list)
+
+
+class SandboxConsoleIngestResponse(BaseModel):
+    accepted: int
+
+
+class SandboxConsolePollResponse(BaseModel):
+    project_id: str
+    entries: list[dict[str, Any]]

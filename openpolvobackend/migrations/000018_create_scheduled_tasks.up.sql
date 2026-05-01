@@ -1,18 +1,20 @@
 CREATE TABLE IF NOT EXISTS laele_scheduled_tasks (
-  id TEXT NOT NULL PRIMARY KEY,
-  user_id TEXT NOT NULL,
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
   name TEXT NOT NULL,
   description TEXT NULL,
-  task_type TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  cron_expr TEXT NOT NULL,
-  timezone TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1,
-  last_run_at TEXT NULL,
+  task_type VARCHAR(64) NOT NULL,
+  payload_json JSON NOT NULL,
+  cron_expr VARCHAR(255) NOT NULL,
+  timezone VARCHAR(64) NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  last_run_at DATETIME(3) NULL,
   last_result TEXT NULL,
   last_error TEXT NULL,
-  run_count INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  run_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  FOREIGN KEY (user_id) REFERENCES laele_users(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_laele_sched_user_active ON laele_scheduled_tasks (user_id, active);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_laele_sched_user_active ON laele_scheduled_tasks (user_id, active);

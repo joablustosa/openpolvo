@@ -24,12 +24,16 @@ const { app } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const logger = require("./logger.cjs");
 
 const isDev = !app.isPackaged;
 
 // ── Estado interno ─────────────────────────────────────────────────────────────
 /** @type {Map<string, import("child_process").ChildProcess>} */
 const procs = new Map();
+
+/** @type {Map<string, Array<{ts: number, line: string, isError: boolean}>>} */
+const logsByService = new Map();
 
 /** @type {Map<string, ReturnType<typeof setTimeout>>} */
 const restartTimers = new Map();
@@ -46,6 +50,19 @@ function emit(name, status, extra = {}) {
   for (const l of listeners) {
     try { l({ name, status, ...extra }); } catch { /* silencia erros no listener */ }
   }
+}
+
+function pushLog(name, line, isError) {
+  const t = typeof line === "string" ? line : String(line ?? "");
+  if (t.trim() === "") return;
+  const arr = logsByService.get(name) ?? [];
+  arr.push({ ts: Date.now(), line: t, isError: Boolean(isError) });
+  // Mantém apenas os últimos ~400 eventos por serviço (suficiente p/ diagnóstico).
+  if (arr.length > 400) arr.splice(0, arr.length - 400);
+  logsByService.set(name, arr);
+
+  // Persistência para suporte pós-instalação
+  logger.log(name, `${isError ? "stderr" : "stdout"}: ${t}`);
 }
 
 function resourcePath(...segments) {
@@ -69,6 +86,33 @@ function readEnvFile(envFilePath) {
     }
   } catch { /* ignora ficheiro ilegível */ }
   return env;
+}
+
+/** Defaults para a API Go em instalação empacotada (userData + migrações ao lado do .exe). */
+function mergeApiEnv(userEnv) {
+  const ud = app.getPath("userData");
+  // Caminho absoluto para as migrações — evita dependência do cwd do processo.
+  const migrationsAbs = path.join(process.resourcesPath, "backend", "migrations");
+  const defaults = {
+    HTTP_ADDR: ":8080",
+    CORS_ALLOW_NULL_ORIGIN: "true",
+    RUN_MIGRATIONS: "true",
+    MIGRATIONS_PATH: migrationsAbs,
+    DB_PATH: path.join(ud, "openpolvo.db"),
+    POLVO_INTELLIGENCE_BASE_URL: "http://127.0.0.1:8090",
+  };
+  const merged = { ...defaults };
+  for (const [k, v] of Object.entries(userEnv)) {
+    if (v !== undefined && String(v).trim() !== "") merged[k] = String(v).trim();
+  }
+  if (merged.DB_PATH && !path.isAbsolute(merged.DB_PATH)) {
+    merged.DB_PATH = path.resolve(ud, merged.DB_PATH);
+  }
+  // Garante que MIGRATIONS_PATH é sempre absoluto, mesmo que venha do ficheiro .env.
+  if (merged.MIGRATIONS_PATH && !path.isAbsolute(merged.MIGRATIONS_PATH)) {
+    merged.MIGRATIONS_PATH = migrationsAbs;
+  }
+  return merged;
 }
 
 // ── Arrancar processo ──────────────────────────────────────────────────────────
@@ -98,15 +142,20 @@ function spawnService(name, binPath, envOverrides) {
   });
 
   proc.stdout?.on("data", (chunk) => {
-    emit(name, "log", { line: chunk.toString().trimEnd(), isError: false });
+    const line = chunk.toString().trimEnd();
+    pushLog(name, line, false);
+    emit(name, "log", { line, isError: false });
   });
 
   proc.stderr?.on("data", (chunk) => {
-    emit(name, "log", { line: chunk.toString().trimEnd(), isError: true });
+    const line = chunk.toString().trimEnd();
+    pushLog(name, line, true);
+    emit(name, "log", { line, isError: true });
   });
 
   proc.on("error", (err) => {
     procs.delete(name);
+    pushLog(name, `spawn error: ${err?.message ?? String(err)}`, true);
     emit(name, "error", { message: err.message });
     scheduleRestart(name);
   });
@@ -152,7 +201,8 @@ function startService(name) {
       return;
     }
     const userEnv = readEnvFile(path.join(app.getPath("userData"), "backend.env"));
-    spawnService("api", binPath, userEnv);
+    const envOverrides = mergeApiEnv(userEnv);
+    spawnService("api", binPath, envOverrides);
   } else if (name === "intelligence") {
     const binPath = resourcePath("intelligence", `openpolvointel${ext}`);
     if (!fs.existsSync(binPath)) {
@@ -182,6 +232,29 @@ function stopAll() {
   }
 }
 
+/** Reinicia todos os serviços (stop -> start). */
+function restartAll() {
+  stopAll();
+  startAll();
+}
+
+function getDiagnostics() {
+  const apiLogs = logsByService.get("api") ?? [];
+  const intelLogs = logsByService.get("intelligence") ?? [];
+  return {
+    isDev,
+    resourcesPath: process.resourcesPath,
+    api: {
+      status: isDev ? "external" : (procs.has("api") ? "running" : "stopped"),
+      logs: apiLogs.slice(-120),
+    },
+    intelligence: {
+      status: isDev ? "external" : (procs.has("intelligence") ? "running" : "stopped"),
+      logs: intelLogs.slice(-120),
+    },
+  };
+}
+
 /**
  * Retorna o estado actual de cada serviço.
  * @returns {{ api: string, intelligence: string }}
@@ -204,4 +277,4 @@ function onStatus(callback) {
   return () => { listeners = listeners.filter((l) => l !== callback); };
 }
 
-module.exports = { startAll, stopAll, getStatus, onStatus };
+module.exports = { startAll, stopAll, restartAll, getStatus, getDiagnostics, onStatus };

@@ -370,6 +370,76 @@ func (h *FinanceHandlers) DeleteTransaction(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PatchTransaction PATCH /v1/finance/transactions/{id} — category_id, subcategory_id, description (parcial).
+func (h *FinanceHandlers) PatchTransaction(w http.ResponseWriter, r *http.Request) {
+	userID := mustUserUUID(w, r)
+	if userID == uuid.Nil || h.Repo == nil {
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id inválido")
+		return
+	}
+	var body struct {
+		CategoryID    *string `json:"category_id"`
+		SubcategoryID *string `json:"subcategory_id"`
+		Description   *string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	ctx := r.Context()
+	tx, err := h.Repo.GetTransaction(ctx, id, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "não encontrado")
+		return
+	}
+	if body.Description != nil {
+		tx.Description = strings.TrimSpace(*body.Description)
+	}
+	if body.CategoryID != nil {
+		raw := strings.TrimSpace(*body.CategoryID)
+		if raw == "" {
+			tx.CategoryID = nil
+		} else {
+			cid, err := uuid.Parse(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "category_id inválido")
+				return
+			}
+			if _, err := h.Repo.GetCategory(ctx, cid, userID); err != nil {
+				writeError(w, http.StatusBadRequest, "categoria inexistente")
+				return
+			}
+			tx.CategoryID = &cid
+		}
+	}
+	if body.SubcategoryID != nil {
+		raw := strings.TrimSpace(*body.SubcategoryID)
+		if raw == "" {
+			tx.SubcategoryID = nil
+		} else {
+			sid, err := uuid.Parse(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "subcategory_id inválido")
+				return
+			}
+			if _, err := h.Repo.GetCategory(ctx, sid, userID); err != nil {
+				writeError(w, http.StatusBadRequest, "subcategoria inexistente")
+				return
+			}
+			tx.SubcategoryID = &sid
+		}
+	}
+	if err := h.Repo.UpdateTransaction(ctx, tx); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, txToJSON(tx))
+}
+
 func txToJSON(t *domain.Transaction) map[string]any {
 	m := map[string]any{
 		"id": t.ID.String(), "user_id": t.UserID.String(), "amount_minor": t.AmountMinor,
@@ -448,7 +518,7 @@ func (h *FinanceHandlers) GetSubscriptions(w http.ResponseWriter, r *http.Reques
 	}
 	list, err := h.Repo.ListSubscriptionsByUser(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	out := make([]any, 0, len(list))

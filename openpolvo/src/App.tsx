@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { LoginDialog } from "./components/auth/LoginDialog";
 import { AnonymousChatProvider, useAnonymousChat } from "./core/AnonymousChatContext";
 import { Shell } from "./core/Shell";
@@ -18,6 +19,8 @@ import { AutomacaoPage } from "./pages/Automacao/AutomacaoPage";
 
 function AppShell() {
   const { loginModalOpen, setLoginModalOpen } = useAnonymousChat();
+  useNavigate(); // mantém hook para compatibilidade com futuras rotas
+
   return (
     <>
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col">

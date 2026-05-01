@@ -1,25 +1,26 @@
-# electron-builder — configuração de packaging do Open Polvo
+# electron-builder — configuração de packaging do Open Polvo (desktop)
 #
-# Binários dos serviços backend são incluídos como extraResources:
-#   resources/backend/openlaele-api.exe   (Go API — tem o scheduler interno)
-#   resources/intelligence/openpolvointel.exe  (Python Intelligence — PyInstaller)
-#
-# Configuração dos serviços (variáveis de ambiente) fica em:
-#   %APPDATA%/Open Polvo/backend.env
-#   %APPDATA%/Open Polvo/intelligence.env
-# (criados pelo instalador ou manualmente pelo utilizador)
+# Nesta versão, o desktop é **apenas o cliente** (UI Electron/Vite).
+# Backend Go e Intelligence rodam **remotos** (web) e não são empacotados.
 
 appId: com.openpolvo.app
 productName: Open Polvo
 copyright: Open Polvo
 
-# Ícone gerado a partir de src/assets/oficial_logo.png pelo script de build
-icon: build/icon.png
+# Actualizações automáticas (electron-updater). Ajuste owner/repo ao seu GitHub.
+# Em CI use GH_TOKEN com permissão de escrita em Releases.
+publish:
+  provider: github
+  owner: open-polvo
+  repo: opel-la-ele
 
-# Directório de output do Vite build
+# Ícone da app (PNG; o electron-builder gera .ico para Windows quando necessário)
+icon: src/assets/oficial_logo.png
+
+# Recursos extra do builder (NSIS scripts, etc.); ícones vêm de `icon` acima
 directories:
   buildResources: build
-  output: dist-electron
+  output: dist-electron-0.1.4
 
 # Ficheiros a incluir no asar
 files:
@@ -28,19 +29,8 @@ files:
   - "!electron/**/*.map"
   - node_modules/**
   - package.json
-
-# Binários externos (fora do asar, acessíveis via process.resourcesPath)
-extraResources:
-  # Go API — compilar com: go build -o build/backend/openlaele-api.exe ./cmd/openlaele-api/
-  - from: "../openpolvobackend/build/backend"
-    to: "backend"
-    filter:
-      - "openlaele-api*"
-  # Python Intelligence — empacotar com PyInstaller: pyinstaller openpolvointel.spec
-  - from: "../openpolvointeligence/dist/openpolvointel"
-    to: "intelligence"
-    filter:
-      - "**/*"
+  # Ícone em runtime (tray + janela): copiado pelo build-desktop-artifacts.ps1
+  - build/icon.png
 
 # ── Windows ────────────────────────────────────────────────────────────────────
 win:
@@ -48,14 +38,16 @@ win:
     - target: nsis
       arch:
         - x64
+  forceCodeSigning: false
+  # Evita assinar cada .exe em resources/ (requer extrair winCodeSign com symlinks no Windows).
+  signAndEditExecutable: false
   # Solicita permissões de administrador apenas para o instalador
   requestedExecutionLevel: asInvoker
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
+  # installerIcon/uninstallerIcon omitidos: evitam dependência de build/icon.ico (ficheiro em falta quebrava o NSIS).
   # Criar atalho no arranque (o utilizador pode desactivar nas definições)
   createStartMenuShortcut: true
   createDesktopShortcut: true

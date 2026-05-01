@@ -8,19 +8,11 @@ export function MainPage() {
     activeApp,
     dashboardData,
     setDashboardData,
-    builderData,
-    builderProgress,
-    builderStreamFiles,
     taskListsPreviewOpen,
   } = useWorkspace();
 
-  // Modo workspace: app activa, builder, ou preview de listas ao lado do chat
-  const showWorkspace =
-    activeApp ||
-    builderData ||
-    builderProgress ||
-    builderStreamFiles.length > 0 ||
-    taskListsPreviewOpen;
+  // Modo workspace: app activa ou preview de listas ao lado do chat
+  const showWorkspace = activeApp || taskListsPreviewOpen;
 
   if (showWorkspace) {
     return <WorkspacePage />;

@@ -9,10 +9,10 @@ import (
 	"github.com/open-polvo/open-polvo/internal/identity/domain"
 )
 
-func TestDefaultAdminBootstrap_Ensure_idempotent(t *testing.T) {
+func TestDefaultAdminBootstrap_Ensure_syncsPassword(t *testing.T) {
 	id := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	repo := &fakeRepo{byEmail: map[string]*domain.User{
-		"admin@openlaele.local": {ID: id, Email: "admin@openlaele.local", PasswordHash: "x"},
+		"admin@openlaele.local": {ID: id, Email: "admin@openlaele.local", PasswordHash: "old-hash"},
 	}}
 	b := DefaultAdminBootstrap{Users: repo, Hasher: fakeHasher{}}
 	created, err := b.Ensure(context.Background(), "admin@openlaele.local", "correct-password")
@@ -21,6 +21,14 @@ func TestDefaultAdminBootstrap_Ensure_idempotent(t *testing.T) {
 	}
 	if created {
 		t.Fatal("expected no second create")
+	}
+	// Password deve ter sido actualizada para o novo hash
+	u, err := repo.GetByEmail(context.Background(), "admin@openlaele.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.PasswordHash != "hashed" {
+		t.Fatalf("expected password hash to be updated, got %q", u.PasswordHash)
 	}
 }
 

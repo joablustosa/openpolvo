@@ -43,7 +43,7 @@ def format_agent_memory_block(mem: dict[str, str] | None) -> str:
     if g:
         parts.append("### Escopo geral\n" + g)
     if b:
-        parts.append("### Últimas convenções do Builder / projecto\n" + b)
+        parts.append("### Notas técnicas adicionais (memória persistida)\n" + b)
     parts.append(
         "_Usa esta memória para consistência; não contradigas factos aqui descritos sem confirmar com o utilizador._"
     )
@@ -105,17 +105,6 @@ async def merge_global_memory_llm(
     return _clip(out, _MAX_GLOBAL)
 
 
-def builder_notes_from_artifact(artifact: dict[str, Any]) -> str:
-    title = str(artifact.get("title") or "").strip()
-    pt = str(artifact.get("project_type") or "").strip()
-    entry = str(artifact.get("entry_file") or "").strip()
-    fw = str(artifact.get("framework") or "").strip()
-    lines = [f"Última app gerada: {title or '—'}", f"project_type: {pt or '—'}", f"entry_file: {entry or '—'}"]
-    if fw:
-        lines.append(f"framework: {fw}")
-    return "\n".join(lines)[:_MAX_BUILDER]
-
-
 async def finalize_reply_metadata(
     settings: Any,
     model_provider: str | None,
@@ -145,13 +134,8 @@ def build_agent_memory_patch(
     meta: dict[str, Any],
     new_global: str | None,
 ) -> dict[str, str] | None:
-    """Monta patch mínimo para o cliente Go persistir (global e/ou builder)."""
+    """Monta patch mínimo para o cliente Go persistir (global)."""
     out: dict[str, str] = {}
-    art = meta.get("builder")
-    if isinstance(art, dict) and art.get("files"):
-        bn = builder_notes_from_artifact(art)
-        if bn.strip():
-            out["builder"] = bn
     if new_global is not None and new_global.strip():
         out["global"] = new_global.strip()
     return out or None

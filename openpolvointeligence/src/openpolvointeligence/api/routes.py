@@ -48,6 +48,9 @@ async def post_reply(
         sc_ctx = body.scheduled_tasks_context
         if sc_ctx is not None and not isinstance(sc_ctx, list):
             sc_ctx = None
+        prev_logs = body.preview_console_logs
+        if prev_logs is not None and not isinstance(prev_logs, list):
+            prev_logs = None
         text, meta = await run_reply(
             eff,
             msgs,
@@ -60,6 +63,8 @@ async def post_reply(
             sc_ctx,
             conversation_id=body.conversation_id,
             agent_memory=body.agent_memory,
+            sandbox_project_id=body.sandbox_project_id,
+            preview_console_logs=prev_logs,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -75,9 +80,7 @@ async def post_reply_stream(
 ) -> StreamingResponse:
     """Endpoint SSE para streaming do agente.
 
-    Emite eventos `data: {json}\\n\\n` à medida que o grafo avança.
-    Elimina o timeout HTTP para o sub-grafo Builder (Lovable-like) que pode
-    levar vários minutos.
+    Emite eventos ``data: {json}\\n\\n`` à medida que o grafo avança.
     """
     settings = get_settings()
     eff = merge_llm_from_mapping(settings, body.model_dump())
@@ -98,6 +101,9 @@ async def post_reply_stream(
     sc_ctx = body.scheduled_tasks_context
     if sc_ctx is not None and not isinstance(sc_ctx, list):
         sc_ctx = None
+    prev_logs = body.preview_console_logs
+    if prev_logs is not None and not isinstance(prev_logs, list):
+        prev_logs = None
 
     async def event_gen():
         try:
@@ -113,6 +119,8 @@ async def post_reply_stream(
                 sc_ctx,
                 conversation_id=body.conversation_id,
                 agent_memory=body.agent_memory,
+                sandbox_project_id=body.sandbox_project_id,
+                preview_console_logs=prev_logs,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001

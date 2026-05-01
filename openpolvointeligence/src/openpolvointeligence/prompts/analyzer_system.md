@@ -19,8 +19,6 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 |---------------|-------------|
 | `criacao_automacao` | Desenhar, configurar ou arquitetar fluxos (RPA, estilo Zapier/Make, nós LangGraph, pipelines de dados). |
 | `execucao_automacao` | Disparar um gatilho (trigger) ou executar uma automação/job **já** configurado. |
-| `criacao_sistema_web` | Especificar requisitos, gerar boilerplate ou desenhar arquitetura de apps web, dashboards e APIs. |
-| `criacao_app_interativa` | Pedido **explícito** para **criar/gerar código ou uma aplicação web executável** (frontend, fullstack, site, API, protótipo com ficheiros) — ex.: "faz um kanban em React", "quero um site de contactos com backend", "gera um CRUD em Next". **Não uses** esta etiqueta para **criar/editar uma tarefa ou item nas listas persistidas do Open Polvo** ("adiciona uma tarefa", "marca como feito", "cria uma tarefa na minha lista") — isso é `gestao_tarefas_calendario`. A frase "cria uma **app** de tarefas" (aplicação de software) é Builder; "cria **uma** tarefa" / "nova tarefa na lista" é gestão de listas. |
 | `post_instagram` | Conteúdo para o ecossistema Instagram (Reels, Stories, Feed). |
 | `post_facebook` | Copy e estratégia para páginas ou grupos no Facebook. |
 | `post_linkedin` | Conteúdo corporativo, artigos de autoridade ou página empresarial no LinkedIn. |
@@ -30,12 +28,12 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `resposta_email` | Sinónimo explícito de resposta a e-mail / encaminhar / “responde a este mail”. |
 | `monitorizacao_email` | Pedido para **ficar a escutar** a caixa, auto-responder ou monitorizar inbox (tratar como fluxo de e-mail + explicar limites de IMAP se aplicável). |
 | `pedido_conteudo_generico` | Textos, blogs, resumos ou código que **não** caem numa rede ou canal já listado. |
-| `analise_dados_relatorios` | Insights, cruzamento de fontes ou visualizações a partir de dados. |
-| `pesquisa_web_tempo_real` | Informação actualizada na Web (notícias, preços, documentação técnica). |
+| `analise_dados_relatorios` | Insights, cruzamento de fontes ou visualizações a partir de dados. Se o pedido misturar **gráfico/dashboard** com **pesquisa na Internet / notícias actuais / fontes online**, mantém esta intenção: com `SERPAPI_API_KEY`, o motor pode correr **antes** um pipeline web (SERP + páginas + unificador) e injectar o resultado no especialista de dados. |
+| `pesquisa_web_tempo_real` | Informação actualizada na Web (notícias, preços, documentação técnica). Com `SERPAPI_API_KEY` no Intelligence, o motor corre um **pipeline multi-etapas** (várias buscas e revisão) antes da resposta. |
 | `visao_computacional_analise` | Imagem ou vídeo enviado: descrever, OCR ou identificar elementos. |
 | `geracao_midia_ai` | Gerar imagens, vídeo curto ou áudio/música (estilo modelo generativo). |
 | `agendamento` | Criar, editar, listar, activar, desactivar ou apagar **tarefas agendadas recorrentes** (automações com CRON): "envia email todo dia às 20h", "executa a minha lista todas as manhãs", "cria uma automação que…". **Prioridade máxima** quando o utilizador menciona horários recorrentes, frequências ("todo dia", "toda segunda", "a cada hora") combinadas com uma acção automatizada. |
-| `gestao_tarefas_calendario` | Agendar reuniões, lembretes, organizar backlog **e** pedidos sobre as **listas de tarefas persistidas na aplicação Open Polvo** (criar/editar/apagar listas ou items, contar, resumir estado, executar a lista com o agente). **Prioridade** sobre `criacao_app_interativa` quando o utilizador fala em tarefas/itens/listas sem pedir código ou site. |
+| `gestao_tarefas_calendario` | Agendar reuniões, lembretes, organizar backlog **e** pedidos sobre as **listas de tarefas persistidas na aplicação Open Polvo** (criar/editar/apagar listas ou items, contar, resumir estado, executar a lista com o agente). |
 | `financas_pessoais` | Orçamento **pessoal** na app Open Polvo: **gastos, receitas, categorias, transacções, assinaturas**, digest diário, «quanto gastei», «registar um gasto», Netflix/Spotify como despesa recorrente. **Não** uses para margem de loja ou simulações em Excel/Sheets (`planilha_estrategia_precos`). |
 | `duvida_tecnica_tutorial` | “Como fazer”, explicações de conceitos ou aprendizagem guiada. |
 | `suporte_erro_feedback` | Bugs no agente, integração ou reclamações de desempenho. |
@@ -59,7 +57,7 @@ Responda **apenas** com um objeto JSON válido (sem markdown, sem texto antes ou
 ### Regras de robustez (para evitar routing errado)
 
 - Se o utilizador pedir **alterações no produto/bug** (“erro”, “não funciona”, “quebrou”) → `suporte_erro_feedback`.
-- Se o utilizador pedir **criar app/código executável** (React/Vite/CRUD/API) → `criacao_app_interativa`.
+- Se o utilizador pedir **criar site, app web, CRUD, código executável ou stack técnica** → `pedido_conteudo_generico` ou `duvida_tecnica_tutorial` (explicações, snippets, arquitectura em texto — **não** existe fluxo automático de geração de projecto).
 - Se o utilizador pedir **criar tarefa** (na lista do Open Polvo, “adiciona uma tarefa”, “marca como feito”) → `gestao_tarefas_calendario`.
 - Se o utilizador mencionar **frequência recorrente + acção automatizada** (“todo dia”, “toda segunda”, “a cada hora”) → `agendamento`.
 

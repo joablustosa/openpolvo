@@ -18,6 +18,8 @@ type CategoryRepository interface {
 
 type TransactionRepository interface {
 	CreateTransaction(ctx context.Context, t *domain.Transaction) error
+	GetTransaction(ctx context.Context, id, userID uuid.UUID) (*domain.Transaction, error)
+	UpdateTransaction(ctx context.Context, t *domain.Transaction) error
 	DeleteTransaction(ctx context.Context, id, userID uuid.UUID) error
 	ListTransactionsByRange(ctx context.Context, userID uuid.UUID, from, to time.Time, direction *domain.Direction) ([]domain.Transaction, error)
 	SumByCategoryMonth(ctx context.Context, userID uuid.UUID, monthStart, monthEnd time.Time) ([]CategorySumRow, error)

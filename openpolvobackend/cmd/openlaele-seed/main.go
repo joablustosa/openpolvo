@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := platformdb.Open(cfg.DBPath)
+	db, err := platformdb.Open(cfg)
 	if err != nil {
 		slog.Error("db", "err", err)
 		os.Exit(1)
@@ -55,7 +55,8 @@ func main() {
 	ctx := context.Background()
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO laele_users (id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
+		 VALUES (?, ?, ?, ?, ?) AS new
+		 ON DUPLICATE KEY UPDATE password_hash = new.password_hash, updated_at = new.updated_at`,
 		id.String(), email, string(hash), now, now,
 	)
 	if err != nil {
