@@ -20,7 +20,7 @@ icon: src/assets/oficial_logo.png
 # Recursos extra do builder (NSIS scripts, etc.); ícones vêm de `icon` acima
 directories:
   buildResources: build
-  output: dist-electron-0.1.4
+  output: dist-electron-0.1.5
 
 # Ficheiros a incluir no asar
 files:
