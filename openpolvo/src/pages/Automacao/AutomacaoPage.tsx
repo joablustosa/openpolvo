@@ -133,7 +133,7 @@ const WF_NODE_CATALOG: Record<
   llm: { labelPt: "LLM", descricaoCurta: "Gera texto com o modelo" },
   web_search: {
     labelPt: "Pesquisa web",
-    descricaoCurta: "SerpApi (DuckDuckGo ou Google)",
+    descricaoCurta: "SerpApi + extração de páginas (Intelligence)",
   },
   send_email: {
     labelPt: "Enviar e-mail",
@@ -193,6 +193,8 @@ function defaultDataForWfType(t: WfType): Record<string, unknown> {
         label: meta.labelPt,
         query: "",
         search_engine: "duckduckgo",
+        m: 8,
+        web_search_skip_page_fetch: false,
       };
     case "send_email":
       return {
@@ -971,8 +973,9 @@ function WfInspectorPanel({
               {nodeType === "web_search" ? (
                 <div className="space-y-2 border-t border-border pt-2">
                   <p className="text-[10px] leading-snug text-muted-foreground">
-                    Pesquisa na web via SerpApi (DuckDuckGo ou Google) com a mesma chave do servidor.
-                    O resultado aparece no histórico do run.
+                    Pesquisa na web via SerpApi (DuckDuckGo ou Google). O servidor devolve títulos, URLs e snippets;
+                    por omissão o Open Polvo Intelligence abre as páginas seguras, extrai o texto principal (trafilatura) e
+                    passa por um agente LLM alinhado à query — útil antes de um nó LLM ou e-mail.
                   </p>
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground">Motor de pesquisa</label>
@@ -995,6 +998,34 @@ function WfInspectorPanel({
                     value={String((nd as { query?: string })?.query ?? "")}
                     onChange={(e) => onUpdateNodeData({ query: e.target.value })}
                   />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Máx. resultados SerpAPI (1–10)</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10}
+                        className="h-8 text-xs"
+                        value={String((nd as { m?: number })?.m ?? 8)}
+                        onChange={(e) => {
+                          const v = Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 8));
+                          onUpdateNodeData({ m: v });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-start gap-2 text-[10px] leading-snug text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={Boolean((nd as { web_search_skip_page_fetch?: boolean })?.web_search_skip_page_fetch)}
+                      onChange={(e) => onUpdateNodeData({ web_search_skip_page_fetch: e.target.checked })}
+                    />
+                    <span>
+                      Só SerpAPI (snippets na saída, sem abrir páginas nem Intelligence). Mais rápido; menos contexto
+                      para o nó LLM seguinte.
+                    </span>
+                  </label>
                   <div className="grid grid-cols-2 gap-2">
                     <Input
                       placeholder="Região (kl) ex.: br-pt, us-en"

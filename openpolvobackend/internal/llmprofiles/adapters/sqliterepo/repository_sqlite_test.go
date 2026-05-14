@@ -36,6 +36,29 @@ func TestRepository_CreateProfile_InMemorySQLite(t *testing.T) {
 	}
 }
 
+func TestRepository_GetAgentPrefs_singletonNullDefaultProfileID(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:llm_prefs_mem?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+	r := &Repository{DB: db, Cfg: platformcfg.Config{JWTSecret: "unit-test-jwt-secret-not-for-prod"}}
+	p, err := r.GetAgentPrefs(ctx)
+	if err != nil {
+		t.Fatalf("GetAgentPrefs: %v", err)
+	}
+	if p.AgentMode != "auto" {
+		t.Fatalf("agent_mode=%q want auto", p.AgentMode)
+	}
+	if p.DefaultProfileID != nil {
+		t.Fatalf("expected nil default profile, got %v", p.DefaultProfileID)
+	}
+}
+
 func TestRepository_CreateProfile_WithLegacyNarrowTable(t *testing.T) {
 	db, err := sql.Open("sqlite", "file:llmprof_legacy_mem?mode=memory&cache=shared")
 	if err != nil {

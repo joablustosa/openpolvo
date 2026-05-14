@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
@@ -19,14 +20,13 @@ import (
 	metaapp "github.com/open-polvo/open-polvo/internal/meta/application"
 	wfdomain "github.com/open-polvo/open-polvo/internal/workflows/domain"
 	"github.com/open-polvo/open-polvo/internal/workflows/engine"
-	"github.com/open-polvo/open-polvo/internal/workflows/ports"
 	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 // RunWorkflow executa um workflow de forma síncrona e persiste o run.
 type RunWorkflow struct {
-	Workflows ports.WorkflowRepository
-	Runs      ports.RunRepository
+	Workflows wfports.WorkflowRepository
+	Runs      wfports.RunRepository
 	LLM       wfports.IntelligenceService
 	LLMResolve *llmapp.Resolver
 	// ModelProvider usado para nós llm no grafo.
@@ -174,7 +174,13 @@ func (uc *RunWorkflow) Execute(ctx context.Context, userID, workflowID uuid.UUID
 			}
 		}
 	}
-	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn, mailDeps, social)
+	var webEnrich wfports.WebSearchEnricher
+	if uc.LLM != nil {
+		if c, ok := uc.LLM.(*polvointel.Client); ok && c != nil && c.Configured() {
+			webEnrich = c
+		}
+	}
+	logs, runErr := engine.RunGraph(ctx, wf.Graph, cfg, llmFn, mailDeps, social, mpUsed, ov, webEnrich)
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.StepLog = logs

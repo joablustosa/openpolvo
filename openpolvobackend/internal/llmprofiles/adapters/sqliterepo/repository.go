@@ -326,10 +326,11 @@ func (r *Repository) GetAgentPrefs(ctx context.Context) (domain.AgentPrefs, erro
 	if err := r.ensureLLMSchema(ctx); err != nil {
 		return domain.AgentPrefs{}, err
 	}
-	var mode, defID, updated string
+	var mode, updated string
+	var defCol sql.NullString
 	err := r.DB.QueryRowContext(ctx,
 		`SELECT agent_mode, default_profile_id, updated_at FROM laele_llm_agent_prefs WHERE id='singleton'`,
-	).Scan(&mode, &defID, &updated)
+	).Scan(&mode, &defCol, &updated)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.AgentPrefs{AgentMode: "auto"}, nil
@@ -337,9 +338,12 @@ func (r *Repository) GetAgentPrefs(ctx context.Context) (domain.AgentPrefs, erro
 		return domain.AgentPrefs{AgentMode: "auto"}, err
 	}
 	var def *uuid.UUID
-	if strings.TrimSpace(defID) != "" {
-		if u, err := uuid.Parse(defID); err == nil {
-			def = &u
+	if defCol.Valid {
+		s := strings.TrimSpace(defCol.String)
+		if s != "" {
+			if u, err := uuid.Parse(s); err == nil {
+				def = &u
+			}
 		}
 	}
 	ut := parseFlexTime(updated)

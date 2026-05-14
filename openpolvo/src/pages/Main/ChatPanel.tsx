@@ -275,7 +275,7 @@ export function ChatPanel() {
       </ScrollArea>
 
       <form
-        className="shrink-0 border-t border-border bg-card/50 p-3"
+        className="relative z-10 shrink-0 border-t border-border bg-card/50 p-3"
         onSubmit={send}
       >
         {micError || wakeSpeechError || wakeError ? (

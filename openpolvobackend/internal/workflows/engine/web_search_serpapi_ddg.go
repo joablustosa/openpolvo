@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 type DuckDuckGoSearchParams struct {
@@ -37,21 +39,32 @@ type ddgSerpApiResp struct {
 	} `json:"related_searches"`
 }
 
-func serpOrganicSearch(ctx context.Context, engine string, resultsTitle string, p DuckDuckGoSearchParams) (string, error) {
+// serpNumResults devolve 1..10 para pedir à SerpAPI (campo M do nó ou omissão 8).
+func serpNumResults(m int) int {
+	if m >= 1 && m <= 10 {
+		return m
+	}
+	return 8
+}
+
+// FetchSerpOrganicHits chama SerpAPI e devolve resultados orgânicos com snippet.
+func FetchSerpOrganicHits(ctx context.Context, engine string, p DuckDuckGoSearchParams) ([]wfports.WebSearchOrganicHit, error) {
 	q := strings.TrimSpace(p.Query)
 	if q == "" {
-		return "", fmt.Errorf("query vazia")
+		return nil, fmt.Errorf("query vazia")
 	}
 	if len(q) > 500 {
 		q = q[:500]
 	}
 	if strings.TrimSpace(p.APIKey) == "" {
-		return "", fmt.Errorf("SERPAPI_API_KEY vazia")
+		return nil, fmt.Errorf("SERPAPI_API_KEY vazia")
 	}
 	engine = strings.ToLower(strings.TrimSpace(engine))
 	if engine != "duckduckgo" && engine != "google" {
-		return "", fmt.Errorf("motor serpapi não suportado: %s", engine)
+		return nil, fmt.Errorf("motor serpapi não suportado: %s", engine)
 	}
+
+	num := serpNumResults(p.M)
 
 	u, _ := url.Parse("https://serpapi.com/search")
 	qs := u.Query()
@@ -74,9 +87,7 @@ func serpOrganicSearch(ctx context.Context, engine string, resultsTitle string, 
 		if p.Start > 0 {
 			qs.Set("start", fmt.Sprint(p.Start))
 		}
-		if p.M > 0 {
-			qs.Set("m", fmt.Sprint(p.M))
-		}
+		qs.Set("m", fmt.Sprint(num))
 	case "google":
 		if p.Safe != 0 {
 			qs.Set("safe", fmt.Sprint(p.Safe))
@@ -84,64 +95,95 @@ func serpOrganicSearch(ctx context.Context, engine string, resultsTitle string, 
 		if p.Start > 0 {
 			qs.Set("start", fmt.Sprint(p.Start))
 		}
-		if p.M > 0 {
-			qs.Set("num", fmt.Sprint(p.M))
-		}
+		qs.Set("num", fmt.Sprint(num))
 	}
 	u.RawQuery = qs.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 25 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("serpapi status %d", resp.StatusCode)
+		return nil, fmt.Errorf("serpapi status %d", resp.StatusCode)
 	}
 	var out ddgSerpApiResp
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode serpapi: %w", err)
+		return nil, fmt.Errorf("decode serpapi: %w", err)
 	}
 	if strings.EqualFold(strings.TrimSpace(out.SearchMetadata.Status), "Error") && strings.TrimSpace(out.SearchMetadata.Error) != "" {
-		return "", fmt.Errorf("serpapi error: %s", out.SearchMetadata.Error)
+		return nil, fmt.Errorf("serpapi error: %s", out.SearchMetadata.Error)
 	}
 
-	var b strings.Builder
-	b.WriteString(resultsTitle)
-	b.WriteString(":\n")
-	max := 3
-	if len(out.OrganicResults) < max {
-		max = len(out.OrganicResults)
-	}
-	for i := 0; i < max; i++ {
-		r := out.OrganicResults[i]
+	var hits []wfports.WebSearchOrganicHit
+	for _, r := range out.OrganicResults {
 		title := strings.TrimSpace(r.Title)
 		link := strings.TrimSpace(r.Link)
 		if title == "" && link == "" {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("%d) %s\n%s\n", i+1, title, link))
+		hits = append(hits, wfports.WebSearchOrganicHit{
+			Title:   title,
+			Link:    link,
+			Snippet: strings.TrimSpace(r.Snippet),
+		})
 	}
-	if max == 0 {
+	return hits, nil
+}
+
+// FormatSerpMarkdown formata até `limit` resultados com título, URL e snippet.
+func FormatSerpMarkdown(hits []wfports.WebSearchOrganicHit, resultsTitle string, limit int) string {
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > len(hits) {
+		limit = len(hits)
+	}
+	var b strings.Builder
+	b.WriteString(resultsTitle)
+	b.WriteString(":\n\n")
+	if limit == 0 {
 		b.WriteString("(sem resultados orgânicos)\n")
+		return strings.TrimSpace(b.String())
 	}
-	return strings.TrimSpace(b.String()), nil
+	for i := 0; i < limit; i++ {
+		r := hits[i]
+		b.WriteString(fmt.Sprintf("### %d) %s\n", i+1, r.Title))
+		if r.Link != "" {
+			b.WriteString(r.Link + "\n")
+		}
+		if r.Snippet != "" {
+			b.WriteString(r.Snippet + "\n")
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
-// DuckDuckGoSerpSearch chama https://serpapi.com/search?engine=duckduckgo&q=... e devolve um resumo curto.
+// DuckDuckGoSerpSearch chama SerpAPI (duckduckgo) e devolve Markdown com snippets.
 func DuckDuckGoSerpSearch(ctx context.Context, p DuckDuckGoSearchParams) (string, error) {
-	return serpOrganicSearch(ctx, "duckduckgo", "Resultados DuckDuckGo", p)
+	hits, err := FetchSerpOrganicHits(ctx, "duckduckgo", p)
+	if err != nil {
+		return "", err
+	}
+	lim := serpNumResults(p.M)
+	return FormatSerpMarkdown(hits, "Resultados DuckDuckGo", lim), nil
 }
 
-// GoogleSerpSearch chama https://serpapi.com/search?engine=google&q=... com a mesma SERPAPI_API_KEY.
+// GoogleSerpSearch chama SerpAPI (google) e devolve Markdown com snippets.
 func GoogleSerpSearch(ctx context.Context, p DuckDuckGoSearchParams) (string, error) {
-	return serpOrganicSearch(ctx, "google", "Resultados Google", p)
+	hits, err := FetchSerpOrganicHits(ctx, "google", p)
+	if err != nil {
+		return "", err
+	}
+	lim := serpNumResults(p.M)
+	return FormatSerpMarkdown(hits, "Resultados Google", lim), nil
 }

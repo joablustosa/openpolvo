@@ -89,6 +89,30 @@ class LLMTextResponse(BaseModel):
     text: str
 
 
+class WorkflowWebSearchOrganicHit(BaseModel):
+    title: str = ""
+    link: str = ""
+    snippet: str = ""
+
+
+class WorkflowWebSearchEnrichRequest(BaseModel):
+    model_provider: str = "openai"
+    openai_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_model: str | None = None
+    google_model: str | None = None
+    query: str = ""
+    engine: str = Field(default="duckduckgo", description="duckduckgo | google (informativo)")
+    organic_results: list[WorkflowWebSearchOrganicHit] = Field(
+        default_factory=list,
+        description="Resultados orgânicos SerpAPI (título, link, snippet).",
+    )
+
+
+class WorkflowWebSearchEnrichResponse(BaseModel):
+    text: str
+
+
 class CapabilitiesResponse(BaseModel):
     openai_configured: bool
     google_configured: bool

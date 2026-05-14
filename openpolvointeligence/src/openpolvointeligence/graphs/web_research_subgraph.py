@@ -224,7 +224,9 @@ def build_web_research_graph(settings: Settings) -> Any:
         sblocks = state.get("site_blocks") or []
         if isinstance(sblocks, list) and sblocks:
             joined = "\n\n---\n\n".join(str(x) for x in sblocks if x)
-            extra_parts.append("## Resumo por página (sub-grafos por URL)\n" + _clip(joined, 12_000))
+            extra_parts.append(
+                "## Conteúdo por URL (trafilatura + agente de extração web)\n" + _clip(joined, 12_000)
+            )
         extra = ""
         if extra_parts:
             extra = "\n\n".join(extra_parts) + "\n\n"
@@ -353,5 +355,6 @@ async def run_web_research_pipeline(
         "web_research_trace": out.get("trace") or [],
         "web_research_deep_urls": list(out.get("deep_urls") or []),
         "web_research_site_blocks_count": len(out.get("site_blocks") or []),
+        "web_research_site_pipeline": "trafilatura_scrape_specialist",
     }
     return text, meta_extra

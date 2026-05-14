@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import urlparse
 
@@ -36,6 +37,38 @@ def is_safe_public_http_url(url: str) -> bool:
     return True
 
 
+def extract_main_content_trafilatura(html: str, url: str, *, max_chars: int = 24_000) -> str | None:
+    """
+    Extrai o corpo principal (artigo / conteúdo) com trafilatura — padrão comum em
+    pipelines de preparação de contexto para LLM. Devolve None se não houver texto útil.
+    """
+    try:
+        from trafilatura import extract
+    except ImportError:
+        return None
+    h = (html or "").strip()
+    if len(h) < 40:
+        return None
+    text: str | None = None
+    try:
+        text = extract(
+            h,
+            url=url or None,
+            include_tables=True,
+            include_comments=False,
+            no_fallback=False,
+        )
+    except TypeError:
+        try:
+            text = extract(h, url=url or None, include_tables=True)
+        except TypeError:
+            text = extract(h, url=url or None)
+    if not text or not str(text).strip() or len(str(text).strip()) < 40:
+        return None
+    t = str(text).strip()
+    return t if len(t) <= max_chars else t[: max_chars - 1] + "…"
+
+
 def strip_html_to_text(html: str, max_chars: int = 24_000) -> str:
     s = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
     s = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", s)
@@ -51,6 +84,7 @@ async def fetch_url_plaintext(
     timeout_s: float = 18.0,
     max_bytes: int = 600_000,
     max_chars: int = 24_000,
+    use_trafilatura: bool = True,
 ) -> str:
     """GET da URL; devolve texto visível ou mensagem de erro curta."""
     u = (url or "").strip()
@@ -68,6 +102,12 @@ async def fetch_url_plaintext(
             ct = (resp.headers.get("content-type") or "").lower()
         if "html" in ct or "xml" in ct or not ct:
             text = raw.decode("utf-8", errors="replace")
+            if use_trafilatura:
+                extracted = await asyncio.to_thread(
+                    extract_main_content_trafilatura, text, u, max_chars=max_chars
+                )
+                if extracted:
+                    return extracted
             return strip_html_to_text(text, max_chars=max_chars)
         return raw.decode("utf-8", errors="replace")[:max_chars]
     except Exception as exc:

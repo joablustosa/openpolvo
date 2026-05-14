@@ -1,14 +1,13 @@
 # electron-builder — configuração de packaging do Open Polvo (desktop)
 #
-# Nesta versão, o desktop é **apenas o cliente** (UI Electron/Vite).
-# Backend Go e Intelligence rodam **remotos** (web) e não são empacotados.
+# Desktop: UI + binários empacotados (Go API + Intelligence PyInstaller) em `resources/`
+# — ver `electron/processManager.cjs` e `build-desktop-artifacts.ps1`.
 
 appId: com.openpolvo.app
 productName: Open Polvo
 copyright: Open Polvo
 
-# Actualizações automáticas (electron-updater). Ajuste owner/repo ao seu GitHub.
-# Em CI use GH_TOKEN com permissão de escrita em Releases.
+# Actualizações automáticas (electron-updater). Em builds locais sem GH_TOKEN o builder ignora o upload.
 publish:
   provider: github
   owner: open-polvo
@@ -20,7 +19,14 @@ icon: src/assets/oficial_logo.png
 # Recursos extra do builder (NSIS scripts, etc.); ícones vêm de `icon` acima
 directories:
   buildResources: build
-  output: dist-electron-0.1.5
+  output: dist-electron-installer
+
+# Binários do assistente local (gerados por `build-desktop-artifacts.ps1` antes de `npm run dist:win`)
+extraResources:
+  - from: "../openpolvobackend/build/backend"
+    to: "backend"
+  - from: "../openpolvointeligence/dist/openpolvointel"
+    to: "intelligence"
 
 # Ficheiros a incluir no asar
 files:

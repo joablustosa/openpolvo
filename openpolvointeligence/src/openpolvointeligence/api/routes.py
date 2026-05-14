@@ -17,10 +17,13 @@ from openpolvointeligence.api.schemas import (
     SocialGenerateResponse,
     WorkflowGenerateRequest,
     WorkflowGenerateResponse,
+    WorkflowWebSearchEnrichRequest,
+    WorkflowWebSearchEnrichResponse,
 )
 from openpolvointeligence.core.config import get_settings
 from openpolvointeligence.graphs.social_generator import generate_social_post
 from openpolvointeligence.graphs.workflow_llm import generate_graph_json, generate_text
+from openpolvointeligence.graphs.workflow_web_search_enrich import run_workflow_web_search_enrich
 from openpolvointeligence.graphs.zepolvinho_graph import run_reply, run_reply_stream
 
 router = APIRouter(prefix="/v1", tags=["v1"])
@@ -181,6 +184,31 @@ async def post_llm_generate_text(
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return LLMTextResponse(text=text)
+
+
+@router.post("/workflows/web-search-enrich", response_model=WorkflowWebSearchEnrichResponse)
+async def post_workflow_web_search_enrich(
+    body: WorkflowWebSearchEnrichRequest,
+    _: None = Depends(verify_internal_key),
+) -> WorkflowWebSearchEnrichResponse:
+    """SerpAPI já foi chamada na API Go; aqui aprofundamos URLs com trafilatura + agente por site."""
+    settings = get_settings()
+    eff = merge_llm_from_mapping(settings, body.model_dump())
+    if not eff.has_any_llm_key:
+        raise HTTPException(status_code=503, detail="no LLM API keys configured")
+    organic = [h.model_dump() for h in body.organic_results]
+    try:
+        text = await run_workflow_web_search_enrich(
+            eff,
+            body.model_provider,
+            query=body.query,
+            organic=organic,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return WorkflowWebSearchEnrichResponse(text=text)
 
 
 @router.post("/social/generate-post", response_model=SocialGenerateResponse)

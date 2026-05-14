@@ -293,58 +293,61 @@ export function HomePage() {
                 <Plus className="size-4" />
               </Button>
             </div>
-            <div className="absolute bottom-3 right-3 flex flex-wrap items-center justify-end gap-1">
-              {token ? (
-                <ChatLlmRoutingSelect
-                  value={workspace.llmSelectValue}
-                  onValueChange={workspace.setLlmSelectValue}
-                  profiles={workspace.llmProfiles}
-                  disabled={submitting}
-                />
-              ) : null}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 rounded-full border-border/80 bg-background/80 text-xs"
-                disabled
-              >
-                <Paperclip className="size-3.5 opacity-70" />
-                Anexos
-              </Button>
-              {token ? (
+            {/* pointer-events-none: a camada não “rouba” cliques na área vazia por cima do textarea; só os controlos recebem eventos. */}
+            <div className="pointer-events-none absolute bottom-3 right-3 flex flex-wrap items-center justify-end gap-1">
+              <div className="pointer-events-auto inline-flex max-w-[min(100%,22rem)] flex-wrap items-center justify-end gap-1">
+                {token ? (
+                  <ChatLlmRoutingSelect
+                    value={workspace.llmSelectValue}
+                    onValueChange={workspace.setLlmSelectValue}
+                    profiles={workspace.llmProfiles}
+                    disabled={submitting}
+                  />
+                ) : null}
                 <Button
                   type="button"
-                  size="icon-sm"
-                  variant={micState === "recording" ? "destructive" : "ghost"}
-                  className={cn(micState !== "recording" && "text-muted-foreground")}
-                  aria-label={micState === "recording" ? "Parar gravação" : "Gravar voz (Jarvis)"}
-                  disabled={submitting || micState === "processing"}
-                  onClick={toggleMic}
-                  title={
-                    micState === "recording"
-                      ? "Parar e enviar transcrição"
-                      : "Falar: termina ao silêncio ou ao clicar de novo"
-                  }
-                >
-                  {micState === "recording" ? (
-                    <MicOff className="size-4" />
-                  ) : (
-                    <Mic className="size-4" />
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="text-muted-foreground"
-                  aria-label="Voz"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 rounded-full border-border/80 bg-background/80 text-xs"
                   disabled
                 >
-                  <Mic className="size-4" />
+                  <Paperclip className="size-3.5 opacity-70" />
+                  Anexos
                 </Button>
-              )}
+                {token ? (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant={micState === "recording" ? "destructive" : "ghost"}
+                    className={cn(micState !== "recording" && "text-muted-foreground")}
+                    aria-label={micState === "recording" ? "Parar gravação" : "Gravar voz (Jarvis)"}
+                    disabled={submitting || micState === "processing"}
+                    onClick={toggleMic}
+                    title={
+                      micState === "recording"
+                        ? "Parar e enviar transcrição"
+                        : "Falar: termina ao silêncio ou ao clicar de novo"
+                    }
+                  >
+                    {micState === "recording" ? (
+                      <MicOff className="size-4" />
+                    ) : (
+                      <Mic className="size-4" />
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="text-muted-foreground"
+                    aria-label="Voz"
+                    disabled
+                  >
+                    <Mic className="size-4" />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">

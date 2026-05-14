@@ -26,6 +26,8 @@ export type WorkflowNode = {
     m?: number;
     /** SerpApi: "duckduckgo" (omissão) ou "google" */
     search_engine?: string;
+    /** Se true, não chama o Intelligence para extrair texto das páginas (só SerpAPI). */
+    web_search_skip_page_fetch?: boolean;
     /** Cron de 5 campos (min hora dom mês dow), ex.: 0 9 * * * */
     cron?: string;
     /** IANA, ex.: Europe/Lisbon */

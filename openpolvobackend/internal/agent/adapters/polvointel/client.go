@@ -205,8 +205,71 @@ func (c *Client) GenerateText(ctx context.Context, provider domain.ModelProvider
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("polvointel: llm text unauthorized (defina a mesma chave em POLVO_INTELLIGENCE_INTERNAL_KEY na API Go e POLVO_INTERNAL_KEY no Intelligence)")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("polvointel: llm text %d: %s", resp.StatusCode, truncate(string(b), 500))
+	}
+	var out struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	return out.Text, nil
+}
+
+var _ wfports.WebSearchEnricher = (*Client)(nil)
+
+// EnrichWebSearch aprofunda URLs dos orgânicos SerpAPI (trafilatura + agente por site no Intelligence).
+func (c *Client) EnrichWebSearch(
+	ctx context.Context,
+	provider domain.ModelProvider,
+	ov wfports.LLMOverrides,
+	in wfports.WebSearchEnrichInput,
+) (string, error) {
+	if !c.Configured() {
+		return "", fmt.Errorf("polvointel: client not configured")
+	}
+	rows := make([]map[string]string, 0, len(in.Results))
+	for _, r := range in.Results {
+		rows = append(rows, map[string]string{
+			"title":   r.Title,
+			"link":    r.Link,
+			"snippet": r.Snippet,
+		})
+	}
+	payload := map[string]any{
+		"model_provider":  string(provider),
+		"openai_api_key":  ov.OpenAIAPIKey,
+		"google_api_key":  ov.GoogleAPIKey,
+		"openai_model":    ov.OpenAIModel,
+		"google_model":    ov.GoogleModel,
+		"query":           in.Query,
+		"engine":          in.Engine,
+		"organic_results": rows,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/workflows/web-search-enrich", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Open-Polvo-Internal-Key", c.internalKey)
+	enrichClient := &http.Client{Timeout: 4 * time.Minute}
+	resp, err := enrichClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("polvointel: web-search-enrich %d: %s", resp.StatusCode, truncate(string(b), 500))
 	}
 	var out struct {
 		Text string `json:"text"`

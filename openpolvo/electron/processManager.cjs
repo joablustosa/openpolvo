@@ -112,6 +112,10 @@ function mergeApiEnv(userEnv) {
   if (merged.MIGRATIONS_PATH && !path.isAbsolute(merged.MIGRATIONS_PATH)) {
     merged.MIGRATIONS_PATH = migrationsAbs;
   }
+  // Mesma chave que o Python (`POLVO_INTERNAL_KEY`); a API Go lê `POLVO_INTELLIGENCE_INTERNAL_KEY`.
+  if (!merged.POLVO_INTELLIGENCE_INTERNAL_KEY && merged.POLVO_INTERNAL_KEY) {
+    merged.POLVO_INTELLIGENCE_INTERNAL_KEY = merged.POLVO_INTERNAL_KEY;
+  }
   return merged;
 }
 

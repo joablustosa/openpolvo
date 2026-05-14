@@ -55,7 +55,8 @@ func (h *FinanceHandlers) GetAgenda(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "to inválido")
 		return
 	}
-	var events []agendaEventDTO
+	// Slice inicializado vazio (não nil) para JSON serializar `[]` e não `null` — o cliente faz spread em `events`.
+	events := make([]agendaEventDTO, 0)
 
 	// Tarefas com prazo
 	dueRows, err := h.TaskItems.ListDueInRangeForUser(r.Context(), userID, from, to)

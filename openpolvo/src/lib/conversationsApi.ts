@@ -1,5 +1,9 @@
-import { fetchApi } from "./api";
-import { ApiError } from "./apiErrors";
+import { fetchApi, forceReloginRedirect } from "./api";
+import {
+  ApiError,
+  SessionReloginRedirected,
+  httpStatusAndMessageIndicateForcedRelogin,
+} from "./apiErrors";
 
 async function ensureOk(res: Response, fallbackLabel: string): Promise<void> {
   if (res.ok) return;
@@ -7,6 +11,12 @@ async function ensureOk(res: Response, fallbackLabel: string): Promise<void> {
   const parsed = (err as { error?: string }).error?.trim();
   const msg =
     parsed && parsed.length > 0 ? parsed : `${fallbackLabel} (${res.status})`;
+  if (httpStatusAndMessageIndicateForcedRelogin(res.status, msg)) {
+    if (res.status !== 401) {
+      forceReloginRedirect();
+    }
+    throw new SessionReloginRedirected();
+  }
   throw new ApiError(res.status, msg);
 }
 
@@ -163,7 +173,14 @@ export async function streamMessage(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const msg = (err as { error?: string }).error?.trim();
-    throw new ApiError(res.status, msg && msg.length > 0 ? msg : `stream ${res.status}`);
+    const text = msg && msg.length > 0 ? msg : `stream ${res.status}`;
+    if (httpStatusAndMessageIndicateForcedRelogin(res.status, text)) {
+      if (res.status !== 401) {
+        forceReloginRedirect();
+      }
+      throw new SessionReloginRedirected();
+    }
+    throw new ApiError(res.status, text);
   }
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();

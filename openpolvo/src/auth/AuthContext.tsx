@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { redirectToLogin } from "@/lib/api";
+
 const TOKEN_KEY = "smartagent_auth_token";
 const TARGET_URL_KEY = "smartagent_target_url";
 
@@ -52,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TARGET_URL_KEY);
     setToken(null);
     setTargetUrlState("");
+    redirectToLogin();
   }, []);
 
   const setTargetUrl = useCallback((url: string) => {

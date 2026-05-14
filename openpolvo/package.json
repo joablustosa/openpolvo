@@ -3,7 +3,7 @@
   "description": "Open Polvo — agente e automação (Electron + Vite)",
   "author": "Open Polvo",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "main": "electron/main.cjs",
   "repository": {

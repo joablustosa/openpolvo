@@ -27,6 +27,7 @@ for pkg in (
     "langchain_openai",
     "langchain_google_genai",
     "httpx",
+    "trafilatura",
 ):
     _hidden.extend(_subs(pkg))
 

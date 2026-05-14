@@ -35,6 +35,8 @@ type NodeData struct {
 	M     int    `json:"m,omitempty"`
 	// Nó "web_search": motor SerpApi ("duckduckgo" por omissão, "google").
 	SearchEngine string `json:"search_engine,omitempty"`
+	// Nó "web_search": se true (omissão), após SerpAPI o servidor pede ao Intelligence fetch trafilatura + agente por URL.
+	WebSearchSkipPageFetch bool `json:"web_search_skip_page_fetch,omitempty"`
 	// Nó "send_email": destinatário directo (email_to) ou UUID de contacto, e conteúdo.
 	// email_to tem prioridade; contact_id é fallback (lookup na agenda).
 	// No subject/body, o motor substitui {{previous}} (saídas dos predecessores directos com texto)

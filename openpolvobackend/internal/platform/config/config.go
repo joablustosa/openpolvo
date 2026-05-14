@@ -83,9 +83,12 @@ func Load() (Config, error) {
 		PolvoIntelligenceBaseURL: strings.TrimSpace(os.Getenv(
 			"POLVO_INTELLIGENCE_BASE_URL",
 		)),
-		PolvoIntelligenceInternalKey: strings.TrimSpace(os.Getenv(
-			"POLVO_INTELLIGENCE_INTERNAL_KEY",
-		)),
+		// Chave partilhada com Open Polvo Intelligence (header X-Open-Polvo-Internal-Key).
+		// Fallback: POLVO_INTERNAL_KEY é o mesmo nome usado no Python (pydantic).
+		PolvoIntelligenceInternalKey: firstNonEmpty(
+			strings.TrimSpace(os.Getenv("POLVO_INTELLIGENCE_INTERNAL_KEY")),
+			strings.TrimSpace(os.Getenv("POLVO_INTERNAL_KEY")),
+		),
 		SMTPCredentialsKey:     strings.TrimSpace(os.Getenv("SMTP_CREDENTIALS_KEY")),
 		MetaCredentialsKey:     strings.TrimSpace(os.Getenv("META_CREDENTIALS_KEY")),
 		MetaWebhookVerifyToken: strings.TrimSpace(os.Getenv("META_WEBHOOK_VERIFY_TOKEN")),

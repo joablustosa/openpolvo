@@ -68,7 +68,8 @@ function clearAuthSession(): void {
   }
 }
 
-function redirectToLogin(): void {
+/** Navega para a rota de login (BrowserRouter: `/login`; Electron com HashRouter: `#/login`). */
+export function redirectToLogin(): void {
   try {
     const w = typeof window !== "undefined" ? window : null;
     if (!w) return;
@@ -86,22 +87,28 @@ function redirectToLogin(): void {
   }
 }
 
+/** Limpa a sessão, grava URL de retorno e navega para o ecrã de login (incl. hash no Electron). */
+export function forceReloginRedirect(): void {
+  clearAuthSession();
+  if (typeof window === "undefined") return;
+  const cur = window.location.pathname + window.location.search + window.location.hash;
+  try {
+    if (cur && cur !== "/login" && !cur.includes("#/login")) {
+      localStorage.setItem("smartagent_target_url", cur);
+    }
+  } catch {
+    // ignore
+  }
+  redirectToLogin();
+}
+
 export async function fetchApi(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
   const res = await fetch(apiUrl(path), init);
   if (res.status === 401) {
-    clearAuthSession();
-    if (typeof window !== "undefined") {
-      const cur = window.location.pathname + window.location.search + window.location.hash;
-      try {
-        if (cur && cur !== "/login") localStorage.setItem("smartagent_target_url", cur);
-      } catch {
-        // ignore
-      }
-      redirectToLogin();
-    }
+    forceReloginRedirect();
   }
   return res;
 }

@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/auth/AuthContext";
-import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import {
   type ConversationDTO,
   type MessageDTO,
@@ -31,7 +30,12 @@ import {
   parseLlmRoutingSelect,
   transcribeModelProvider,
 } from "@/lib/llmRouting";
-import { isApiUnauthorized } from "@/lib/apiErrors";
+import { forceReloginRedirect } from "@/lib/api";
+import {
+  errorMessageIndicatesPolvointelUnauthorized,
+  isApiUnauthorized,
+  SessionReloginRedirected,
+} from "@/lib/apiErrors";
 import {
   buildEmailSendPayload,
   emailBodyLooksReadyForAutosend,
@@ -70,6 +74,8 @@ type ConversationWorkspaceValue = {
     defaultModel?: ModelProvider | string,
   ) => Promise<void>;
   refreshConversations: () => Promise<void>;
+  /** Recarrega perfis LLM (ex.: após criar/eliminar em Definições). */
+  refreshLlmProfiles: () => Promise<void>;
   createNewConversation: () => Promise<string | null>;
   clearWorkspace: () => void;
   sendAuthenticatedMessage: (text: string) => Promise<void>;
@@ -87,7 +93,6 @@ export function ConversationWorkspaceProvider({
   children: ReactNode;
 }) {
   const { token, logout } = useAuth();
-  const { openLoginModal } = useAnonymousChat();
   const { openPlugin } = useAppLaunch();
   const { setDashboardData, openTaskListsPreview, closeTaskListsPreview } = useWorkspace();
 
@@ -115,11 +120,10 @@ export function ConversationWorkspaceProvider({
 
   const onSessionUnauthorized = useCallback(() => {
     logout();
-    openLoginModal();
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
-  }, [logout, openLoginModal]);
+  }, [logout]);
 
   const refreshConversations = useCallback(async () => {
     if (!token) {
@@ -132,6 +136,10 @@ export function ConversationWorkspaceProvider({
       const list = await fetchConversations(token);
       setConversations(list);
     } catch (e) {
+      if (e instanceof SessionReloginRedirected) {
+        setConversations([]);
+        return;
+      }
       if (isApiUnauthorized(e)) {
         onSessionUnauthorized();
         setConversations([]);
@@ -192,6 +200,9 @@ export function ConversationWorkspaceProvider({
           }
         }
       } catch (e) {
+        if (e instanceof SessionReloginRedirected) {
+          return;
+        }
         if (isApiUnauthorized(e)) {
           onSessionUnauthorized();
           return;
@@ -218,6 +229,9 @@ export function ConversationWorkspaceProvider({
       setLlmSelectValue(c.default_model_provider ?? dm);
       return c.id;
     } catch (e) {
+      if (e instanceof SessionReloginRedirected) {
+        return null;
+      }
       if (isApiUnauthorized(e)) {
         onSessionUnauthorized();
         return null;
@@ -271,7 +285,12 @@ export function ConversationWorkspaceProvider({
                 openTaskListsPreview();
               }
             } else if (event.type === "error") {
-              setError(event.detail || "Erro no agente");
+              const d = event.detail ?? "";
+              if (errorMessageIndicatesPolvointelUnauthorized(d)) {
+                forceReloginRedirect();
+                return;
+              }
+              setError(d || "Erro no agente");
             }
           },
         );
@@ -333,6 +352,9 @@ export function ConversationWorkspaceProvider({
 
         await refreshConversations();
       } catch (e) {
+        if (e instanceof SessionReloginRedirected) {
+          return;
+        }
         if (isApiUnauthorized(e)) {
           onSessionUnauthorized();
           return;
@@ -361,6 +383,9 @@ export function ConversationWorkspaceProvider({
       try {
         await apiDeleteConversation(token, id);
       } catch (e) {
+        if (e instanceof SessionReloginRedirected) {
+          return;
+        }
         if (isApiUnauthorized(e)) {
           onSessionUnauthorized();
           return;
@@ -382,6 +407,9 @@ export function ConversationWorkspaceProvider({
       try {
         await apiRenameConversation(token, id, title);
       } catch (e) {
+        if (e instanceof SessionReloginRedirected) {
+          return;
+        }
         if (isApiUnauthorized(e)) {
           onSessionUnauthorized();
           return;
@@ -400,6 +428,9 @@ export function ConversationWorkspaceProvider({
       try {
         updated = await apiPinConversation(token, id, pinned);
       } catch (e) {
+        if (e instanceof SessionReloginRedirected) {
+          return;
+        }
         if (isApiUnauthorized(e)) {
           onSessionUnauthorized();
           return;
@@ -449,6 +480,7 @@ export function ConversationWorkspaceProvider({
       clearTaskListNotice,
       selectConversation,
       refreshConversations,
+      refreshLlmProfiles,
       createNewConversation,
       clearWorkspace,
       sendAuthenticatedMessage,
@@ -473,6 +505,7 @@ export function ConversationWorkspaceProvider({
       clearTaskListNotice,
       selectConversation,
       refreshConversations,
+      refreshLlmProfiles,
       createNewConversation,
       clearWorkspace,
       sendAuthenticatedMessage,

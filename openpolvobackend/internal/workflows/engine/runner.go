@@ -11,7 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/playwright-community/playwright-go"
 
+	convdom "github.com/open-polvo/open-polvo/internal/conversations/domain"
 	"github.com/open-polvo/open-polvo/internal/workflows/domain"
+	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
 
 // Marcadores no assunto/corpo do nó send_email (substituídos no servidor antes do envio):
@@ -107,9 +109,18 @@ func expandEmailTemplates(s, currentID string, order []string, outputs map[strin
 }
 
 // RunGraph executa o DAG com um único browser (headless por defeito).
-// mail pode ser nil: nós send_email falham com erro claro.
-// social pode ser nil: nós post_facebook / post_instagram / post_whatsapp falham com erro claro.
-func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLMInvoker, mail *MailDeps, social *SocialDeps) ([]domain.StepLogEntry, error) {
+// wfModel / wfOv / webEnrich alimentam o enriquecimento do nó web_search (SerpAPI + Intelligence: trafilatura + agente por URL).
+func RunGraph(
+	ctx context.Context,
+	g domain.GraphJSON,
+	cfg RunnerConfig,
+	llm LLMInvoker,
+	mail *MailDeps,
+	social *SocialDeps,
+	wfModel convdom.ModelProvider,
+	wfOv wfports.LLMOverrides,
+	webEnrich wfports.WebSearchEnricher,
+) ([]domain.StepLogEntry, error) {
 	if cfg.AutomationOff {
 		return nil, fmt.Errorf("automação desactivada (AUTOMATION_ENABLED=false)")
 	}
@@ -323,13 +334,13 @@ func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLM
 			if eng == "" {
 				eng = "duckduckgo"
 			}
-			var out string
+			var hits []wfports.WebSearchOrganicHit
 			var err error
 			switch eng {
 			case "duckduckgo":
-				out, err = DuckDuckGoSerpSearch(ctx, params)
+				hits, err = FetchSerpOrganicHits(ctx, eng, params)
 			case "google":
-				out, err = GoogleSerpSearch(ctx, params)
+				hits, err = FetchSerpOrganicHits(ctx, eng, params)
 			default:
 				step.Message = "search_engine inválido (use duckduckgo ou google)"
 				step.OK = false
@@ -342,9 +353,31 @@ func RunGraph(ctx context.Context, g domain.GraphJSON, cfg RunnerConfig, llm LLM
 				logs = append(logs, step)
 				return logs, fmt.Errorf("web_search %s: %w", id, err)
 			}
+			title := "Resultados DuckDuckGo"
+			if eng == "google" {
+				title = "Resultados Google"
+			}
+			lim := serpNumResults(params.M)
+			serpMd := FormatSerpMarkdown(hits, title, lim)
+			full := serpMd
+			deep := !n.Data.WebSearchSkipPageFetch
+			if webEnrich != nil && deep && len(hits) > 0 {
+				mp := wfModel
+				if mp == "" {
+					mp = convdom.ModelOpenAI
+				}
+				extra, e2 := webEnrich.EnrichWebSearch(ctx, mp, wfOv, wfports.WebSearchEnrichInput{
+					Query:   query,
+					Engine:  eng,
+					Results: hits,
+				})
+				if e2 == nil && strings.TrimSpace(extra) != "" {
+					full = serpMd + "\n\n---\n\n" + strings.TrimSpace(extra)
+				}
+			}
 			step.OK = true
-			outputs[id] = out
-			step.Message = out
+			outputs[id] = full
+			step.Message = full
 
 		case "send_email":
 			if mail == nil || mail.Send == nil {

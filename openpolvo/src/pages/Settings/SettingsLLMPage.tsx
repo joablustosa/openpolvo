@@ -11,11 +11,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/auth/AuthContext";
+import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { cn } from "@/lib/utils";
 import * as llm from "@/lib/llmProfilesApi";
 
 export function SettingsLLMPage() {
   const { token } = useAuth();
+  const { refreshLlmProfiles } = useConversationWorkspace();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -40,12 +42,13 @@ export function SettingsLLMPage() {
       ]);
       setProfiles(plist);
       setPrefs(ap);
+      await refreshLlmProfiles();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erro ao carregar");
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, refreshLlmProfiles]);
 
   useEffect(() => {
     void load();

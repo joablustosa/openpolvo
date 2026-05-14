@@ -149,7 +149,13 @@ func Up(db *sql.DB, migrationsDir string) error {
 
 func execMigration(ctx context.Context, db *sql.DB, content string) error {
 	for _, stmt := range splitStatements(content) {
+		if isSQLiteDriver(db) {
+			stmt = normalizeStatementForSQLite(stmt)
+		}
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			if isSQLiteDriver(db) && isBenignSQLiteMigrationError(err, stmt) {
+				continue
+			}
 			return fmt.Errorf("statement falhou: %w\nSQL: %.300s", err, stmt)
 		}
 	}

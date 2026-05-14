@@ -109,7 +109,10 @@ export async function getAgenda(
     headers: headersJson(token),
   });
   if (!res.ok) throw new Error(`agenda: ${res.status}`);
-  return res.json() as Promise<{ events: AgendaEventDTO[] }>;
+  const data = (await res.json()) as { events?: unknown };
+  const raw = data?.events;
+  const events = Array.isArray(raw) ? (raw as AgendaEventDTO[]) : [];
+  return { events };
 }
 
 export async function getCategories(token: string): Promise<CategoryDTO[]> {

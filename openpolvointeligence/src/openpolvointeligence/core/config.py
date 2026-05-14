@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     web_fetch_timeout_s: float = Field(default=18.0, validation_alias="WEB_FETCH_TIMEOUT_S")
     web_fetch_max_response_bytes: int = Field(default=600_000, validation_alias="WEB_FETCH_MAX_RESPONSE_BYTES")
     web_fetch_max_text_chars: int = Field(default=24_000, validation_alias="WEB_FETCH_MAX_TEXT_CHARS")
+    # Extração principal do HTML (trafilatura); se falso, usa só regex interna.
+    web_fetch_use_trafilatura: bool = Field(default=True, validation_alias="WEB_FETCH_USE_TRAFILATURA")
     port: int = Field(default=8090, validation_alias="PORT")
 
     @field_validator("serpapi_ddg_safe", mode="before")
