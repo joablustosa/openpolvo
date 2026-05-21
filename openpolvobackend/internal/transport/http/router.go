@@ -19,6 +19,7 @@ type Deps struct {
 	Agent          *AgentHandlers
 	LLM            *LLMHandlers
 	Conversations  *ConversationHandlers
+	PolvoCode      *PolvoCodeHandlers
 	Workflows      *WorkflowHandlers
 	TaskLists      *TaskListHandlers
 	Mail           *MailHandlers
@@ -155,6 +156,9 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/task-lists/{id}/items", d.TaskLists.PostTaskListItems)
 				r.Patch("/task-lists/{id}/items/{itemID}", d.TaskLists.PatchTaskListItem)
 				r.Delete("/task-lists/{id}/items/{itemID}", d.TaskLists.DeleteTaskListItem)
+			}
+			if d.PolvoCode != nil {
+				r.Post("/polvo-code/validate-ops", d.PolvoCode.PostValidateOps)
 			}
 			if d.Meta != nil {
 				r.Get("/me/meta", d.Meta.GetMeMeta)

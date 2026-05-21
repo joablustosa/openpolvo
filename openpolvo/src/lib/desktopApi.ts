@@ -303,6 +303,15 @@ export const desktopPolvoCode = {
     return (await b.polvoCode.writeFile(payload)) as PolvoCodeSimpleResult;
   },
 
+  mkdir: async (payload: {
+    workspacePath: string;
+    relPath: string;
+  }): Promise<PolvoCodeSimpleResult> => {
+    const b = bridge();
+    if (!b?.polvoCode?.mkdir) return { ok: false, error: "Not in Electron" };
+    return (await b.polvoCode.mkdir(payload)) as PolvoCodeSimpleResult;
+  },
+
   onEvent: (callback: (ev: PolvoCodeEvent) => void): (() => void) => {
     const b = bridge();
     if (!b?.polvoCode?.onEvent) return () => {};

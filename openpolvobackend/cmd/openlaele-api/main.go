@@ -402,6 +402,7 @@ func main() {
 		Agent:         agentH,
 		LLM:           llmHTTP,
 		Conversations: convHandlers,
+		PolvoCode:     &httptransport.PolvoCodeHandlers{},
 		Workflows:     wfHandlers,
 		TaskLists:     taskHandlers,
 		Mail:          mailHandlers,

@@ -14,6 +14,7 @@ import (
 const agentMemoryMaxRunes = 8000
 
 // ApplyAgentMemoryPatch funde metadata.agent_memory_patch na tabela SQLite.
+// O campo builder acumula notas técnicas (stack, decisões) úteis ao fluxo Polvo Code no desktop.
 func ApplyAgentMemoryPatch(ctx context.Context, repo convports.AgentMemoryRepository, conversationID uuid.UUID, meta map[string]any) {
 	if repo == nil || meta == nil {
 		return

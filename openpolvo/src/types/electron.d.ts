@@ -80,6 +80,10 @@ declare global {
           content: string;
           createDirs?: boolean;
         }) => Promise<{ ok: boolean; error?: string }>;
+        mkdir: (payload: {
+          workspacePath: string;
+          relPath: string;
+        }) => Promise<{ ok: boolean; error?: string }>;
         onEvent: (callback: (payload: Record<string, unknown>) => void) => () => void;
       };
     };

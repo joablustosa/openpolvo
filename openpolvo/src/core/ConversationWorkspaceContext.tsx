@@ -43,7 +43,11 @@ import {
 } from "@/lib/emailChatMetadata";
 import { messageIndicatesTaskListInteraction, parseTaskListMessageMeta } from "@/lib/taskListChatMetadata";
 import { applyTaskListBatch } from "@/lib/taskListsApi";
-import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
+import {
+  applyPolvoCodeOpsFromMeta,
+  messageIndicatesPolvoCodeInteraction,
+  parsePolvoCodeMessageMeta,
+} from "@/lib/polvoCodeMetadata";
 import { parseDashboardMeta } from "@/lib/dashboardMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
@@ -69,6 +73,9 @@ type ConversationWorkspaceValue = {
   /** Aviso após o agente aplicar operações nas listas de tarefas. */
   taskListNotice: string | null;
   clearTaskListNotice: () => void;
+  /** Aviso após aplicar ficheiros do Polvo Code a partir do chat. */
+  polvoCodeNotice: string | null;
+  clearPolvoCodeNotice: () => void;
   selectConversation: (
     id: string | null,
     defaultModel?: ModelProvider | string,
@@ -94,7 +101,14 @@ export function ConversationWorkspaceProvider({
 }) {
   const { token, logout } = useAuth();
   const { openPlugin } = useAppLaunch();
-  const { setDashboardData, openTaskListsPreview, closeTaskListsPreview } = useWorkspace();
+  const {
+    setDashboardData,
+    openTaskListsPreview,
+    closeTaskListsPreview,
+    polvoCodeWorkspacePath,
+    polvoCodeProjectTitle,
+    setPolvoCodeProject,
+  } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
@@ -109,6 +123,7 @@ export function ConversationWorkspaceProvider({
   const [error, setError] = useState<string | null>(null);
   const [emailSendNotice, setEmailSendNotice] = useState<string | null>(null);
   const [taskListNotice, setTaskListNotice] = useState<string | null>(null);
+  const [polvoCodeNotice, setPolvoCodeNotice] = useState<string | null>(null);
 
   const clearEmailSendNotice = useCallback(() => {
     setEmailSendNotice(null);
@@ -118,11 +133,16 @@ export function ConversationWorkspaceProvider({
     setTaskListNotice(null);
   }, []);
 
+  const clearPolvoCodeNotice = useCallback(() => {
+    setPolvoCodeNotice(null);
+  }, []);
+
   const onSessionUnauthorized = useCallback(() => {
     logout();
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
+    setPolvoCodeNotice(null);
   }, [logout]);
 
   const refreshConversations = useCallback(async () => {
@@ -250,6 +270,7 @@ export function ConversationWorkspaceProvider({
       setError(null);
       setEmailSendNotice(null);
       setTaskListNotice(null);
+      setPolvoCodeNotice(null);
       try {
         let cid = activeConversationId;
         if (!cid) {
@@ -279,6 +300,9 @@ export function ConversationWorkspaceProvider({
               setMessages(event.messages);
               tryOpenNativePluginFromMessages(event.messages, openPlugin);
               const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
+              if (messageIndicatesPolvoCodeInteraction(lastAssistant?.metadata)) {
+                openPlugin("polvo_code");
+              }
               const db = parseDashboardMeta(lastAssistant?.metadata);
               if (db) setDashboardData(db);
               if (messageIndicatesTaskListInteraction(lastAssistant?.metadata)) {
@@ -350,6 +374,31 @@ export function ConversationWorkspaceProvider({
           }
         }
 
+        const pcm = parsePolvoCodeMessageMeta(lastAssistant?.metadata);
+        if (
+          pcm?.polvo_code_ops_pending &&
+          pcm.polvo_code_ops &&
+          pcm.polvo_code_ops.length > 0 &&
+          !pcm.polvo_code_ops_blocked
+        ) {
+          try {
+            const pr = await applyPolvoCodeOpsFromMeta(lastAssistant?.metadata, {
+              workspacePath: polvoCodeWorkspacePath,
+              projectTitle: polvoCodeProjectTitle,
+              setPolvoCodeProject,
+              openPlugin,
+            });
+            if (!pr.applied && pr.error) {
+              setError(pr.error);
+            } else if (pr.applied) {
+              const line = [pr.notice, pr.error].filter(Boolean).join(" ");
+              if (line) setPolvoCodeNotice(line);
+            }
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Falha ao aplicar Polvo Code");
+          }
+        }
+
         await refreshConversations();
       } catch (e) {
         if (e instanceof SessionReloginRedirected) {
@@ -374,6 +423,9 @@ export function ConversationWorkspaceProvider({
       onSessionUnauthorized,
       setDashboardData,
       openTaskListsPreview,
+      polvoCodeWorkspacePath,
+      polvoCodeProjectTitle,
+      setPolvoCodeProject,
     ],
   );
 
@@ -458,6 +510,7 @@ export function ConversationWorkspaceProvider({
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
+    setPolvoCodeNotice(null);
     closeTaskListsPreview();
   }, [closeTaskListsPreview]);
 
@@ -478,6 +531,8 @@ export function ConversationWorkspaceProvider({
       clearEmailSendNotice,
       taskListNotice,
       clearTaskListNotice,
+      polvoCodeNotice,
+      clearPolvoCodeNotice,
       selectConversation,
       refreshConversations,
       refreshLlmProfiles,
@@ -503,6 +558,8 @@ export function ConversationWorkspaceProvider({
       clearEmailSendNotice,
       taskListNotice,
       clearTaskListNotice,
+      polvoCodeNotice,
+      clearPolvoCodeNotice,
       selectConversation,
       refreshConversations,
       refreshLlmProfiles,

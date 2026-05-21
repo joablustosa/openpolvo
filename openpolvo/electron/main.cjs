@@ -232,18 +232,33 @@ function previewCspUrlFilterPatterns() {
 
 /** Política aplicada só a respostas HTTP do origin de preview (não à shell em :5174). */
 function buildPreviewContentSecurityPolicy() {
+  const extra = String(process.env.OPEN_POLVO_PREVIEW_FRAME_ANCESTORS ?? "").trim();
+  const ancestors = [
+    "http://127.0.0.1:5174",
+    "http://localhost:5174",
+    "http://127.0.0.1:4174",
+    "http://localhost:4174",
+    "file:",
+  ];
+  if (extra) {
+    for (const p of extra.split(/[,;]+/)) {
+      const t = p.trim();
+      if (t && !ancestors.includes(t)) ancestors.push(t);
+    }
+  }
   return [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "font-src 'self' data:",
-    "connect-src 'self' ws: wss:",
-    "media-src 'self' blob:",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data: https:",
+    "connect-src 'self' ws: wss: https: http:",
+    "media-src 'self' blob: https:",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    `frame-ancestors ${ancestors.join(" ")}`,
   ].join("; ");
 }
 
@@ -664,6 +679,10 @@ app.whenReady().then(async () => {
       { urls: previewPatterns },
       (details, callback) => {
         const responseHeaders = { ...details.responseHeaders };
+        for (const k of Object.keys(responseHeaders)) {
+          const low = k.toLowerCase();
+          if (low === "x-frame-options") delete responseHeaders[k];
+        }
         responseHeaders["Content-Security-Policy"] = [buildPreviewContentSecurityPolicy()];
         callback({ responseHeaders });
       },

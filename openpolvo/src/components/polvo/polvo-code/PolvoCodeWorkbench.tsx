@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Loader2,
   PanelBottom,
+  RefreshCw,
   SquareTerminal,
   StopCircle,
   Files,
@@ -29,8 +30,11 @@ import {
 } from "@/lib/desktopApi";
 import { cn } from "@/lib/utils";
 import { PolvoCodeExplorer } from "./PolvoCodeExplorer";
+import { PolvoCodePreviewPane } from "./PolvoCodePreviewPane";
 import { configureMonacoWorkers } from "./monacoBootstrap";
 import { detectLanguage } from "./detectLanguage";
+import { useBuilderApplyState } from "@/modules/builder/hooks/useBuilderApplyState";
+import { phaseLabel } from "@/modules/builder/utils";
 
 let monacoConfigured = false;
 function ensureMonacoTheme() {
@@ -76,10 +80,13 @@ export function PolvoCodeWorkbench({ onClose }: Props) {
   const [sidebarMode, setSidebarMode] = useState<"explorer" | "hidden">("explorer");
   const [terminalHeight, setTerminalHeight] = useState(200);
   const terminalResizeRef = useRef<{ startY: number; startH: number } | null>(null);
+  const [previewConsoleOpen, setPreviewConsoleOpen] = useState(false);
+  const [previewReloadKey, setPreviewReloadKey] = useState(0);
 
   const activeTab = tabs[activeTabIndex] ?? null;
 
   const workspacePath = polvoCodeWorkspacePath ?? "";
+  const applyPhase = useBuilderApplyState(workspacePath);
 
   const appendLog = useCallback((chunk: string) => {
     setLog((prev) => (prev + chunk).slice(-96_000));
@@ -443,87 +450,165 @@ export function PolvoCodeWorkbench({ onClose }: Props) {
             </aside>
           ) : null}
 
-          {/* Editor column */}
+          {/* Editor + preview */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#1e1e1e]">
-            {/* Tabs */}
-            <div className="flex h-9 shrink-0 flex-nowrap gap-px overflow-x-auto bg-[#252526] pt-1">
-              {tabs.map((tab, idx) => (
-                <button
-                  key={tab.relPath}
-                  type="button"
-                  className={cn(
-                    "flex max-w-[200px] shrink-0 items-center gap-1 px-3 py-1 text-[12px]",
-                    idx === activeTabIndex
-                      ? "border-t border-[#007fd4] bg-[#1e1e1e] text-[#cccccc]"
-                      : "border border-transparent bg-[#2d2d2d] text-[#969696] hover:bg-[#383838]",
-                  )}
-                  onClick={() => setActiveTabIndex(idx)}
-                >
-                  <span className="truncate">{tab.relPath.split("/").pop() ?? tab.relPath}</span>
-                  {tab.dirty ? (
-                    <span className="size-2 shrink-0 rounded-full bg-[#cccccc]" aria-hidden />
+            <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                {/* Tabs */}
+                <div className="flex h-9 shrink-0 flex-nowrap gap-px overflow-x-auto bg-[#252526] pt-1">
+                  {tabs.map((tab, idx) => (
+                    <button
+                      key={tab.relPath}
+                      type="button"
+                      className={cn(
+                        "flex max-w-[200px] shrink-0 items-center gap-1 px-3 py-1 text-[12px]",
+                        idx === activeTabIndex
+                          ? "border-t border-[#007fd4] bg-[#1e1e1e] text-[#cccccc]"
+                          : "border border-transparent bg-[#2d2d2d] text-[#969696] hover:bg-[#383838]",
+                      )}
+                      onClick={() => setActiveTabIndex(idx)}
+                    >
+                      <span className="truncate">{tab.relPath.split("/").pop() ?? tab.relPath}</span>
+                      {tab.dirty ? (
+                        <span className="size-2 shrink-0 rounded-full bg-[#cccccc]" aria-hidden />
+                      ) : null}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-[#474747]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeTab(idx);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            closeTab(idx);
+                          }
+                        }}
+                      >
+                        <X className="size-3.5 opacity-70" />
+                      </span>
+                    </button>
+                  ))}
+                  {tabs.length === 0 ? (
+                    <span className="flex items-center px-3 py-1 text-[12px] text-[#969696]">
+                      Sem ficheiros abertos — escolha um ficheiro no explorador
+                    </span>
                   ) : null}
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-[#474747]"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(idx);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        closeTab(idx);
-                      }
-                    }}
-                  >
-                    <X className="size-3.5 opacity-70" />
-                  </span>
-                </button>
-              ))}
-              {tabs.length === 0 ? (
-                <span className="flex items-center px-3 py-1 text-[12px] text-[#969696]">
-                  Sem ficheiros abertos — escolha um ficheiro no explorador
-                </span>
-              ) : null}
-            </div>
-
-            <div className="relative min-h-0 flex-1">
-              {activeTab ? (
-                <Editor
-                  height="100%"
-                  theme="polvo-dark"
-                  language={language}
-                  path={activeTab.relPath}
-                  value={editorValue}
-                  loading={<div className="p-4 text-[13px] text-[#969696]">A carregar…</div>}
-                  options={{
-                    minimap: { enabled: true },
-                    fontSize: 13,
-                    fontFamily:
-                      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    renderWhitespace: "selection",
-                  }}
-                  onMount={onMountEditor}
-                  onChange={(v) => {
-                    const val = v ?? "";
-                    setTabs((prev) =>
-                      prev.map((x, i) =>
-                        i === activeTabIndex ? { ...x, content: val, dirty: true } : x,
-                      ),
-                    );
-                  }}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-[13px] text-[#969696]">
-                  Sem ficheiro activo
                 </div>
-              )}
+
+                <div className="relative min-h-0 flex-1">
+                  {activeTab ? (
+                    <Editor
+                      height="100%"
+                      theme="polvo-dark"
+                      language={language}
+                      path={activeTab.relPath}
+                      value={editorValue}
+                      loading={<div className="p-4 text-[13px] text-[#969696]">A carregar…</div>}
+                      options={{
+                        minimap: { enabled: true },
+                        fontSize: 13,
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        tabSize: 2,
+                        renderWhitespace: "selection",
+                      }}
+                      onMount={onMountEditor}
+                      onChange={(v) => {
+                        const val = v ?? "";
+                        setTabs((prev) =>
+                          prev.map((x, i) =>
+                            i === activeTabIndex ? { ...x, content: val, dirty: true } : x,
+                          ),
+                        );
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-[13px] text-[#969696]">
+                      Sem ficheiro activo
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview (iframe Vite) */}
+              <div className="flex w-[min(48%,520px)] min-w-[280px] shrink-0 flex-col border-l border-[#474747] bg-[#1a1a1a]">
+                <div className="flex h-8 shrink-0 items-center gap-1 border-b border-[#474747] bg-[#252526] px-2">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-[#969696]">
+                    Preview
+                  </span>
+                  <div className="ml-auto flex items-center gap-0.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[11px] text-[#cccccc] hover:bg-[#474747]"
+                      title="Recarregar iframe"
+                      disabled={!devUrl}
+                      onClick={() => setPreviewReloadKey((n) => n + 1)}
+                    >
+                      <RefreshCw className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 gap-1 px-2 text-[11px] hover:bg-[#474747]",
+                        previewConsoleOpen ? "text-emerald-400" : "text-[#cccccc]",
+                      )}
+                      onClick={() => setPreviewConsoleOpen((v) => !v)}
+                    >
+                      <SquareTerminal className="size-3.5" />
+                      Consola
+                    </Button>
+                    {devUrl ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-[11px] text-emerald-400 hover:bg-[#474747]"
+                        onClick={() => void desktopPolvoCode.openExternal(devUrl)}
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="relative min-h-0 flex-1">
+                  <PolvoCodePreviewPane
+                    devUrl={devUrl}
+                    running={running}
+                    reloadKey={previewReloadKey}
+                  />
+                  {applyPhase !== "idle" && applyPhase !== "complete" ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45">
+                      <div className="flex items-center gap-2 rounded-md border border-[#474747] bg-[#252526] px-4 py-2 text-[12px] text-[#cccccc] shadow-lg">
+                        <Loader2 className="size-4 shrink-0 animate-spin" />
+                        {phaseLabel(applyPhase)}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                {previewConsoleOpen ? (
+                  <div
+                    className="flex max-h-[40%] shrink-0 flex-col border-t border-[#474747] bg-[#0d0d0d]"
+                    style={{ height: 160 }}
+                  >
+                    <div className="h-6 shrink-0 px-2 text-[10px] font-medium uppercase tracking-wide text-[#969696]">
+                      Saída (npm / dev)
+                    </div>
+                    <pre className="min-h-0 flex-1 overflow-auto px-2 py-1 font-mono text-[10px] leading-relaxed text-[#cccccc]">
+                      {log.slice(-24_000) || "—"}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {/* Resize terminal */}

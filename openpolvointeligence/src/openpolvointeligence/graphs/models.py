@@ -24,6 +24,7 @@ def get_chat_model(
     provider: str | None,
     *,
     json_mode: bool = False,
+    max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Devolve o modelo de chat para o fornecedor; falha se faltar API key."""
     ep = effective_provider(provider)
@@ -40,6 +41,8 @@ def get_chat_model(
         }
         if json_mode:
             kw["model_kwargs"] = {"response_format": {"type": "json_object"}}
+        if max_tokens is not None and max_tokens > 0:
+            kw["max_tokens"] = max_tokens
         return ChatOpenAI(**kw)
     if not settings.google_api_key:
         raise RuntimeError("google: no API key configured")
@@ -53,4 +56,6 @@ def get_chat_model(
     }
     if json_mode:
         kw_google["response_mime_type"] = "application/json"
+    if max_tokens is not None and max_tokens > 0:
+        kw_google["max_output_tokens"] = max_tokens
     return ChatGoogleGenerativeAI(**kw_google)

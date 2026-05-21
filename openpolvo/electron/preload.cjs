@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld("smartagent", {
     listDir: (payload) => ipcRenderer.invoke("polvoCode:listDir", payload),
     readFile: (payload) => ipcRenderer.invoke("polvoCode:readFile", payload),
     writeFile: (payload) => ipcRenderer.invoke("polvoCode:writeFile", payload),
+    mkdir: (payload) => ipcRenderer.invoke("polvoCode:mkdir", payload),
     /**
      * Subscreve eventos do runner (`log`, `url`, `exit`).
      * @param {(ev: { type: string } & Record<string, unknown>) => void} callback

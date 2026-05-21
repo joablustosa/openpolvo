@@ -39,6 +39,8 @@ export function ChatPanel() {
     clearEmailSendNotice,
     taskListNotice,
     clearTaskListNotice,
+    polvoCodeNotice,
+    clearPolvoCodeNotice,
     llmSelectValue,
     setLlmSelectValue,
     llmProfiles,
@@ -211,6 +213,14 @@ export function ChatPanel() {
             <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
               <span>{taskListNotice}</span>
               <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearTaskListNotice}>
+                OK
+              </Button>
+            </div>
+          ) : null}
+          {polvoCodeNotice ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-100">
+              <span>{polvoCodeNotice}</span>
+              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearPolvoCodeNotice}>
                 OK
               </Button>
             </div>

@@ -118,6 +118,7 @@ function npmCmd() {
 }
 
 const MAX_READ_BYTES = 2 * 1024 * 1024;
+const MAX_WRITE_BYTES = 512 * 1024;
 
 const SKIP_DIR_NAMES = new Set([
   "node_modules",
@@ -306,10 +307,33 @@ function registerPolvoCodeIpc(getMainWindow) {
       const createDirs = Boolean(payload?.createDirs);
       const v = validateFilePath(workspacePath, relPath);
       if (!v.ok || !v.absFile) return { ok: false, error: v.error ?? "inválido." };
+      const enc = Buffer.byteLength(content, "utf8");
+      if (enc > MAX_WRITE_BYTES) {
+        return {
+          ok: false,
+          error: `Conteúdo > ${Math.floor(MAX_WRITE_BYTES / 1024)} KB.`,
+        };
+      }
       if (createDirs) {
         fs.mkdirSync(path.dirname(v.absFile), { recursive: true });
       }
       fs.writeFileSync(v.absFile, content, "utf8");
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+
+  ipcMain.handle("polvoCode:mkdir", (_evt, payload) => {
+    try {
+      const workspacePath =
+        typeof payload?.workspacePath === "string" ? payload.workspacePath.trim() : "";
+      const relPath = normalizeRelPath(
+        typeof payload?.relPath === "string" ? payload.relPath : "",
+      );
+      const v = validateWorkspace(workspacePath, relPath);
+      if (!v.ok || !v.absDir) return { ok: false, error: v.error ?? "inválido." };
+      fs.mkdirSync(v.absDir, { recursive: true });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: String(e?.message ?? e) };

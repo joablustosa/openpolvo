@@ -19,6 +19,7 @@ from openpolvointeligence.graphs.message_utils import (
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
 from openpolvointeligence.graphs.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
+from openpolvointeligence.graphs.polvo_code_metadata import polvo_code_ops_metadata_for_reply
 from openpolvointeligence.graphs.task_list_metadata import (
     format_task_lists_for_prompt,
     task_list_ops_metadata_for_reply,
@@ -240,9 +241,8 @@ _INTENT_ALIASES: dict[str, str] = {
     "geral": "geral",
     "resposta_email": "criacao_email",
     "monitorizacao_email": "criacao_email",
-    # Geração de apps/sites removida — tratar como conversa geral.
-    "criacao_app_interativa": "geral",
-    "criacao_sistema_web": "geral",
+    "criacao_app_interativa": "polvo_code_builder",
+    "criacao_sistema_web": "polvo_code_builder",
 }
 
 # Rota normalizada → ficheiro de prompt em prompts/{stem}.md (sem extensão)
@@ -267,6 +267,7 @@ _ROUTE_TO_STEM: dict[str, str] = {
     "geracao_midia_ai": "specialist_geracao_midia_ai",
     "gestao_tarefas_calendario": "specialist_gestao_tarefas_calendario",
     "financas_pessoais": "specialist_financas_pessoais",
+    "polvo_code_builder": "specialist_polvo_code_builder",
 }
 
 # Intenções válidas após normalização (chaves finais do router)
@@ -677,6 +678,18 @@ def build_zepolvinho_graph(settings: Settings):
                         text,
                         capped,
                         tlc_list,
+                    ),
+                )
+            except Exception:
+                pass
+        if routed == "polvo_code_builder":
+            try:
+                meta.update(
+                    await polvo_code_ops_metadata_for_reply(
+                        settings,
+                        state.get("model_provider"),
+                        text,
+                        capped,
                     ),
                 )
             except Exception:

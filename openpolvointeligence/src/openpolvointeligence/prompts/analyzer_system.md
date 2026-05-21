@@ -35,6 +35,7 @@ O seu único papel é ler a conversa e devolver **um único** objecto JSON com a
 | `agendamento` | Criar, editar, listar, activar, desactivar ou apagar **tarefas agendadas recorrentes** (automações com CRON): "envia email todo dia às 20h", "executa a minha lista todas as manhãs", "cria uma automação que…". **Prioridade máxima** quando o utilizador menciona horários recorrentes, frequências ("todo dia", "toda segunda", "a cada hora") combinadas com uma acção automatizada. |
 | `gestao_tarefas_calendario` | Agendar reuniões, lembretes, organizar backlog **e** pedidos sobre as **listas de tarefas persistidas na aplicação Open Polvo** (criar/editar/apagar listas ou items, contar, resumir estado, executar a lista com o agente). |
 | `financas_pessoais` | Orçamento **pessoal** na app Open Polvo: **gastos, receitas, categorias, transacções, assinaturas**, digest diário, «quanto gastei», «registar um gasto», Netflix/Spotify como despesa recorrente. **Não** uses para margem de loja ou simulações em Excel/Sheets (`planilha_estrategia_precos`). |
+| `polvo_code_builder` | Criar ou editar **projecto executável** no **Polvo Code** (app/site com Vite/React, Kanban, CRUD, vários ficheiros, “gera um projecto”, “scaffold”, **sistema web**, **página web**, **landing**, **dashboard**, pedidos de **desenvolvimento** com UI/stack no disco). **Prioridade** sobre explicação genérica quando o objectivo é código no workspace com preview local. |
 | `duvida_tecnica_tutorial` | “Como fazer”, explicações de conceitos ou aprendizagem guiada. |
 | `suporte_erro_feedback` | Bugs no agente, integração ou reclamações de desempenho. |
 | `configuracao_perfil` | Preferências do sistema, chaves de API, idioma ou tom do agente. |
@@ -57,7 +58,7 @@ Responda **apenas** com um objeto JSON válido (sem markdown, sem texto antes ou
 ### Regras de robustez (para evitar routing errado)
 
 - Se o utilizador pedir **alterações no produto/bug** (“erro”, “não funciona”, “quebrou”) → `suporte_erro_feedback`.
-- Se o utilizador pedir **criar site, app web, CRUD, código executável ou stack técnica** → `pedido_conteudo_generico` ou `duvida_tecnica_tutorial` (explicações, snippets, arquitectura em texto — **não** existe fluxo automático de geração de projecto).
+- Se o utilizador pedir **criar site, sistema web, página web, app web, CRUD, projecto Vite/React com vários ficheiros, desenvolvimento de interface ou código para o Polvo Code** → `polvo_code_builder`. Perguntas puramente teóricas (“o que é um hook?”) sem pedido de projecto → `duvida_tecnica_tutorial`. Snippet mínimo em texto sem workspace → `pedido_conteudo_generico`.
 - Se o utilizador pedir **criar tarefa** (na lista do Open Polvo, “adiciona uma tarefa”, “marca como feito”) → `gestao_tarefas_calendario`.
 - Se o utilizador mencionar **frequência recorrente + acção automatizada** (“todo dia”, “toda segunda”, “a cada hora”) → `agendamento`.
 
