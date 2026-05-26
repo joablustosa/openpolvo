@@ -13,6 +13,10 @@ type Props = {
   className?: string;
 };
 
+/**
+ * Layout chat + painel direito com uma única árvore DOM.
+ * Evita remount do ChatPanel ao colapsar/expandir (causa piscar e tela preta).
+ */
 export function ResizableChatLayout({ chat, site, className }: Props) {
   const { rightPanelCollapsed, expandRightPanel } = useWorkspaceLayout();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,14 +70,24 @@ export function ResizableChatLayout({ chat, site, className }: Props) {
     };
   }, [onMove, endDrag]);
 
-  if (rightPanelCollapsed) {
-    return (
+  return (
+    <div
+      ref={containerRef}
+      className={cn("flex h-full min-h-0 w-full flex-1", className)}
+    >
       <div
-        className={cn("flex h-full min-h-0 w-full flex-1", className)}
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden bg-background",
+          rightPanelCollapsed
+            ? "min-w-0 flex-1"
+            : "shrink-0 border-r border-border",
+        )}
+        style={rightPanelCollapsed ? undefined : { width: chatWidth }}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          {chat}
-        </div>
+        {chat}
+      </div>
+
+      {rightPanelCollapsed ? (
         <button
           type="button"
           onClick={expandRightPanel}
@@ -90,32 +104,21 @@ export function ResizableChatLayout({ chat, site, className }: Props) {
             Área
           </span>
         </button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className={cn("flex h-full min-h-0 w-full flex-1", className)}
-    >
-      <div
-        className="flex min-h-0 shrink-0 flex-col border-r border-border bg-background"
-        style={{ width: chatWidth }}
-      >
-        {chat}
-      </div>
-      <button
-        type="button"
-        aria-label="Redimensionar painéis"
-        className="group relative w-1 shrink-0 cursor-col-resize border-0 bg-border p-0 transition-colors hover:bg-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onMouseDown={startDrag}
-      >
-        <span className="absolute inset-y-0 -left-1 -right-1" />
-      </button>
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
-        {site}
-      </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            aria-label="Redimensionar painéis"
+            className="group relative w-1 shrink-0 cursor-col-resize border-0 bg-border p-0 transition-colors hover:bg-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onMouseDown={startDrag}
+          >
+            <span className="absolute inset-y-0 -left-1 -right-1" />
+          </button>
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            {site}
+          </div>
+        </>
+      )}
     </div>
   );
 }

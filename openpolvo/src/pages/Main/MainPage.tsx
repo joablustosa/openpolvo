@@ -1,21 +1,22 @@
+import { useAuth } from "@/auth/AuthContext";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { HomePage } from "@/pages/Home/HomePage";
 import { WorkspacePage } from "./WorkspacePage";
 
 export function MainPage() {
-  const {
-    activeApp,
-    dashboardData,
-    setDashboardData,
-    taskListsPreviewOpen,
-  } = useWorkspace();
+  const { token } = useAuth();
+  const { dashboardData, setDashboardData } = useWorkspace();
 
-  // Modo workspace: app activa ou preview de listas ao lado do chat
-  const showWorkspace = activeApp || taskListsPreviewOpen;
-
-  if (showWorkspace) {
-    return <WorkspacePage />;
+  // Sessão autenticada: layout estável (chat + painel opcional) — evita remount
+  // HomePage ↔ WorkspacePage que quebra o React (removeChild / providers).
+  // Visitante: HomePage centralizada.
+  if (token) {
+    return (
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <WorkspacePage />
+      </div>
+    );
   }
 
   if (dashboardData) {

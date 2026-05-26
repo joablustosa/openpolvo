@@ -19,6 +19,7 @@ from openpolvointeligence.graphs.message_utils import (
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
 from openpolvointeligence.graphs.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
+from openpolvointeligence.graphs.dev_workflow_graph import run_dev_workflow_pipeline
 from openpolvointeligence.graphs.polvo_code_metadata import polvo_code_ops_metadata_for_reply
 from openpolvointeligence.graphs.task_list_metadata import (
     format_task_lists_for_prompt,
@@ -329,6 +330,12 @@ class ZepState(TypedDict, total=False):
     scheduled_tasks_context: list[dict[str, Any]] | None
     # Texto único: logs da consola do Preview (buffer + envio directo).
     preview_console_block: str | None
+    sandbox_project_id: str | None
+    preview_console_logs: list[dict[str, Any]] | None
+    project_file_tree: list[str] | None
+    project_files: dict[str, str] | None
+    dev_studio_context: dict[str, Any] | None
+    compile_log: str | None
     plugin_hit: bool
     assistant_text: str
     metadata: dict[str, Any]
@@ -417,6 +424,46 @@ def build_zepolvinho_graph(settings: Settings):
         summary = conversation_summary(capped)
         ctx_b = _build_classification_ctx(analysis)
         mp = effective_provider(state.get("model_provider"))
+
+        if routed == "polvo_code_builder":
+            try:
+                dsc = state.get("dev_studio_context")
+                if not isinstance(dsc, dict):
+                    dsc = None
+                text_dw, meta_dw = await run_dev_workflow_pipeline(
+                    settings,
+                    msgs,
+                    state.get("model_provider"),
+                    workspace_id=state.get("sandbox_project_id"),
+                    preview_console_logs=state.get("preview_console_logs"),
+                    compile_log=state.get("compile_log"),
+                    project_file_tree=state.get("project_file_tree"),
+                    project_files=state.get("project_files"),
+                    dev_studio_context=dsc,
+                )
+                meta_dw.update(
+                    {
+                        "intent": str(analysis.get("intent", "")),
+                        "routed_intent": routed,
+                        "intent_confidence": float(analysis.get("confidence", 0)),
+                        "intent_reasoning": str(analysis.get("reasoning", "")),
+                    },
+                )
+                meta_dw = await finalize_reply_metadata(
+                    settings,
+                    state.get("model_provider"),
+                    msgs,
+                    state.get("agent_memory"),
+                    meta_dw,
+                )
+                return {"assistant_text": text_dw, "metadata": meta_dw}
+            except Exception as exc:
+                import logging as _dw_log
+
+                _dw_log.getLogger(__name__).warning(
+                    "dev_workflow_pipeline falhou (%s) — fallback ao fluxo legado",
+                    exc,
+                )
 
         tlc_raw = state.get("task_lists_context")
         tlc_list = tlc_raw if isinstance(tlc_raw, list) else None
@@ -743,6 +790,10 @@ async def run_reply(
     agent_memory: dict[str, Any] | None = None,
     sandbox_project_id: str | None = None,
     preview_console_logs: list[dict[str, Any]] | None = None,
+    project_file_tree: list[str] | None = None,
+    project_files: dict[str, str] | None = None,
+    dev_studio_context: dict[str, Any] | None = None,
+    compile_log: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Executa o grafo LangGraph compilado."""
     graph = get_compiled_graph(settings)
@@ -760,6 +811,12 @@ async def run_reply(
             "meta_context": meta_context,
             "scheduled_tasks_context": scheduled_tasks_context,
             "preview_console_block": preview_console_block,
+            "sandbox_project_id": sandbox_project_id,
+            "preview_console_logs": preview_console_logs,
+            "project_file_tree": project_file_tree,
+            "project_files": project_files,
+            "dev_studio_context": dev_studio_context,
+            "compile_log": compile_log,
         },
     )
     text = str(out.get("assistant_text", "")).strip()
@@ -784,6 +841,10 @@ async def run_reply_stream(
     agent_memory: dict[str, Any] | None = None,
     sandbox_project_id: str | None = None,
     preview_console_logs: list[dict[str, Any]] | None = None,
+    project_file_tree: list[str] | None = None,
+    project_files: dict[str, str] | None = None,
+    dev_studio_context: dict[str, Any] | None = None,
+    compile_log: str | None = None,
 ):
     """Versão SSE de run_reply — sem timeout HTTP.
 
@@ -857,6 +918,10 @@ async def run_reply_stream(
         analysis = {"intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {}}
 
     # ── Grafo completo ─────────────────────────────────────────────────────────
+    routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
+    if routed == "polvo_code_builder":
+        yield {"type": "progress", "step": "dev_workflow", "label": "A planear alterações no projecto…"}
+
     yield {"type": "progress", "step": "specialist", "label": "A preparar resposta..."}
     try:
         text, meta = await run_reply(
@@ -873,6 +938,10 @@ async def run_reply_stream(
             agent_memory=agent_memory,
             sandbox_project_id=sandbox_project_id,
             preview_console_logs=preview_console_logs,
+            project_file_tree=project_file_tree,
+            project_files=project_files,
+            dev_studio_context=dev_studio_context,
+            compile_log=compile_log,
         )
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:

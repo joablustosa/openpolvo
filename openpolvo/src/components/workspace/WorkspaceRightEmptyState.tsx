@@ -1,18 +1,14 @@
-import { Code2, MessageCircle, PanelRightClose } from "lucide-react";
+import { LayoutTemplate, MessageCircle, PanelRightClose } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
+import { DEV_STUDIO_NATIVE_APP_ID } from "@/config/apps";
 import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 
 type Props = {
-  /** Quando definido, o botão oculta o painel direito (layout a largura completa no chat). */
   onCollapseRightPanel?: () => void;
 };
 
-/**
- * Estado vazio do painel direito (sem plugin ou dashboard activo).
- * Evita a sensação de «tela branca» à direita na home.
- */
 export function WorkspaceRightEmptyState({ onCollapseRightPanel }: Props) {
   const { openPlugin } = useAppLaunch();
   const { requestNewChat } = useHomeChatControls();
@@ -26,8 +22,8 @@ export function WorkspaceRightEmptyState({ onCollapseRightPanel }: Props) {
       <div className="max-w-md space-y-3">
         <p className="text-sm font-medium text-foreground">Área de trabalho</p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          O chat fica à esquerda; aqui pode abrir integrações e o ambiente de código ao lado da
-          conversa.
+          O chat fica à esquerda. Para sites e apps, peça no chat — o preview abre aqui (sem código
+          na conversa). Integrações como WhatsApp e Gmail estão no menu Plugins.
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -36,10 +32,10 @@ export function WorkspaceRightEmptyState({ onCollapseRightPanel }: Props) {
           variant="default"
           size="sm"
           className="gap-2"
-          onClick={() => openPlugin("polvo_code")}
+          onClick={() => openPlugin(DEV_STUDIO_NATIVE_APP_ID)}
         >
-          <Code2 className="size-4" />
-          Abrir Polvo Code
+          <LayoutTemplate className="size-4" />
+          Abrir estúdio (preview)
         </Button>
         <Button
           type="button"

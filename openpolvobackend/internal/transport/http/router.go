@@ -159,6 +159,7 @@ func NewRouter(d Deps) http.Handler {
 			}
 			if d.PolvoCode != nil {
 				r.Post("/polvo-code/validate-ops", d.PolvoCode.PostValidateOps)
+				r.Post("/dev-studio/self-heal", d.PolvoCode.PostDevStudioSelfHeal)
 			}
 			if d.Meta != nil {
 				r.Get("/me/meta", d.Meta.GetMeMeta)

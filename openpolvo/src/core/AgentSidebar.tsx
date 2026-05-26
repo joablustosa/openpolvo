@@ -257,7 +257,7 @@ export function AgentSidebar() {
   return (
     <aside
       className={cn(
-        "flex w-[min(100%,280px)] shrink-0 flex-col border-r border-border/80 bg-muted/25",
+        "flex h-full min-h-0 w-[min(100%,280px)] shrink-0 flex-col border-r border-border/80 bg-muted/25",
       )}
     >
       {/* Brand — clique volta à página inicial (chat) */}

@@ -20,8 +20,11 @@ const WorkspaceLayoutContext =
 
 export function WorkspaceLayoutProvider({ children }: { children: ReactNode }) {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem(RIGHT_COLLAPSED_KEY) === "1";
+    if (typeof localStorage === "undefined") return true;
+    const stored = localStorage.getItem(RIGHT_COLLAPSED_KEY);
+    // Por defeito: painel direito fechado (chat centralizado).
+    if (stored === null) return true;
+    return stored === "1";
   });
 
   const collapseRightPanel = useCallback(() => {
@@ -53,7 +56,9 @@ export function WorkspaceLayoutProvider({ children }: { children: ReactNode }) {
 
   return (
     <WorkspaceLayoutContext.Provider value={value}>
-      {children}
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
     </WorkspaceLayoutContext.Provider>
   );
 }

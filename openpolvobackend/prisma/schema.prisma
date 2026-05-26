@@ -1,0 +1,241 @@
+// Open Polvo — modelo Prisma para SaaS Lovable (PostgreSQL / Supabase)
+//
+// Uso:
+//   DATABASE_URL="postgresql://..." npx prisma migrate dev
+//
+// Supabase: descomentar relação com auth.users em User e activar RLS no SQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanTier {
+  free
+  pro
+  team
+  enterprise
+}
+
+enum WorkspaceRole {
+  owner
+  admin
+  editor
+  viewer
+}
+
+enum ProjectStatus {
+  active
+  archived
+  deleted
+}
+
+enum VersionSource {
+  initial
+  codegen
+  self_heal
+  manual
+  rollback
+  import
+}
+
+enum ChatRole {
+  user
+  assistant
+  system
+  tool
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  displayName  String?   @map("display_name")
+  passwordHash String?   @map("password_hash")
+  avatarUrl    String?   @map("avatar_url")
+  locale       String    @default("pt-BR")
+  timezone     String    @default("America/Sao_Paulo")
+  planTier     PlanTier  @default(free) @map("plan_tier")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  ownedWorkspaces   Workspace[]        @relation("WorkspaceOwner")
+  workspaceMembers  WorkspaceMember[]
+  projectsCreated   Project[]          @relation("ProjectCreator")
+  versionsCreated   ProjectVersion[]   @relation("VersionCreator")
+  conversations     ChatConversation[] @relation("ConversationStarter")
+  messagesAuthored  ChatMessage[]      @relation("MessageAuthor")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("users")
+}
+
+model Workspace {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerUserId String    @map("owner_user_id") @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  settings    Json      @default("{}")
+  isPersonal  Boolean   @default(false) @map("is_personal")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz
+
+  owner       User              @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  members     WorkspaceMember[]
+  projects    Project[]
+  messages    ChatMessage[]
+
+  @@index([ownerUserId, updatedAt(sort: Desc)])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole @default(editor)
+  invitedAt   DateTime      @default(now()) @map("invited_at") @db.Timestamptz
+  joinedAt    DateTime?     @map("joined_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String        @map("workspace_id") @db.Uuid
+  createdByUserId  String        @map("created_by_user_id") @db.Uuid
+  name             String
+  slug             String
+  description      String?
+  stackHint        String?       @map("stack_hint")
+  status           ProjectStatus @default(active)
+  currentVersionId String?       @map("current_version_id") @db.Uuid
+  previewUrl       String?       @map("preview_url")
+  settings         Json          @default("{}")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  archivedAt       DateTime?     @map("archived_at") @db.Timestamptz
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User              @relation("ProjectCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  currentVersion   ProjectVersion?   @relation("ProjectHead", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions         ProjectVersion[]  @relation("ProjectVersions")
+  conversation     ChatConversation?
+  messages           ChatMessage[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@index([workspaceId, status, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+model ProjectVersion {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String        @map("project_id") @db.Uuid
+  versionNumber   Int           @map("version_number")
+  parentVersionId String?       @map("parent_version_id") @db.Uuid
+  createdByUserId String?       @map("created_by_user_id") @db.Uuid
+  summary         String        @default("")
+  source          VersionSource @default(codegen)
+  snapshotHash    String        @map("snapshot_hash") @db.Char(64)
+  fileManifest    Json          @default("[]") @map("file_manifest")
+  metadata        Json          @default("{}")
+  isHead          Boolean       @default(false) @map("is_head")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  project       Project              @relation("ProjectVersions", fields: [projectId], references: [id], onDelete: Cascade)
+  parentVersion ProjectVersion?      @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions ProjectVersion[]     @relation("VersionLineage")
+  createdBy     User?                @relation("VersionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  files         ProjectVersionFile[]
+  headOfProject Project[]            @relation("ProjectHead")
+  messages      ChatMessage[]        @relation("MessageSnapshot")
+  baseMessages  ChatMessage[]        @relation("MessageBaseSnapshot")
+
+  @@unique([projectId, versionNumber])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, versionNumber(sort: Desc)])
+  @@map("project_versions")
+}
+
+model ProjectVersionFile {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId   String   @map("version_id") @db.Uuid
+  path        String
+  content     String
+  contentHash String   @map("content_hash") @db.Char(64)
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  lang        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  version ProjectVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, path])
+  @@index([versionId])
+  @@index([path])
+  @@map("project_version_files")
+}
+
+model ChatConversation {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String   @unique @map("project_id") @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  startedByUserId   String   @map("started_by_user_id") @db.Uuid
+  title             String?
+  defaultModel      String   @default("openai") @map("default_model")
+  langgraphThreadId String?  @map("langgraph_thread_id")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  startedBy User          @relation("ConversationStarter", fields: [startedByUserId], references: [id], onDelete: Restrict)
+  messages  ChatMessage[]
+
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId   String    @map("conversation_id") @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  workspaceId      String    @map("workspace_id") @db.Uuid
+  authorUserId     String?   @map("author_user_id") @db.Uuid
+  role             ChatRole
+  content          String
+  metadata         Json      @default("{}")
+  /// Snapshot de código após este turno (assistant com ops aplicadas)
+  projectVersionId String?   @map("project_version_id") @db.Uuid
+  /// Estado do código antes deste turno (para diff / audit)
+  baseVersionId    String?   @map("base_version_id") @db.Uuid
+  promptTokens     Int?      @map("prompt_tokens")
+  completionTokens Int?      @map("completion_tokens")
+  modelProvider    String?   @map("model_provider")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author         User?            @relation("MessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  projectVersion ProjectVersion?  @relation("MessageSnapshot", fields: [projectVersionId], references: [id], onDelete: SetNull)
+  baseVersion    ProjectVersion?  @relation("MessageBaseSnapshot", fields: [baseVersionId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt(sort: Asc)])
+  @@index([projectId, role, createdAt(sort: Desc)])
+  @@index([conversationId, createdAt(sort: Asc)])
+  @@index([authorUserId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([projectVersionId])
+  @@map("chat_messages")
+}

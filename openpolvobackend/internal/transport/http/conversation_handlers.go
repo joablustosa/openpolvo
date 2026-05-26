@@ -93,9 +93,15 @@ type pinConversationRequest struct {
 }
 
 type postMessageRequest struct {
-	Text           string `json:"text"`
-	ModelProvider  string `json:"model_provider,omitempty"`
-	LLMProfileID   string `json:"llm_profile_id,omitempty"`
+	Text               string           `json:"text"`
+	ModelProvider      string           `json:"model_provider,omitempty"`
+	LLMProfileID       string           `json:"llm_profile_id,omitempty"`
+	SandboxProjectID   string           `json:"sandbox_project_id,omitempty"`
+	ProjectFileTree    []string         `json:"project_file_tree,omitempty"`
+	ProjectFiles       map[string]string `json:"project_files,omitempty"`
+	PreviewConsoleLogs []map[string]any `json:"preview_console_logs,omitempty"`
+	DevStudioContext   map[string]any   `json:"dev_studio_context,omitempty"`
+	CompileLog         string           `json:"compile_log,omitempty"`
 }
 
 func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.Request) {
@@ -272,11 +278,17 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 		profID = &p
 	}
 	msgs, err := h.SendMessage.Execute(r.Context(), application.SendMessageCommand{
-		UserID:         uid,
-		ConversationID: cid,
-		Text:           req.Text,
-		ModelProvider:  mp,
-		LLMProfileID:   profID,
+		UserID:             uid,
+		ConversationID:     cid,
+		Text:               req.Text,
+		ModelProvider:      mp,
+		LLMProfileID:       profID,
+		SandboxProjectID:   req.SandboxProjectID,
+		ProjectFileTree:    req.ProjectFileTree,
+		ProjectFiles:       req.ProjectFiles,
+		PreviewConsoleLogs: req.PreviewConsoleLogs,
+		DevStudioContext:   req.DevStudioContext,
+		CompileLog:         req.CompileLog,
 	})
 	if err != nil {
 		switch {
@@ -441,11 +453,17 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 
 	// Prepara: guarda mensagem do utilizador, abre stream Python.
 	result, err := h.StreamMsg.Prepare(r.Context(), application.StreamMessageCommand{
-		UserID:         uid,
-		ConversationID: cid,
-		Text:           req.Text,
-		ModelProvider:  mp,
-		LLMProfileID:   profID,
+		UserID:             uid,
+		ConversationID:     cid,
+		Text:               req.Text,
+		ModelProvider:      mp,
+		LLMProfileID:       profID,
+		SandboxProjectID:   req.SandboxProjectID,
+		ProjectFileTree:    req.ProjectFileTree,
+		ProjectFiles:       req.ProjectFiles,
+		PreviewConsoleLogs: req.PreviewConsoleLogs,
+		DevStudioContext:   req.DevStudioContext,
+		CompileLog:         req.CompileLog,
 	})
 	if err != nil {
 		switch {

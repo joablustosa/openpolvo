@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  LayoutTemplate,
   Menu,
   PanelLeft,
   Search,
@@ -26,10 +27,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { APP_LABELS, PLUGIN_IDS } from "@/config/apps";
+import { APP_LABELS, DEV_STUDIO_NATIVE_APP_ID, PLUGIN_IDS } from "@/config/apps";
 import { useAuth } from "@/auth/AuthContext";
 import { useAnonymousChat } from "@/core/AnonymousChatContext";
-import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
+import { useConversationWorkspaceOptional } from "@/core/ConversationWorkspaceContext";
 import { useHomeChatControls } from "@/core/HomeChatContext";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
@@ -49,17 +50,15 @@ export function AgentAppMenuToolbar({
   const { token, logout } = useAuth();
   const { openLoginModal } = useAnonymousChat();
   const { requestNewChat } = useHomeChatControls();
-  const { clearWorkspace } = useConversationWorkspace();
+  const conversationWorkspace = useConversationWorkspaceOptional();
   const { openPlugin } = useAppLaunch();
   useWorkspace();
 
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const goToPolvoCode = () => openPlugin("polvo_code");
-
   const newChat = () => {
     if (token) {
-      clearWorkspace();
+      conversationWorkspace?.clearWorkspace();
     } else {
       requestNewChat();
     }
@@ -97,10 +96,13 @@ export function AgentAppMenuToolbar({
                   Definições do agente
                   <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openPlugin("polvo_code")}>
-                  Polvo Code (IDE)
+                <DropdownMenuItem
+                  className="gap-2"
+                  onClick={() => openPlugin(DEV_STUDIO_NATIVE_APP_ID)}
+                >
+                  <LayoutTemplate className="size-4 opacity-80" />
+                  Estúdio (preview)
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Plugins</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="max-h-[min(70vh,400px)] w-56 overflow-y-auto">
@@ -141,9 +143,9 @@ export function AgentAppMenuToolbar({
                 <DropdownMenuItem onClick={onToggleSidebar}>
                   {sidebarCollapsed ? "Mostrar barra lateral" : "Ocultar barra lateral"}
                 </DropdownMenuItem>
-                    <DropdownMenuItem onClick={goToPolvoCode}>
-                      Polvo Code (IDE)
-                    </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openPlugin(DEV_STUDIO_NATIVE_APP_ID)}>
+                  Estúdio (preview)
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled>Tema</DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>

@@ -1,5 +1,4 @@
-import type { AppId } from "@/config/apps";
-import { isAppId } from "@/config/apps";
+import { normalizeNativePluginId, type AppId } from "@/config/apps";
 import type { MessageDTO } from "@/lib/conversationsApi";
 
 function parseMetadata(raw: unknown): Record<string, unknown> | null {
@@ -31,6 +30,7 @@ export function tryOpenNativePluginFromMessages(
   const np = meta?.native_plugin;
   if (!np || typeof np !== "object" || Array.isArray(np)) return;
   const id = (np as Record<string, unknown>).id;
-  if (typeof id !== "string" || !isAppId(id)) return;
-  openPlugin(id);
+  if (typeof id !== "string") return;
+  const normalized = normalizeNativePluginId(id);
+  if (normalized) openPlugin(normalized);
 }

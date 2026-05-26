@@ -31,6 +31,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+      },
       // 5173 é frequentemente usado por outros Vite projects e pode colidir no desktop.
       // O Electron em dev usa este porto.
       // host: true → escuta em IPv4+IPv6; evita ecrã em branco quando o browser usa `localhost`
@@ -48,6 +52,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: {
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+      },
       port: 4174,
       strictPort: true,
       proxy: {

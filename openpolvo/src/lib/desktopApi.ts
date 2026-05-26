@@ -179,6 +179,7 @@ export const desktopClipboard = {
 };
 
 // ── Polvo Code (Electron): projecto em disco + npm/vite ─────────────────────────
+// IPC usado pelo Estúdio (preview) — `src/components/dev-studio/` e `devStudioMetadata.ts`.
 
 export type PolvoCodeWriteResult =
   | { ok: true; workspacePath: string }
@@ -200,7 +201,7 @@ export type PolvoCodeDevStartOpts = {
 export type PolvoCodeEvent =
   | { type: "log"; line: string }
   | { type: "url"; url: string }
-  | { type: "exit"; code: number | null; phase?: string };
+  | { type: "exit"; code: number | null; phase?: string; intentional?: boolean };
 
 export type PolvoCodeDirEntry = {
   name: string;

@@ -23,7 +23,7 @@ function AppShell() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
+      <div className="flex h-dvh min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<Shell />}>

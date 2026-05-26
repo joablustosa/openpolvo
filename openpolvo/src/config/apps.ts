@@ -7,8 +7,11 @@
 export const SMARTBUS_URL =
   "https://preprod-guanabara-backoffice-smartbus.smarttravelit.com/#/login" as const;
 
+/** Plugin nativo: estúdio de desenvolvimento com preview (sem URL de webview). */
+export const DEV_STUDIO_NATIVE_APP_ID = "dev_studio" as const;
+
 export type AppId =
-  | "polvo_code"
+  | typeof DEV_STUDIO_NATIVE_APP_ID
   | "whatsapp"
   | "instagram"
   | "facebook"
@@ -20,7 +23,7 @@ export type AppId =
 
 /** Ordem no menu Plugins e nos submenus. */
 export const PLUGIN_IDS: readonly AppId[] = [
-  "polvo_code",
+  DEV_STUDIO_NATIVE_APP_ID,
   "whatsapp",
   "instagram",
   "facebook",
@@ -32,7 +35,7 @@ export const PLUGIN_IDS: readonly AppId[] = [
 ] as const;
 
 export const APP_LABELS: Record<AppId, string> = {
-  polvo_code: "Polvo Code",
+  dev_studio: "Estúdio (preview)",
   whatsapp: "WhatsApp",
   instagram: "Instagram",
   facebook: "Facebook",
@@ -43,10 +46,9 @@ export const APP_LABELS: Record<AppId, string> = {
   buscaonibus: "Busca Ônibus",
 };
 
-/** URLs alinhadas com internal/agents/zepolvinho/native_plugins.go */
+/** URLs alinhadas com internal/agents/zepolvinho/native_plugins.go (plugins web). */
 export const PLUGIN_URLS: Record<AppId, string> = {
-  /** Painel nativo (Electron); não usar como URL de `<webview>`. */
-  polvo_code: "",
+  dev_studio: "",
   whatsapp: "https://web.whatsapp.com/",
   instagram: "https://www.instagram.com/",
   facebook: "https://www.facebook.com/",
@@ -61,11 +63,19 @@ export function getPluginUrl(id: AppId): string {
   return PLUGIN_URLS[id];
 }
 
-/** Apps que não são websites — o `SitePanel` renderiza um painel nativo. */
 export function isNativePluginApp(id: AppId): boolean {
-  return id === "polvo_code";
+  return id === DEV_STUDIO_NATIVE_APP_ID;
 }
 
 export function isAppId(s: string): s is AppId {
   return (PLUGIN_IDS as readonly string[]).includes(s);
+}
+
+/** IDs de plugins nativos enviados pelo Intelligence (legado `polvo_code` → estúdio). */
+export function normalizeNativePluginId(id: string): AppId | null {
+  const key = id.trim();
+  if (key === "polvo_code" || key === "dev_studio") {
+    return DEV_STUDIO_NATIVE_APP_ID;
+  }
+  return isAppId(key) ? key : null;
 }

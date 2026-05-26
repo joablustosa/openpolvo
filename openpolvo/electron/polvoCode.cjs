@@ -7,8 +7,7 @@ const { app, ipcMain, dialog } = require("electron");
 const { shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
-const { execFile } = require("child_process");
+const { spawn, execSync, execFile } = require("child_process");
 
 /** @type {import('child_process').ChildProcess | null} */
 let devProcess = null;
@@ -63,8 +62,14 @@ function attachDevStreams(child, emit) {
   child.stdout?.on("data", feed);
   child.stderr?.on("data", feed);
   child.on("close", (code) => {
-    emit({ type: "exit", code: code ?? null, phase: "dev" });
-    devProcess = null;
+    const intentional = Boolean(child.__intentionalStop);
+    emit({
+      type: "exit",
+      code: code ?? null,
+      phase: "dev",
+      intentional,
+    });
+    if (devProcess === child) devProcess = null;
   });
   child.on("error", (err) => {
     emit({ type: "log", line: `Erro do processo: ${String(err?.message ?? err)}\n` });
@@ -86,18 +91,24 @@ function attachInstallStreams(child, emit) {
 
 /** @param {(payload: Record<string, unknown>) => void} emit */
 function tryDetectDevUrl(text, emit) {
+  const stripAnsi = (s) => String(s).replace(/\u001b\[[0-9;]*m/g, "");
+  const buf = stripAnsi(devLogBuffer);
+  const chunk = stripAnsi(text);
   const patterns = [
-    /Local:\s*(https?:\/\/[^\s\]]+)/i,
-    /Network:\s*(https?:\/\/[^\s\]]+)/i,
+    /Local:\s*(https?:\/\/[^\s\]\u001b]+)/i,
+    /Network:\s*(https?:\/\/[^\s\]\u001b]+)/i,
     /(https?:\/\/127\.0\.0\.1:\d+\/?)/,
     /(https?:\/\/localhost:\d+\/?)/,
+    /127\.0\.0\.1:(\d{4,5})/,
   ];
   for (const re of patterns) {
-    const m = devLogBuffer.match(re) || text.match(re);
-    if (m && m[1]) {
-      let url = m[1].trim();
-      if (url.endsWith("/")) url = url.slice(0, -1);
-      emit({ type: "url", url });
+    const m = buf.match(re) || chunk.match(re);
+    if (m) {
+      let url = (m[1] || m[0] || "").trim();
+      if (/^\d+$/.test(url)) url = `http://127.0.0.1:${url}/`;
+      if (!url.startsWith("http")) continue;
+      if (!url.endsWith("/")) url = `${url}/`;
+      emit({ type: "url", url: url.replace(/\/+$/, "") || url });
       return;
     }
   }
@@ -105,16 +116,116 @@ function tryDetectDevUrl(text, emit) {
 
 function killDevProcess() {
   if (!devProcess) return;
+  const child = devProcess;
+  devProcess = null;
+  child.__intentionalStop = true;
   try {
-    devProcess.kill("SIGTERM");
+    child.kill("SIGTERM");
   } catch {
     /* ignore */
   }
-  devProcess = null;
+}
+
+/** Liberta a porta do preview (processos órfãos de sessões anteriores). */
+function killListenersOnPort(port) {
+  const p = Math.floor(Number(port));
+  if (!p || p < 1 || p > 65535) return;
+  try {
+    if (process.platform === "win32") {
+      let out = "";
+      try {
+        out = execSync(`netstat -ano -p tcp | findstr :${p}`, {
+          encoding: "utf8",
+          windowsHide: true,
+        });
+      } catch {
+        return;
+      }
+      const pids = new Set();
+      for (const line of out.split(/\r?\n/)) {
+        const m = line.trim().match(/\s+(\d+)\s*$/);
+        if (m) pids.add(m[1]);
+      }
+      const self = String(process.pid);
+      for (const pid of pids) {
+        if (!pid || pid === "0" || pid === self) continue;
+        try {
+          execSync(`taskkill /PID ${pid} /F`, { windowsHide: true });
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    execSync(`lsof -ti :${p} | xargs kill -9 2>/dev/null || true`, {
+      shell: true,
+      stdio: "ignore",
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Corrige package.json antigo (porta 5173 + strictPort) que impede o preview em :5175. */
+function ensurePreviewPackageJson(workspacePath) {
+  const pkgPath = path.join(workspacePath, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const dev = pkg?.scripts?.dev;
+    if (typeof dev !== "string") return;
+    if (!/5173|strictPort/i.test(dev)) return;
+    pkg.scripts = pkg.scripts || {};
+    pkg.scripts.dev = "vite";
+    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Alinha vite.config.ts antigo (porta 5173) com a porta do Dev Studio (5175). */
+function ensurePreviewViteConfig(workspacePath, port) {
+  const cfgPath = path.join(workspacePath, "vite.config.ts");
+  if (!fs.existsSync(cfgPath)) return;
+  try {
+    let text = fs.readFileSync(cfgPath, "utf8");
+    if (!/port:\s*5173/.test(text)) return;
+    text = text.replace(/port:\s*5173/g, `port: ${port}`);
+    fs.writeFileSync(cfgPath, text, "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+function waitForDevProcessStop(timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const child = devProcess;
+    if (!child) {
+      resolve();
+      return;
+    }
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    child.once("close", finish);
+    setTimeout(finish, timeoutMs);
+  });
 }
 
 function npmCmd() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+/** spawn npm no Windows (evita EINVAL com npm.cmd sem shell). */
+function spawnNpm(args, opts) {
+  const npm = npmCmd();
+  if (process.platform === "win32") {
+    return spawn(npm, args, { ...opts, shell: true });
+  }
+  return spawn(npm, args, { ...opts, shell: false });
 }
 
 const MAX_READ_BYTES = 2 * 1024 * 1024;
@@ -358,10 +469,8 @@ function registerPolvoCodeIpc(getMainWindow) {
         resolve({ ok: false, error: "Caminho inválido." });
         return;
       }
-      const npm = npmCmd();
-      const child = spawn(npm, ["install"], {
+      const child = spawnNpm(["install"], {
         cwd: workspacePath,
-        shell: false,
         env: { ...process.env, CI: "1", npm_config_yes: "true" },
       });
       emit({ type: "log", line: `[Polvo Code] npm install em ${workspacePath}\n` });
@@ -381,9 +490,8 @@ function registerPolvoCodeIpc(getMainWindow) {
     });
   });
 
-  ipcMain.handle("polvoCode:devStart", (_evt, payload) => {
+  ipcMain.handle("polvoCode:devStart", async (_evt, payload) => {
     try {
-      killDevProcess();
       const workspacePath =
         typeof payload?.workspacePath === "string" ? payload.workspacePath.trim() : "";
       const port =
@@ -393,11 +501,15 @@ function registerPolvoCodeIpc(getMainWindow) {
         return { ok: false, error: "Caminho inválido." };
       }
 
-      const npm = npmCmd();
+      killDevProcess();
+      await waitForDevProcessStop();
+      ensurePreviewPackageJson(workspacePath);
+      ensurePreviewViteConfig(workspacePath, port);
+      killListenersOnPort(port);
+
       const args = ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port)];
-      const child = spawn(npm, args, {
+      const child = spawnNpm(args, {
         cwd: workspacePath,
-        shell: false,
         env: {
           ...process.env,
           BROWSER: "none",
@@ -419,7 +531,7 @@ function registerPolvoCodeIpc(getMainWindow) {
         }
       });
 
-      emit({ type: "log", line: `[Polvo Code] npm run dev (${workspacePath})\n` });
+      emit({ type: "log", line: `[Polvo Code] npm run dev (${workspacePath}) :${port}\n` });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: String(e?.message ?? e) };

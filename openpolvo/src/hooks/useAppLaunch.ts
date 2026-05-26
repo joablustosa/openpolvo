@@ -5,12 +5,13 @@ import { useWorkspace } from "@/core/WorkspaceContext";
 
 export function useAppLaunch() {
   const { setTargetUrl } = useAuth();
-  const { setActiveApp, clearPolvoCode } = useWorkspace();
+  const { setActiveApp, clearDevStudio, openDevStudioPreview, closeDevStudioPreview } =
+    useWorkspace();
 
   const openPlugin = (id: AppId) => {
     if (isNativePluginApp(id)) {
       setTargetUrl("");
-      setActiveApp(id);
+      openDevStudioPreview();
       return;
     }
     setTargetUrl(getPluginUrl(id));
@@ -21,7 +22,8 @@ export function useAppLaunch() {
 
   const goHome = () => {
     setTargetUrl("");
-    clearPolvoCode();
+    closeDevStudioPreview();
+    clearDevStudio();
     setActiveApp(null);
   };
 

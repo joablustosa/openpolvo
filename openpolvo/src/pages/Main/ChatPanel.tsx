@@ -1,6 +1,6 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Mic, MicOff, Radio, SendHorizontal } from "lucide-react";
+import { Mic, MicOff, Radio, SendHorizontal, Sparkles } from "lucide-react";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   type WakePayload,
 } from "@/hooks/useJowWakeListener";
 import { useRecordUntilSilence } from "@/hooks/useRecordUntilSilence";
+import { displayNameFromToken } from "@/lib/userDisplay";
 import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
@@ -39,8 +40,8 @@ export function ChatPanel() {
     clearEmailSendNotice,
     taskListNotice,
     clearTaskListNotice,
-    polvoCodeNotice,
-    clearPolvoCodeNotice,
+    devStudioNotice,
+    clearDevStudioNotice,
     llmSelectValue,
     setLlmSelectValue,
     llmProfiles,
@@ -148,9 +149,17 @@ export function ChatPanel() {
     return () => abortWakeRecord();
   }, [abortWakeRecord]);
 
+  const authWelcomeText = useMemo(
+    () =>
+      "Conversa com **Zé Polvinho** (motor Go). Escolha **Automático**, **OpenAI**, **Gemini** ou um **perfil** com chave (em Definições → Modelos LLM). A primeira mensagem cria a conversa se ainda não houver uma activa.\n\nAs respostas usam **Markdown** (títulos, listas, código e links).",
+    [],
+  );
+  const greeting = token ? `${displayNameFromToken(token)} está de volta!` : "Bem-vindo!";
+  const showWelcome = token && messages.length === 0 && !loadingMessages && !sending;
+
   return (
     <section
-      className="flex min-h-0 flex-1 flex-col bg-background"
+      className="flex h-full min-h-0 flex-1 flex-col bg-background"
       aria-label="Conversa com Zé Polvinho"
     >
       <header className="shrink-0 border-b border-border px-4 py-3">
@@ -195,7 +204,30 @@ export function ChatPanel() {
       </header>
 
       <ScrollArea className="min-h-0 flex-1 px-4">
-        <div className="flex flex-col gap-3 py-4" role="log">
+        <div
+          className={cn(
+            "flex flex-col gap-3 py-4",
+            showWelcome && "mx-auto max-w-3xl",
+          )}
+          role="log"
+        >
+          {showWelcome ? (
+            <div className="mb-4 flex flex-col items-center gap-3 pt-8 text-center">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-5 text-[#d97757]" aria-hidden />
+                <h2 className="font-serif text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
+                  {greeting}
+                </h2>
+              </div>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Zé Polvinho encaminha o pedido para o especialista certo (pedidos,
+                informação ou geral).
+              </p>
+              <div className="max-w-[min(92%,560px)] self-start rounded-2xl border border-border bg-card px-3.5 py-2.5 text-sm leading-relaxed text-card-foreground">
+                <FormattedMessageContent content={authWelcomeText} variant="rich" />
+              </div>
+            </div>
+          ) : null}
           {error ? (
             <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
@@ -217,10 +249,10 @@ export function ChatPanel() {
               </Button>
             </div>
           ) : null}
-          {polvoCodeNotice ? (
-            <div className="flex items-center justify-between gap-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-100">
-              <span>{polvoCodeNotice}</span>
-              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearPolvoCodeNotice}>
+          {devStudioNotice ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-900 dark:text-violet-100">
+              <span>{devStudioNotice}</span>
+              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0" onClick={clearDevStudioNotice}>
                 OK
               </Button>
             </div>

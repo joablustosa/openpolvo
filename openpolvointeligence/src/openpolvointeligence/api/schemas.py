@@ -54,11 +54,83 @@ class ReplyRequest(BaseModel):
         default=None,
         description="Eventos da consola enviados pelo cliente neste turno (level, message, source?, stack?).",
     )
+    project_file_tree: list[str] | None = Field(
+        default=None,
+        description="Paths relativos do projecto no estúdio (árvore actual).",
+    )
+    project_files: dict[str, str] | None = Field(
+        default=None,
+        description="Conteúdo de ficheiros-chave path→texto para Context_Manager (delta/diff).",
+    )
+    dev_studio_context: dict[str, Any] | None = Field(
+        default=None,
+        description="Mapa compacto + manifesto devolvido no turno anterior (metadata.dev_studio_context).",
+    )
+    compile_log: str | None = Field(
+        default=None,
+        description="Log de build do preview (WebContainer/Vite) para self-healing no grafo.",
+    )
 
 
 class ReplyResponse(BaseModel):
     assistant_text: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DevStudioSelfHealRequest(BaseModel):
+    model_provider: str = Field(default="openai", description="openai | google")
+    openai_api_key: str | None = None
+    google_api_key: str | None = None
+    openai_model: str | None = None
+    google_model: str | None = None
+    user_prompt: str | None = Field(
+        default=None,
+        description="Pedido original do utilizador (contexto mínimo para correcção).",
+    )
+    compile_log: str | None = Field(
+        default=None,
+        description="Log bruto do WebContainer/Vite/tsc.",
+    )
+    preview_console_logs: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Eventos da consola do preview neste turno.",
+    )
+    project_files: dict[str, str] | None = Field(
+        default=None,
+        description="Mapa path→conteúdo actual do projecto virtual.",
+    )
+    dev_studio_context: dict[str, Any] | None = None
+
+
+class DevStudioSelfHealResponse(BaseModel):
+    assistant_text: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CodeRagIndexRequest(BaseModel):
+    project_id: str = Field(description="UUID estável do projecto Dev Studio")
+    project_files: dict[str, str] = Field(description="Mapa path→conteúdo a indexar")
+    model_provider: str = Field(default="openai")
+
+
+class CodeRagIndexResponse(BaseModel):
+    project_id: str
+    files_scanned: int
+    chunks_indexed: int
+    embedding_model: str
+    store: str
+
+
+class CodeRagQueryRequest(BaseModel):
+    project_id: str
+    prompt: str
+    top_k: int = Field(default=8, ge=1, le=24)
+
+
+class CodeRagQueryResponse(BaseModel):
+    paths: list[str]
+    context_block: str
+    chunks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkflowGenerateRequest(BaseModel):

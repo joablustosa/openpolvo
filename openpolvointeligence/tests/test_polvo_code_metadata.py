@@ -46,5 +46,5 @@ def test_build_metadata_pending_opens_native_plugin():
         npm_install=True,
     )
     assert meta["polvo_code_ops_pending"] is True
-    assert meta["native_plugin"]["id"] == "polvo_code"
+    assert meta["native_plugin"]["id"] == "dev_studio"
     assert meta["polvo_code_create_project"] is True

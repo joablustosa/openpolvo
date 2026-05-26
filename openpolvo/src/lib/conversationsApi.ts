@@ -81,10 +81,22 @@ export async function fetchMessages(
   return res.json() as Promise<MessageDTO[]>;
 }
 
+export type ChatMessageBody = {
+  text: string;
+  model_provider?: ModelProvider;
+  llm_profile_id?: string;
+  sandbox_project_id?: string;
+  project_file_tree?: string[];
+  project_files?: Record<string, string>;
+  preview_console_logs?: Array<{ level: string; message: string; source?: string }>;
+  dev_studio_context?: Record<string, unknown>;
+  compile_log?: string;
+};
+
 export async function postMessage(
   token: string,
   conversationId: string,
-  body: { text: string; model_provider?: ModelProvider; llm_profile_id?: string },
+  body: ChatMessageBody,
 ): Promise<MessageDTO[]> {
   const res = await fetchApi(`/v1/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -154,7 +166,7 @@ export type StreamEvent =
 export async function streamMessage(
   token: string,
   conversationId: string,
-  body: { text: string; model_provider?: ModelProvider; llm_profile_id?: string },
+  body: ChatMessageBody,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

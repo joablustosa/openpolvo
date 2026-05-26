@@ -123,17 +123,27 @@
     @apply border-border outline-ring/50;
     }
   html {
-    @apply h-full font-sans;
+    @apply h-full min-h-dvh font-sans;
     }
   body {
-    @apply m-0 h-full overflow-hidden bg-background text-foreground antialiased;
+    @apply m-0 h-full min-h-dvh overflow-hidden bg-background text-foreground antialiased;
     }
   #root {
-    @apply flex h-full min-h-0 flex-col;
+    @apply flex h-dvh min-h-0 flex-col;
     }
-  /* Electron <webview>: evita altura colapsada (comportamento tipo inline) */
+  /* Electron <webview>: preenche o painel de preview (Estúdio) */
   webview {
     display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  section[aria-label="Estúdio de desenvolvimento"] webview,
+  section[aria-label="Estúdio de desenvolvimento"] iframe {
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 100%;
+    min-height: 100%;
   }
 }
 

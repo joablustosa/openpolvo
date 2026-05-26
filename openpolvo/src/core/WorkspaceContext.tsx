@@ -31,11 +31,18 @@ type WorkspaceContextValue = {
   closeTaskListsPreview: () => void;
   /** Fecha dashboard, plugin, preview de listas — volta ao layout da página inicial. */
   resetShellLayout: () => void;
-  /** Caminho do projecto Polvo Code no disco (Electron). */
-  polvoCodeWorkspacePath: string | null;
-  polvoCodeProjectTitle: string | null;
-  setPolvoCodeProject: (workspacePath: string | null, title?: string | null) => void;
-  clearPolvoCode: () => void;
+  /** Preview do estúdio ao lado do chat (sem mudar `activeApp` / shell). */
+  devStudioPreviewOpen: boolean;
+  openDevStudioPreview: () => void;
+  closeDevStudioPreview: () => void;
+  setDevStudioPreviewOpen: (open: boolean) => void;
+  /** Projecto Vite/React no disco (preview do estúdio). */
+  devStudioWorkspacePath: string | null;
+  devStudioProjectTitle: string | null;
+  setDevStudioProject: (workspacePath: string | null, title?: string | null) => void;
+  clearDevStudio: () => void;
+  /** Incrementado quando o projecto muda — força reinício do preview. */
+  devStudioPreviewGeneration: number;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -46,8 +53,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [dashboardData, setDashboardDataState] = useState<DashboardData | null>(null);
   const [taskListsPreviewOpen, setTaskListsPreviewOpen] = useState(false);
   const [taskListsPreviewNonce, setTaskListsPreviewNonce] = useState(0);
-  const [polvoCodeWorkspacePath, setPolvoCodeWorkspacePathState] = useState<string | null>(null);
-  const [polvoCodeProjectTitle, setPolvoCodeProjectTitleState] = useState<string | null>(null);
+  const [devStudioWorkspacePath, setDevStudioWorkspacePathState] = useState<string | null>(
+    null,
+  );
+  const [devStudioProjectTitle, setDevStudioProjectTitleState] = useState<string | null>(
+    null,
+  );
+  const [devStudioPreviewGeneration, setDevStudioPreviewGeneration] = useState(0);
+  const [devStudioPreviewOpen, setDevStudioPreviewOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem(SIDEBAR_KEY) === "1";
@@ -62,8 +75,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDashboardDataState(null);
       setTaskListsPreviewOpen(false);
       setTaskListsPreviewNonce(0);
-      setPolvoCodeWorkspacePathState(null);
-      setPolvoCodeProjectTitleState(null);
+      setDevStudioWorkspacePathState(null);
+      setDevStudioProjectTitleState(null);
+      setDevStudioPreviewGeneration(0);
+      setDevStudioPreviewOpen(false);
     }
   }, [token]);
 
@@ -88,23 +103,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setTaskListsPreviewOpen(false);
   }, []);
 
+  const openDevStudioPreview = useCallback(() => {
+    setDevStudioPreviewOpen(true);
+  }, []);
+
+  const closeDevStudioPreview = useCallback(() => {
+    setDevStudioPreviewOpen(false);
+  }, []);
+
+  const setDevStudioPreviewOpenCb = useCallback((open: boolean) => {
+    setDevStudioPreviewOpen(open);
+  }, []);
+
   const resetShellLayout = useCallback(() => {
     setActiveAppState(null);
     setDashboardDataState(null);
     setTaskListsPreviewOpen(false);
     setTaskListsPreviewNonce(0);
-    setPolvoCodeWorkspacePathState(null);
-    setPolvoCodeProjectTitleState(null);
+    setDevStudioWorkspacePathState(null);
+    setDevStudioProjectTitleState(null);
+    setDevStudioPreviewGeneration(0);
+    setDevStudioPreviewOpen(false);
   }, []);
 
-  const setPolvoCodeProject = useCallback((workspacePath: string | null, title?: string | null) => {
-    setPolvoCodeWorkspacePathState(workspacePath);
-    setPolvoCodeProjectTitleState(title ?? null);
-  }, []);
+  const setDevStudioProject = useCallback(
+    (workspacePath: string | null, title?: string | null) => {
+      setDevStudioWorkspacePathState(workspacePath);
+      setDevStudioProjectTitleState(title ?? null);
+      if (workspacePath?.trim()) {
+        setDevStudioPreviewGeneration((n) => n + 1);
+      }
+    },
+    [],
+  );
 
-  const clearPolvoCode = useCallback(() => {
-    setPolvoCodeWorkspacePathState(null);
-    setPolvoCodeProjectTitleState(null);
+  const clearDevStudio = useCallback(() => {
+    setDevStudioWorkspacePathState(null);
+    setDevStudioProjectTitleState(null);
+    setDevStudioPreviewGeneration(0);
+    setDevStudioPreviewOpen(false);
   }, []);
 
   const setSidebarCollapsed = useCallback((v: boolean) => {
@@ -137,10 +174,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshTaskListsPreview,
       closeTaskListsPreview,
       resetShellLayout,
-      polvoCodeWorkspacePath,
-      polvoCodeProjectTitle,
-      setPolvoCodeProject,
-      clearPolvoCode,
+      devStudioPreviewOpen,
+      openDevStudioPreview,
+      closeDevStudioPreview,
+      setDevStudioPreviewOpen: setDevStudioPreviewOpenCb,
+      devStudioWorkspacePath,
+      devStudioProjectTitle,
+      setDevStudioProject,
+      clearDevStudio,
+      devStudioPreviewGeneration,
     }),
     [
       activeApp,
@@ -156,10 +198,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refreshTaskListsPreview,
       closeTaskListsPreview,
       resetShellLayout,
-      polvoCodeWorkspacePath,
-      polvoCodeProjectTitle,
-      setPolvoCodeProject,
-      clearPolvoCode,
+      devStudioPreviewOpen,
+      openDevStudioPreview,
+      closeDevStudioPreview,
+      setDevStudioPreviewOpenCb,
+      devStudioWorkspacePath,
+      devStudioProjectTitle,
+      setDevStudioProject,
+      clearDevStudio,
+      devStudioPreviewGeneration,
     ],
   );
 

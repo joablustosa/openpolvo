@@ -16,6 +16,7 @@ from openpolvointeligence.graphs.message_utils import (
     tail_messages,
 )
 from openpolvointeligence.graphs.models import get_chat_model
+from openpolvointeligence.graphs.preview_source_sanitize import sanitize_write_op
 
 MAX_PATH_LEN = 512
 MAX_CONTENT_BYTES = 512 * 1024
@@ -46,7 +47,8 @@ class PolvoCodeOpModel(BaseModel):
     def to_api_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"op": self.op, "path": self.path}
         if self.op == "write":
-            d["content"] = self.content if self.content is not None else ""
+            raw = self.content if self.content is not None else ""
+            d["content"] = sanitize_write_op(self.path, str(raw))
         return d
 
 
@@ -151,7 +153,11 @@ def build_polvo_code_ops_metadata(
     out["polvo_code_ops_blocked"] = blocked
     out["polvo_code_ops_pending"] = bool(operations and not blocked)
     if out["polvo_code_ops_pending"]:
-        out["native_plugin"] = {"id": "polvo_code", "url": "", "label": "Polvo Code"}
+        out["native_plugin"] = {
+            "id": "dev_studio",
+            "url": "",
+            "label": "Estúdio (preview)",
+        }
     return out
 
 

@@ -1,4 +1,7 @@
+import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
+import { installDevStudioPreviewBus } from "@/lib/devStudioPreviewBus";
+import { isElectron } from "@/lib/desktopApi";
 import { AgentHomeHeader } from "./AgentHomeHeader";
 import { AgentSidebar } from "./AgentSidebar";
 import { AppHeader } from "./AppHeader";
@@ -16,38 +19,45 @@ import { useWorkspace } from "./WorkspaceContext";
 export function Shell() {
   const { activeApp, sidebarCollapsed, toggleSidebar } = useWorkspace();
 
+  useEffect(() => {
+    if (!isElectron()) return;
+    return installDevStudioPreviewBus();
+  }, []);
+
   return (
-    <HomeChatProvider>
-      <ConversationWorkspaceProvider>
-        {!activeApp ? (
-          <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+      <HomeChatProvider>
+        <ConversationWorkspaceProvider>
+          {!activeApp ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+              <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
               {!sidebarCollapsed ? <AgentSidebar /> : null}
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <AgentHomeHeader
                   sidebarCollapsed={sidebarCollapsed}
                   onToggleSidebar={toggleSidebar}
                 />
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                   <Outlet />
-                </div>
+                </main>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background">
-            <div className="flex min-h-0 min-w-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+            <div className="flex min-h-0 flex-1 overflow-hidden">
               <AppMenu />
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <AppHeader variant="workspace" />
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <Outlet />
-                </div>
+                </main>
               </div>
             </div>
           </div>
         )}
-      </ConversationWorkspaceProvider>
-    </HomeChatProvider>
+        </ConversationWorkspaceProvider>
+      </HomeChatProvider>
+    </div>
   );
 }

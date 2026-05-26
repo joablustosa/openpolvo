@@ -14,8 +14,6 @@ import (
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
-
-// Client chama o serviço Python Open Polvo Intelligence (FastAPI + LangGraph).
 type Client struct {
 	baseURL     string
 	internalKey string
@@ -51,49 +49,7 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 	if !c.Configured() {
 		return "", nil, fmt.Errorf("polvointel: client not configured")
 	}
-	type msgPart struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	body := struct {
-		Messages               []msgPart                        `json:"messages"`
-		ModelProvider          string                           `json:"model_provider"`
-		OpenAIAPIKey           string                           `json:"openai_api_key,omitempty"`
-		GoogleAPIKey           string                           `json:"google_api_key,omitempty"`
-		OpenAIModel            string                           `json:"openai_model,omitempty"`
-		GoogleModel            string                           `json:"google_model,omitempty"`
-		ConversationID         string                           `json:"conversation_id,omitempty"`
-		AgentMemory            map[string]string                `json:"agent_memory,omitempty"`
-		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
-		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
-		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
-		FinanceContext         *agentports.FinanceContext        `json:"finance_context,omitempty"`
-		MetaContext            *agentports.MetaContext           `json:"meta_context,omitempty"`
-		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
-	}{
-		ModelProvider:          string(in.ModelProvider),
-		OpenAIAPIKey:           in.OpenAIAPIKey,
-		GoogleAPIKey:           in.GoogleAPIKey,
-		OpenAIModel:            in.OpenAIModel,
-		GoogleModel:            in.GoogleModel,
-		ConversationID:         strings.TrimSpace(in.ConversationID),
-		SMTPContext:            in.SMTP,
-		ContactsContext:        in.Contacts,
-		TaskListsContext:       in.TaskLists,
-		FinanceContext:         in.Finance,
-		MetaContext:            in.Meta,
-		ScheduledTasksContext:  in.ScheduledTasks,
-	}
-	if in.AgentMemory != nil {
-		body.AgentMemory = map[string]string{
-			"global":  in.AgentMemory.Global,
-			"builder": in.AgentMemory.Builder,
-		}
-	}
-	for _, m := range in.Messages {
-		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
-	}
-	raw, err := json.Marshal(body)
+	raw, err := marshalReplyBody(in)
 	if err != nil {
 		return "", nil, err
 	}
@@ -288,49 +244,7 @@ func (c *Client) ReplyStream(ctx context.Context, in agentports.ReplyInput) (io.
 	if !c.Configured() {
 		return nil, fmt.Errorf("polvointel: client not configured")
 	}
-	type msgPart struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	body := struct {
-		Messages               []msgPart                        `json:"messages"`
-		ModelProvider          string                           `json:"model_provider"`
-		OpenAIAPIKey           string                           `json:"openai_api_key,omitempty"`
-		GoogleAPIKey           string                           `json:"google_api_key,omitempty"`
-		OpenAIModel            string                           `json:"openai_model,omitempty"`
-		GoogleModel            string                           `json:"google_model,omitempty"`
-		ConversationID         string                           `json:"conversation_id,omitempty"`
-		AgentMemory            map[string]string                `json:"agent_memory,omitempty"`
-		SMTPContext            *agentports.SMTPContext          `json:"smtp_context,omitempty"`
-		ContactsContext        []agentports.ContactBrief        `json:"contacts_context,omitempty"`
-		TaskListsContext       []agentports.TaskListBrief       `json:"task_lists_context,omitempty"`
-		FinanceContext         *agentports.FinanceContext        `json:"finance_context,omitempty"`
-		MetaContext            *agentports.MetaContext           `json:"meta_context,omitempty"`
-		ScheduledTasksContext  []agentports.ScheduledTaskBrief  `json:"scheduled_tasks_context,omitempty"`
-	}{
-		ModelProvider:          string(in.ModelProvider),
-		OpenAIAPIKey:           in.OpenAIAPIKey,
-		GoogleAPIKey:           in.GoogleAPIKey,
-		OpenAIModel:            in.OpenAIModel,
-		GoogleModel:            in.GoogleModel,
-		ConversationID:         strings.TrimSpace(in.ConversationID),
-		SMTPContext:            in.SMTP,
-		ContactsContext:        in.Contacts,
-		TaskListsContext:       in.TaskLists,
-		FinanceContext:         in.Finance,
-		MetaContext:            in.Meta,
-		ScheduledTasksContext:  in.ScheduledTasks,
-	}
-	if in.AgentMemory != nil {
-		body.AgentMemory = map[string]string{
-			"global":  in.AgentMemory.Global,
-			"builder": in.AgentMemory.Builder,
-		}
-	}
-	for _, m := range in.Messages {
-		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
-	}
-	raw, err := json.Marshal(body)
+	raw, err := marshalReplyBody(in)
 	if err != nil {
 		return nil, err
 	}
@@ -414,4 +328,78 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// DevStudioSelfHealInput pedido de correcção automática de erros de build.
+type DevStudioSelfHealInput struct {
+	ModelProvider      string
+	UserPrompt         string
+	CompileLog         string
+	PreviewConsoleLogs []map[string]any
+	ProjectFiles       map[string]string
+	DevStudioContext   map[string]any
+}
+
+// DevStudioSelfHeal chama POST /v1/dev-studio/self-heal no Intelligence.
+func (c *Client) DevStudioSelfHeal(ctx context.Context, in DevStudioSelfHealInput) (string, map[string]any, error) {
+	if !c.Configured() {
+		return "", nil, fmt.Errorf("polvointel: not configured")
+	}
+	body := map[string]any{
+		"model_provider": in.ModelProvider,
+	}
+	if strings.TrimSpace(in.UserPrompt) != "" {
+		body["user_prompt"] = in.UserPrompt
+	}
+	if strings.TrimSpace(in.CompileLog) != "" {
+		body["compile_log"] = in.CompileLog
+	}
+	if len(in.PreviewConsoleLogs) > 0 {
+		body["preview_console_logs"] = in.PreviewConsoleLogs
+	}
+	if len(in.ProjectFiles) > 0 {
+		body["project_files"] = in.ProjectFiles
+	}
+	if len(in.DevStudioContext) > 0 {
+		body["dev_studio_context"] = in.DevStudioContext
+	}
+	if in.ModelProvider == "" {
+		body["model_provider"] = "openai"
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", nil, err
+	}
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.baseURL+"/v1/dev-studio/self-heal",
+		bytes.NewReader(raw),
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Polvo-Internal-Key", c.internalKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("dev-studio self-heal: %d %s", resp.StatusCode, truncate(string(b), 300))
+	}
+	var out struct {
+		AssistantText string         `json:"assistant_text"`
+		Metadata      map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", nil, err
+	}
+	meta := out.Metadata
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	return out.AssistantText, meta, nil
 }

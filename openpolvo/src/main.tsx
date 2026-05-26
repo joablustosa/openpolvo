@@ -63,6 +63,22 @@ class RootErrorBoundary extends Component<
             Tenta recarregar (Ctrl+R). Em desenvolvimento, confirma o Vite em{" "}
             <strong>http://127.0.0.1:5174</strong> e a API Go em <strong>:8081</strong>.
           </p>
+          <button
+            type="button"
+            style={{
+              marginTop: 12,
+              padding: "8px 16px",
+              borderRadius: 8,
+              border: "1px solid #444",
+              background: "#222",
+              color: "#f5f5f5",
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+            onClick={() => window.location.reload()}
+          >
+            Recarregar aplicação
+          </button>
         </div>
       );
     }

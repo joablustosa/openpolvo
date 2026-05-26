@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 )
 
-// PolvoCodeHandlers expõe utilitários opcionais para o cliente desktop (validação antes de IPC).
-type PolvoCodeHandlers struct{}
+// PolvoCodeHandlers expõe utilitários para o cliente desktop (validação antes de IPC).
+type PolvoCodeHandlers struct {
+	Intel *polvointel.Client
+}
 
 type polvoCodeOpIn struct {
 	Op      string `json:"op"`
@@ -76,4 +80,48 @@ func (PolvoCodeHandlers) PostValidateOps(w http.ResponseWriter, r *http.Request)
 		out = append(out, m)
 	}
 	writeJSON(w, http.StatusOK, polvoValidateResp{OK: len(errs) == 0, ValidOps: out, Errors: errs})
+}
+
+type devStudioSelfHealReq struct {
+	ModelProvider      string              `json:"model_provider"`
+	UserPrompt         string              `json:"user_prompt,omitempty"`
+	CompileLog         string              `json:"compile_log,omitempty"`
+	PreviewConsoleLogs []map[string]any    `json:"preview_console_logs,omitempty"`
+	ProjectFiles       map[string]string   `json:"project_files,omitempty"`
+	DevStudioContext   map[string]any      `json:"dev_studio_context,omitempty"`
+}
+
+type devStudioSelfHealResp struct {
+	AssistantText string         `json:"assistant_text"`
+	Metadata      map[string]any `json:"metadata"`
+}
+
+// PostDevStudioSelfHeal encaminha correcção automática de erros de build ao Intelligence.
+func (h *PolvoCodeHandlers) PostDevStudioSelfHeal(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Intel == nil || !h.Intel.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "Open Polvo Intelligence não configurado")
+		return
+	}
+	var req devStudioSelfHealReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if strings.TrimSpace(req.CompileLog) == "" && len(req.PreviewConsoleLogs) == 0 {
+		writeError(w, http.StatusBadRequest, "compile_log ou preview_console_logs obrigatório")
+		return
+	}
+	text, meta, err := h.Intel.DevStudioSelfHeal(r.Context(), polvointel.DevStudioSelfHealInput{
+		ModelProvider:      req.ModelProvider,
+		UserPrompt:         req.UserPrompt,
+		CompileLog:         req.CompileLog,
+		PreviewConsoleLogs: req.PreviewConsoleLogs,
+		ProjectFiles:       req.ProjectFiles,
+		DevStudioContext:   req.DevStudioContext,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, devStudioSelfHealResp{AssistantText: text, Metadata: meta})
 }

@@ -20,6 +20,12 @@ type SendMessageCommand struct {
 	Text           string
 	ModelProvider  domain.ModelProvider
 	LLMProfileID   *uuid.UUID
+	SandboxProjectID   string
+	ProjectFileTree    []string
+	ProjectFiles       map[string]string
+	PreviewConsoleLogs []map[string]any
+	DevStudioContext   map[string]any
+	CompileLog         string
 }
 
 type SendMessage struct {
@@ -109,6 +115,12 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	if s.ScheduledTasksForReply != nil {
 		repIn.ScheduledTasks = s.ScheduledTasksForReply(ctx, cmd.UserID)
 	}
+	repIn.SandboxProjectID = strings.TrimSpace(cmd.SandboxProjectID)
+	repIn.ProjectFileTree = cmd.ProjectFileTree
+	repIn.ProjectFiles = cmd.ProjectFiles
+	repIn.PreviewConsoleLogs = cmd.PreviewConsoleLogs
+	repIn.DevStudioContext = cmd.DevStudioContext
+	repIn.CompileLog = strings.TrimSpace(cmd.CompileLog)
 	if s.LLM != nil {
 		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
 			return nil, err

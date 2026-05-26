@@ -8,7 +8,8 @@ import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { TaskListsWorkspaceBody } from "@/pages/AgenteTarefas/TaskListsWorkspaceBody";
 import { getDesktopDownloadUrl } from "@/lib/desktopDownload";
 import { cn } from "@/lib/utils";
-import { PolvoCodePanel } from "@/components/polvo/PolvoCodePanel";
+import { DevStudioPanel } from "@/components/dev-studio/DevStudioPanel";
+import { DEV_STUDIO_NATIVE_APP_ID } from "@/config/apps";
 import { WorkspaceRightEmptyState } from "@/components/workspace/WorkspaceRightEmptyState";
 import { useWorkspaceLayoutOptional } from "@/core/WorkspaceLayoutContext";
 
@@ -45,7 +46,9 @@ export function SitePanel() {
     taskListsPreviewNonce,
     closeTaskListsPreview,
     refreshTaskListsPreview,
-    clearPolvoCode,
+    devStudioPreviewOpen,
+    closeDevStudioPreview,
+    clearDevStudio,
     setActiveApp,
   } = useWorkspace();
   const workspaceLayout = useWorkspaceLayoutOptional();
@@ -90,19 +93,19 @@ export function SitePanel() {
     }
   }, [isElectron, src]);
 
-  // Polvo Code — só quando o plugin nativo está activo (evita mascarar outros webviews).
-  if (activeApp === "polvo_code") {
+  if (devStudioPreviewOpen || activeApp === DEV_STUDIO_NATIVE_APP_ID) {
     return (
-      <PolvoCodePanel
+      <DevStudioPanel
         onClose={() => {
-          clearPolvoCode();
+          clearDevStudio();
+          closeDevStudioPreview();
           setActiveApp(null);
         }}
       />
     );
   }
 
-  // Dashboard tem prioridade sobre plugin nativo
+  // Dashboard tem prioridade sobre plugin webview
   if (dashboardData) {
     return <DashboardPanel data={dashboardData} onClose={() => setDashboardData(null)} />;
   }

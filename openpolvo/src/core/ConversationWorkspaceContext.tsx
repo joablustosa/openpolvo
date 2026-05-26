@@ -43,12 +43,16 @@ import {
 } from "@/lib/emailChatMetadata";
 import { messageIndicatesTaskListInteraction, parseTaskListMessageMeta } from "@/lib/taskListChatMetadata";
 import { applyTaskListBatch } from "@/lib/taskListsApi";
-import {
-  applyPolvoCodeOpsFromMeta,
-  messageIndicatesPolvoCodeInteraction,
-  parsePolvoCodeMessageMeta,
-} from "@/lib/polvoCodeMetadata";
 import { parseDashboardMeta } from "@/lib/dashboardMetadata";
+import {
+  applyDevStudioOpsFromMeta,
+  devStudioApplyFailureMessage,
+  messageIndicatesDevStudioInteraction,
+  shouldApplyDevStudioFromMetadata,
+  restoreDevStudioProjectFromMessages,
+} from "@/lib/devStudioMetadata";
+import { collectDevStudioChatPayload } from "@/lib/devStudioChatPayload";
+import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import * as mail from "@/lib/mailApi";
@@ -73,9 +77,9 @@ type ConversationWorkspaceValue = {
   /** Aviso após o agente aplicar operações nas listas de tarefas. */
   taskListNotice: string | null;
   clearTaskListNotice: () => void;
-  /** Aviso após aplicar ficheiros do Polvo Code a partir do chat. */
-  polvoCodeNotice: string | null;
-  clearPolvoCodeNotice: () => void;
+  /** Aviso após o agente actualizar o preview no estúdio. */
+  devStudioNotice: string | null;
+  clearDevStudioNotice: () => void;
   selectConversation: (
     id: string | null,
     defaultModel?: ModelProvider | string,
@@ -105,9 +109,10 @@ export function ConversationWorkspaceProvider({
     setDashboardData,
     openTaskListsPreview,
     closeTaskListsPreview,
-    polvoCodeWorkspacePath,
-    polvoCodeProjectTitle,
-    setPolvoCodeProject,
+    devStudioWorkspacePath,
+    devStudioProjectTitle,
+    setDevStudioProject,
+    setDevStudioPreviewOpen,
   } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
@@ -123,7 +128,7 @@ export function ConversationWorkspaceProvider({
   const [error, setError] = useState<string | null>(null);
   const [emailSendNotice, setEmailSendNotice] = useState<string | null>(null);
   const [taskListNotice, setTaskListNotice] = useState<string | null>(null);
-  const [polvoCodeNotice, setPolvoCodeNotice] = useState<string | null>(null);
+  const [devStudioNotice, setDevStudioNotice] = useState<string | null>(null);
 
   const clearEmailSendNotice = useCallback(() => {
     setEmailSendNotice(null);
@@ -133,8 +138,8 @@ export function ConversationWorkspaceProvider({
     setTaskListNotice(null);
   }, []);
 
-  const clearPolvoCodeNotice = useCallback(() => {
-    setPolvoCodeNotice(null);
+  const clearDevStudioNotice = useCallback(() => {
+    setDevStudioNotice(null);
   }, []);
 
   const onSessionUnauthorized = useCallback(() => {
@@ -142,7 +147,7 @@ export function ConversationWorkspaceProvider({
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
-    setPolvoCodeNotice(null);
+    setDevStudioNotice(null);
   }, [logout]);
 
   const refreshConversations = useCallback(async () => {
@@ -219,6 +224,12 @@ export function ConversationWorkspaceProvider({
             setLlmSelectValue(conv.default_model_provider);
           }
         }
+        // Restaurar projecto Dev Studio se a conversa já gerou ficheiros (project_id presente).
+        const restored = restoreDevStudioProjectFromMessages(msgs);
+        if (restored) {
+          setDevStudioProject(restored.workspacePath, restored.title);
+          setDevStudioPreviewOpen(true);
+        }
       } catch (e) {
         if (e instanceof SessionReloginRedirected) {
           return;
@@ -232,7 +243,13 @@ export function ConversationWorkspaceProvider({
         setLoadingMessages(false);
       }
     },
-    [token, conversations, onSessionUnauthorized],
+    [
+      token,
+      conversations,
+      onSessionUnauthorized,
+      setDevStudioProject,
+      setDevStudioPreviewOpen,
+    ],
   );
 
   const createNewConversation = useCallback(async (): Promise<string | null> => {
@@ -270,7 +287,7 @@ export function ConversationWorkspaceProvider({
       setError(null);
       setEmailSendNotice(null);
       setTaskListNotice(null);
-      setPolvoCodeNotice(null);
+      setDevStudioNotice(null);
       try {
         let cid = activeConversationId;
         if (!cid) {
@@ -281,11 +298,15 @@ export function ConversationWorkspaceProvider({
         let finalMessages: MessageDTO[] | null = null;
 
         const { model, profileId } = parseLlmRoutingSelect(llmSelectValue);
-        const streamBody: {
-          text: string;
-          model_provider?: ModelProvider;
-          llm_profile_id?: string;
-        } = { text, model_provider: model };
+        const devPayload = await collectDevStudioChatPayload({
+          workspacePath: devStudioWorkspacePath,
+          messages,
+        });
+        const streamBody: import("@/lib/conversationsApi").ChatMessageBody = {
+          text,
+          model_provider: model,
+          ...devPayload,
+        };
         if (profileId) streamBody.llm_profile_id = profileId;
 
         await apiStreamMessage(
@@ -293,20 +314,24 @@ export function ConversationWorkspaceProvider({
           cidFinal,
           streamBody,
           (event: StreamEvent) => {
-            if (event.type === "progress" || event.type === "file") {
-              /* ignorado — reservado para extensões futuras */
+            if (event.type === "progress") {
+              if (event.label?.trim()) {
+                setDevStudioNotice(event.label.trim());
+              }
+            } else if (event.type === "file") {
+              /* reservado */
             } else if (event.type === "messages_saved") {
               finalMessages = event.messages;
               setMessages(event.messages);
               tryOpenNativePluginFromMessages(event.messages, openPlugin);
               const lastAssistant = [...event.messages].reverse().find((m) => m.role === "assistant");
-              if (messageIndicatesPolvoCodeInteraction(lastAssistant?.metadata)) {
-                openPlugin("polvo_code");
-              }
               const db = parseDashboardMeta(lastAssistant?.metadata);
               if (db) setDashboardData(db);
               if (messageIndicatesTaskListInteraction(lastAssistant?.metadata)) {
                 openTaskListsPreview();
+              }
+              if (messageIndicatesDevStudioInteraction(lastAssistant?.metadata)) {
+                setDevStudioPreviewOpen(true);
               }
             } else if (event.type === "error") {
               const d = event.detail ?? "";
@@ -374,29 +399,29 @@ export function ConversationWorkspaceProvider({
           }
         }
 
-        const pcm = parsePolvoCodeMessageMeta(lastAssistant?.metadata);
-        if (
-          pcm?.polvo_code_ops_pending &&
-          pcm.polvo_code_ops &&
-          pcm.polvo_code_ops.length > 0 &&
-          !pcm.polvo_code_ops_blocked
-        ) {
+        if (shouldApplyDevStudioFromMetadata(lastAssistant?.metadata)) {
           try {
-            const pr = await applyPolvoCodeOpsFromMeta(lastAssistant?.metadata, {
-              workspacePath: polvoCodeWorkspacePath,
-              projectTitle: polvoCodeProjectTitle,
-              setPolvoCodeProject,
+            setDashboardData(null);
+            setDevStudioPreviewOpen(true);
+            const pr = await applyDevStudioOpsFromMeta(lastAssistant?.metadata, {
+              workspacePath: devStudioWorkspacePath,
+              projectTitle: devStudioProjectTitle,
+              setDevStudioProject,
               openPlugin,
+              userPrompt: text,
             });
             if (!pr.applied && pr.error) {
               setError(pr.error);
             } else if (pr.applied) {
               const line = [pr.notice, pr.error].filter(Boolean).join(" ");
-              if (line) setPolvoCodeNotice(line);
+              if (line) setDevStudioNotice(line);
             }
           } catch (e) {
-            setError(e instanceof Error ? e.message : "Falha ao aplicar Polvo Code");
+            setError(e instanceof Error ? e.message : "Falha ao actualizar o preview");
           }
+        } else if (messageIndicatesDevStudioInteraction(lastAssistant?.metadata)) {
+          const failMsg = devStudioApplyFailureMessage(lastAssistant?.metadata);
+          if (failMsg) setDevStudioNotice(failMsg);
         }
 
         await refreshConversations();
@@ -423,9 +448,11 @@ export function ConversationWorkspaceProvider({
       onSessionUnauthorized,
       setDashboardData,
       openTaskListsPreview,
-      polvoCodeWorkspacePath,
-      polvoCodeProjectTitle,
-      setPolvoCodeProject,
+      devStudioWorkspacePath,
+      devStudioProjectTitle,
+      setDevStudioProject,
+      setDevStudioPreviewOpen,
+      messages,
     ],
   );
 
@@ -510,9 +537,11 @@ export function ConversationWorkspaceProvider({
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
-    setPolvoCodeNotice(null);
+    setDevStudioNotice(null);
     closeTaskListsPreview();
-  }, [closeTaskListsPreview]);
+    setDevStudioPreviewOpen(false);
+    setDevStudioProject(null, null);
+  }, [closeTaskListsPreview, setDevStudioPreviewOpen, setDevStudioProject]);
 
   const value = useMemo(
     () => ({
@@ -531,8 +560,8 @@ export function ConversationWorkspaceProvider({
       clearEmailSendNotice,
       taskListNotice,
       clearTaskListNotice,
-      polvoCodeNotice,
-      clearPolvoCodeNotice,
+      devStudioNotice,
+      clearDevStudioNotice,
       selectConversation,
       refreshConversations,
       refreshLlmProfiles,
@@ -558,8 +587,8 @@ export function ConversationWorkspaceProvider({
       clearEmailSendNotice,
       taskListNotice,
       clearTaskListNotice,
-      polvoCodeNotice,
-      clearPolvoCodeNotice,
+      devStudioNotice,
+      clearDevStudioNotice,
       selectConversation,
       refreshConversations,
       refreshLlmProfiles,
@@ -587,4 +616,9 @@ export function useConversationWorkspace(): ConversationWorkspaceValue {
     );
   }
   return ctx;
+}
+
+/** Variante segura para chrome global (evita crash durante HMR). */
+export function useConversationWorkspaceOptional(): ConversationWorkspaceValue | null {
+  return useContext(ConversationWorkspaceContext);
 }

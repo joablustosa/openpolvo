@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # Raízes para procurar `.cursor/skills/**/SKILL.md` (separador `;` ou `,`). Vazio = auto-detect.
     skills_scan_roots: str = Field(default="", validation_alias="OP_SKILLS_SCAN_ROOTS")
     skills_prompt_budget_chars: int = Field(default=6000, validation_alias="OP_SKILLS_PROMPT_BUDGET_CHARS")
+    # Code RAG (pgvector + embeddings)
+    code_rag_database_url: str = Field(default="", validation_alias="CODE_RAG_DATABASE_URL")
+    code_rag_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        validation_alias="CODE_RAG_EMBEDDING_MODEL",
+    )
+    code_rag_router_top_k: int = Field(default=8, validation_alias="CODE_RAG_ROUTER_TOP_K")
+    code_rag_auto_index: bool = Field(default=True, validation_alias="CODE_RAG_AUTO_INDEX")
 
     @property
     def has_any_llm_key(self) -> bool:

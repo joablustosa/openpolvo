@@ -30,6 +30,13 @@ type ReplyInput struct {
 	Finance        *FinanceContext       // opcional: finanças pessoais
 	Meta           *MetaContext          // opcional: integração Meta (WhatsApp, Facebook, Instagram)
 	ScheduledTasks []ScheduledTaskBrief // opcional: automações agendadas do utilizador
+	// Dev Studio — snapshot do projecto + contexto multi-turn (Lovable-style).
+	SandboxProjectID   string
+	ProjectFileTree    []string
+	ProjectFiles       map[string]string
+	PreviewConsoleLogs []map[string]any
+	DevStudioContext   map[string]any
+	CompileLog         string
 }
 
 // ChatOrchestrator implementa o fluxo analisador → router → especialista (Zé Polvinho).

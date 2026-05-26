@@ -21,6 +21,12 @@ type StreamMessageCommand struct {
 	Text           string
 	ModelProvider  domain.ModelProvider
 	LLMProfileID   *uuid.UUID
+	SandboxProjectID   string
+	ProjectFileTree    []string
+	ProjectFiles       map[string]string
+	PreviewConsoleLogs []map[string]any
+	DevStudioContext   map[string]any
+	CompileLog         string
 }
 
 // StreamEvent é o evento SSE deserializado do Python.
@@ -122,6 +128,12 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 	if s.ScheduledTasksForReply != nil {
 		repIn.ScheduledTasks = s.ScheduledTasksForReply(ctx, cmd.UserID)
 	}
+	repIn.SandboxProjectID = strings.TrimSpace(cmd.SandboxProjectID)
+	repIn.ProjectFileTree = cmd.ProjectFileTree
+	repIn.ProjectFiles = cmd.ProjectFiles
+	repIn.PreviewConsoleLogs = cmd.PreviewConsoleLogs
+	repIn.DevStudioContext = cmd.DevStudioContext
+	repIn.CompileLog = strings.TrimSpace(cmd.CompileLog)
 	if s.LLM != nil {
 		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
 			return nil, err
