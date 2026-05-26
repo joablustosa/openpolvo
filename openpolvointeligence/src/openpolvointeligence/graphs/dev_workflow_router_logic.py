@@ -119,6 +119,113 @@ def normalize_route(raw: str) -> RouteDecision:
     return "architect"
 
 
+_CODE_CHANGE_KEYWORDS = (
+    "corrige",
+    "corrigir",
+    "correção",
+    "correcção",
+    "correcao",
+    "fix",
+    "conserta",
+    "consertar",
+    "altera",
+    "alterar",
+    "muda",
+    "mudar",
+    "modifica",
+    "modificar",
+    "atualiza",
+    "atualizar",
+    "adiciona",
+    "adicionar",
+    "remove",
+    "remover",
+    "implementa",
+    "implementar",
+    "aplica",
+    "ajusta",
+    "ajustar",
+    "refatora",
+    "melhora",
+    "melhorar",
+    "no código",
+    "no codigo",
+    "no preview",
+    "no site",
+    "na página",
+    "na pagina",
+    "erro",
+    "bug",
+    "não funciona",
+    "nao funciona",
+    "está errado",
+    "esta errado",
+    "falta",
+    "cria o",
+    "criar o",
+    "gera o",
+    "gerar o",
+)
+
+_EXPLAIN_ONLY_KEYWORDS = (
+    "o que é",
+    "o que e ",
+    "como funciona",
+    "explica-me",
+    "explica me",
+    "explica o",
+    "porque é",
+    "por que é",
+    "qual a diferença",
+    "sem alterar",
+    "não alteres",
+    "nao alteres",
+    "não mudes",
+    "nao mudes",
+)
+
+
+def infer_force_code_route(
+    user_prompt: str,
+    *,
+    has_project: bool,
+) -> RouteDecision | None:
+    """
+    Pedidos de correcção/alteração com projecto activo devem gerar código, não só chat.
+    """
+    if not has_project:
+        return None
+    p = (user_prompt or "").lower()
+    wants_code = any(k in p for k in _CODE_CHANGE_KEYWORDS)
+    if not wants_code:
+        return None
+    if any(e in p for e in _EXPLAIN_ONLY_KEYWORDS) and not any(
+        k in p for k in ("corrige", "corrigir", "fix", "altera", "modifica", "implementa")
+    ):
+        return None
+    patch_hints = (
+        "só ",
+        "so ",
+        "apenas ",
+        "pontual",
+        "rápid",
+        "rapid",
+        "cor ",
+        "cor do",
+        "texto",
+        "botão",
+        "botao",
+        "titulo",
+        "título",
+        "label",
+        "import ",
+        "linha ",
+    )
+    if any(h in p for h in patch_hints):
+        return "patch"
+    return "architect"
+
+
 def normalize_stack(raw: str | None) -> StackId | None:
     if not raw:
         return None
@@ -150,9 +257,13 @@ def parse_router_response(
     data: dict[str, Any],
     *,
     user_prompt: str,
+    has_project: bool = False,
 ) -> dict[str, Any]:
     """Normaliza JSON do LLM Router."""
     route = normalize_route(str(data.get("route", "architect")))
+    forced = infer_force_code_route(user_prompt, has_project=has_project)
+    if forced and route in ("explain", "abort"):
+        route = forced
     layer = normalize_affected_layers(
         str(data.get("affected_layers") or data.get("layer") or ""),
         user_prompt,

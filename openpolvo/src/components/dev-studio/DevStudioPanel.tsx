@@ -2,7 +2,9 @@ import { ExternalLink, FolderOpen, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { desktopPolvoCode, isElectron } from "@/lib/desktopApi";
 import { isWebContainerSupported } from "@/lib/webcontainer/types";
+import { useConversationWorkspaceOptional } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
+import { saveDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
 import { DevStudioPreviewPane } from "./DevStudioPreviewPane";
 import { useDevStudioRuntime } from "./useDevStudioRuntime";
 import { cn } from "@/lib/utils";
@@ -12,6 +14,7 @@ type Props = {
 };
 
 export function DevStudioPanel({ onClose }: Props) {
+  const conversationWorkspace = useConversationWorkspaceOptional();
   const {
     devStudioWorkspacePath,
     devStudioProjectTitle,
@@ -43,6 +46,10 @@ export function DevStudioPanel({ onClose }: Props) {
     if (r.ok && "workspacePath" in r && r.workspacePath) {
       setDevStudioProject(r.workspacePath, null);
       openDevStudioPreview();
+      const cid = conversationWorkspace?.activeConversationId;
+      if (cid) {
+        saveDevStudioConversationProject(cid, r.workspacePath, null);
+      }
     }
   };
 
@@ -80,7 +87,7 @@ export function DevStudioPanel({ onClose }: Props) {
 
   return (
     <section
-      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background"
+      className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
       aria-label="Estúdio de desenvolvimento"
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-3 backdrop-blur">
@@ -133,7 +140,10 @@ export function DevStudioPanel({ onClose }: Props) {
         </Button>
       </header>
 
-      <div className="relative min-h-0 min-w-0 flex-1 w-full overflow-hidden">
+      <div
+        data-dev-studio-preview
+        className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+      >
         <DevStudioPreviewPane
           devUrl={devUrl}
           running={busy}

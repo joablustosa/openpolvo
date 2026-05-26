@@ -16,6 +16,8 @@ import { waitForViteCompileResult } from "@/lib/devStudio/viteReadyWait";
 import { desktopPolvoCode } from "@/lib/desktopApi";
 import { DEV_STUDIO_PREVIEW_PORT } from "@/modules/dev-studio/config";
 import { buildLayoutScaffoldHealOps } from "@/lib/devStudio/layoutScaffoldHeal";
+import { buildMissingImportHealOps } from "@/lib/devStudio/missingImportHeal";
+import { buildUndefinedSymbolHealOps } from "@/lib/devStudio/undefinedSymbolHeal";
 import { sanitizeDevStudioOps } from "@/lib/devStudio/sanitizePreviewSource";
 import type { DesignTokens } from "@/lib/webcontainer/shadcnScaffold";
 
@@ -54,8 +56,13 @@ function touchesPackageJson(ops: DevStudioOp[]): boolean {
 function deterministicHealOps(
   compileLog: string,
   designTokens?: Partial<DesignTokens>,
+  projectFiles?: Record<string, string>,
 ): DevStudioOp[] | null {
-  return buildLayoutScaffoldHealOps(compileLog, designTokens);
+  return (
+    buildLayoutScaffoldHealOps(compileLog, designTokens) ||
+    buildMissingImportHealOps(compileLog) ||
+    buildUndefinedSymbolHealOps(compileLog, projectFiles)
+  );
 }
 
 function canUseHotReload(ops: DevStudioOp[]): boolean {
@@ -172,7 +179,15 @@ export async function applyOpsInElectronWithSelfHeal(
       );
     }
 
-    const deterministic = deterministicHealOps(compileLog, options.designTokens);
+    const projectFilesForHeal = await collectProjectFilesForHeal(
+      workspacePath,
+      compileLog,
+    );
+    const deterministic = deterministicHealOps(
+      compileLog,
+      options.designTokens,
+      projectFilesForHeal,
+    );
     if (deterministic?.length) {
       pendingOps = deterministic;
       lastHealSummary =
@@ -181,11 +196,10 @@ export async function applyOpsInElectronWithSelfHeal(
       continue;
     }
 
-    const projectFiles = await collectProjectFilesForHeal(workspacePath, compileLog);
     const heal = await requestDevStudioSelfHeal({
       compile_log: compileLog,
       preview_console_logs: previewConsoleLogsFromCompileLog(compileLog),
-      project_files: projectFiles,
+      project_files: projectFilesForHeal,
       user_prompt: options.userPrompt,
     });
 

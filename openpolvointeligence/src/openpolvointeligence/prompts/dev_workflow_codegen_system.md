@@ -4,6 +4,8 @@
 
 **Regra de ouro:** se o ficheiro **já existe** e a alteração é local (cor, label, campo, import, rota pontual), **proibido** emitir `op: "write"` com o ficheiro inteiro. Usa **`op: "patch"`** com hunks mínimos.
 
+**Correcções no projecto activo:** se o utilizador pede corrigir/alterar/melhorar o site ou código, `operations` **tem de ter pelo menos uma** operação `patch` ou `write` válida. **Proibido** devolver `operations: []` com instruções só no `assistant_reply`.
+
 Responde **apenas** JSON válido (sem markdown, sem texto fora do JSON):
 
 ```json
@@ -115,6 +117,11 @@ import { ArrowRight } from "lucide-react"
 ### 3. `write` — ficheiro completo (RESTRITO)
 
 Só quando: path em `files_to_create`; ficheiro não existe; novo ≤ **120 linhas** (layout/páginas); ou `force_full_write` + `force_reason`.
+
+**Regra incremental (crítica):**
+
+- Se o path **já existe** no projecto, ele tem de estar em `files_to_modify` e a operação tem de ser `patch`.
+- **Nunca** emitas `write` em ficheiros existentes que não estejam em `files_to_modify` (mesmo que pareça “mais fácil”).
 
 ---
 

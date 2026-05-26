@@ -86,6 +86,7 @@ Responde **apenas** JSON (sem markdown):
 2. **`api_contracts` / `routes`** — evita duplicar rotas; regista novas em `backend_routes`.
 3. **`recent_decisions`** — mantém consistência com turnos anteriores.
 4. Se o path exacto existir no manifesto → `files_to_modify`; se não → `files_to_create`.
+5. Quando o projecto **já existe** (`use_diff_mode: true` no contexto): assume evolução incremental. **Preferir** `files_to_modify` (patches) a criar duplicados; nunca “recomeçar do zero” sem pedido explícito.
 
 ## Filtro por camada (Router)
 
@@ -113,6 +114,11 @@ Dependências: lib PDF só se necessário (`gofpdf`, etc.) — **preferir backen
 - Cada path em `execution_plan.steps[].files` deve aparecer em `files_to_create` ou `files_to_modify`.
 - **Não** incluas conteúdo de código — só paths e metadados.
 - `excluded_note`: 1 frase sobre o que **não** tocar (layout shell, `src/components/ui/*`, etc.).
+
+## Regra de consistência (anti-import quebrado)
+
+- **Proibido** planear uma página que importe `@/components/<Nome>` sem também incluir o ficheiro correspondente em `files_to_create` (ou `files_to_modify` se já existir).
+- Para landing pages, é preferível decompor em secções (`src/components/Hero.tsx`, `Features.tsx`, `Footer.tsx`, etc.) do que gerar tudo dentro da página.
 
 ## Stack
 

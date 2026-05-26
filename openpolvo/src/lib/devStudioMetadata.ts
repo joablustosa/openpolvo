@@ -6,6 +6,7 @@ import {
   dispatchDevStudioApplyEnd,
   dispatchDevStudioApplyStart,
 } from "@/lib/devStudioApplyEvents";
+import { getDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
 import { DEV_STUDIO_NATIVE_APP_ID } from "@/config/apps";
 import type { AppId } from "@/config/apps";
 import { DEV_STUDIO_PREVIEW_PORT } from "@/modules/dev-studio/config";
@@ -29,6 +30,22 @@ export type ParsedDevStudioMessageMeta = {
   routed_intent?: string;
 };
 
+export type DevWorkflowEditMode =
+  | "create"
+  | "modify"
+  | "mixed"
+  | "diff_patch"
+  | string;
+
+export type EnrichedBrief = {
+  objective: string;
+  audience: string;
+  sections: string[];
+  tone: string;
+  palette_hint?: string;
+  layout_shell?: "marketing" | "dashboard" | string;
+};
+
 function parseMetadataRaw(metadata: unknown): Record<string, unknown> | null {
   if (metadata == null) return null;
   if (typeof metadata === "object" && !Array.isArray(metadata)) {
@@ -43,6 +60,39 @@ function parseMetadataRaw(metadata: unknown): Record<string, unknown> | null {
     }
   }
   return null;
+}
+
+export function extractEnrichedBriefFromMetadata(metadata: unknown): EnrichedBrief | null {
+  const m = parseMetadataRaw(metadata);
+  if (!m) return null;
+  const dw = m.dev_workflow;
+  if (!dw || typeof dw !== "object" || Array.isArray(dw)) return null;
+  const brief = (dw as Record<string, unknown>).enriched_brief;
+  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
+  const b = brief as Record<string, unknown>;
+  const objective = typeof b.objective === "string" ? b.objective.trim() : "";
+  const audience = typeof b.audience === "string" ? b.audience.trim() : "";
+  const tone = typeof b.tone === "string" ? b.tone.trim() : "";
+  const palette_hint = typeof b.palette_hint === "string" ? b.palette_hint.trim() : undefined;
+  const layout_shell =
+    typeof b.layout_shell === "string" ? b.layout_shell.trim() : undefined;
+  const sectionsRaw = b.sections;
+  const sections = Array.isArray(sectionsRaw)
+    ? sectionsRaw.map((s) => String(s ?? "").trim()).filter(Boolean).slice(0, 8)
+    : [];
+  const hasAny = Boolean(objective || audience || tone || sections.length);
+  if (!hasAny) return null;
+  return { objective, audience, tone, sections, palette_hint, layout_shell };
+}
+
+export function extractDevWorkflowEditModeFromMetadata(metadata: unknown): DevWorkflowEditMode | null {
+  const m = parseMetadataRaw(metadata);
+  if (!m) return null;
+  const dw = m.dev_workflow;
+  if (!dw || typeof dw !== "object" || Array.isArray(dw)) return null;
+  const em = (dw as Record<string, unknown>).edit_mode;
+  if (typeof em !== "string" || !em.trim()) return null;
+  return em.trim();
 }
 
 export function parseDevStudioMessageMeta(
@@ -89,19 +139,12 @@ export function parseDevStudioMessageMeta(
 
 export function shouldApplyDevStudioOps(metadata: unknown): boolean {
   const p = parseDevStudioMessageMeta(metadata);
-  if (p?.polvo_code_ops_blocked) return false;
-  if (
-    p?.polvo_code_ops_pending &&
-    p.polvo_code_ops &&
-    p.polvo_code_ops.length > 0
-  ) {
-    return true;
-  }
-  // Ops presentes sem flag pending (metadata legado ou dev_workflow).
-  if (p?.polvo_code_ops && p.polvo_code_ops.length > 0) {
-    return true;
-  }
-  return false;
+  const ops = p?.polvo_code_ops ?? [];
+  if (!ops.length) return false;
+  // Bloqueia só quando não há ops; avisos parciais no metadata não impedem apply.
+  if (p?.polvo_code_ops_blocked && ops.length === 0) return false;
+  if (p?.polvo_code_ops_pending && ops.length > 0) return true;
+  return ops.length > 0;
 }
 
 function extractProjectFilesFromMetadata(
@@ -204,6 +247,49 @@ export function restoreDevStudioProjectFromMessages(
   return null;
 }
 
+/** Mensagens + ligação local (conversa ↔ pasta no disco). */
+export function resolveDevStudioProjectForConversation(
+  conversationId: string,
+  messages: Array<{ role: string; metadata?: unknown }>,
+): { workspacePath: string; title: string | null } | null {
+  const fromMessages = restoreDevStudioProjectFromMessages(messages);
+  if (fromMessages) return fromMessages;
+  if (!conversationId.trim()) return null;
+  const linked = getDevStudioConversationProject(conversationId);
+  if (!linked) return null;
+  return { workspacePath: linked.workspacePath, title: linked.title };
+}
+
+/** Actualiza a última mensagem assistant com `dev_studio_context.project_id` (sessão actual). */
+export function patchAssistantDevStudioProjectId<T extends { role: string; metadata?: unknown }>(
+  messages: T[],
+  workspacePath: string,
+  title?: string | null,
+): T[] {
+  const wp = workspacePath.trim();
+  if (!wp) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== "assistant") continue;
+    const m = parseMetadataRaw(messages[i].metadata);
+    if (!m) return messages;
+    const dscRaw = m.dev_studio_context;
+    const dsc =
+      dscRaw && typeof dscRaw === "object" && !Array.isArray(dscRaw)
+        ? { ...(dscRaw as Record<string, unknown>) }
+        : {};
+    dsc.project_id = wp;
+    const nextMeta = {
+      ...m,
+      dev_studio_context: dsc,
+      ...(title?.trim() ? { polvo_code_project_title: title.trim() } : {}),
+    };
+    return messages.map((msg, idx) =>
+      idx === i ? ({ ...msg, metadata: nextMeta } as T) : msg,
+    );
+  }
+  return messages;
+}
+
 /** Normaliza metadata para aplicar ops (inclui fallback a project_files). */
 export function normalizeDevStudioApplyMetadata(metadata: unknown): unknown {
   if (shouldApplyDevStudioOps(metadata)) return metadata;
@@ -232,8 +318,19 @@ export function messageIndicatesDevStudioInteraction(metadata: unknown): boolean
 export function devStudioApplyFailureMessage(metadata: unknown): string | null {
   const p = parseDevStudioMessageMeta(metadata);
   if (!p) return null;
+  const m = parseMetadataRaw(metadata);
+  const routed = String(m?.routed_intent ?? "").trim();
+  if (
+    routed === "polvo_code_builder" &&
+    (!p.polvo_code_ops || p.polvo_code_ops.length === 0)
+  ) {
+    return (
+      "O agente respondeu no chat mas não gerou alterações no código. " +
+      "Tente reformular (ex.: «aplica no preview: muda o botão para verde») ou recarregue o preview."
+    );
+  }
   if (p.polvo_code_ops_blocked && p.polvo_code_ops_errors?.length) {
-    return `Não foi possível gerar o projecto: ${p.polvo_code_ops_errors.join("; ")}`;
+    return `Não foi possível aplicar no projecto: ${p.polvo_code_ops_errors.join("; ")}`;
   }
   if (
     p.routed_intent === "polvo_code_builder" &&
@@ -282,6 +379,8 @@ export type ApplyDevStudioOpsResult = {
   applied: boolean;
   error?: string;
   notice?: string;
+  workspacePath?: string;
+  title?: string | null;
 };
 
 function devLog(...args: unknown[]): void {
@@ -364,6 +463,8 @@ export async function applyDevStudioOpsFromMeta(
       return {
         applied: true,
         notice: `Preview a correr no browser (WebContainer).${healNote}`,
+        workspacePath: WEBCONTAINER_WORKSPACE_ID,
+        title,
       };
     } catch (e) {
       return {
@@ -423,6 +524,8 @@ export async function applyDevStudioOpsFromMeta(
     return {
       applied: true,
       notice: `Preview a actualizar com o site pedido no chat…${healNote}`,
+      workspacePath,
+      title,
     };
   } catch (e) {
     return {

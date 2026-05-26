@@ -201,7 +201,7 @@ export type PolvoCodeDevStartOpts = {
 export type PolvoCodeEvent =
   | { type: "log"; line: string }
   | { type: "url"; url: string }
-  | { type: "exit"; code: number | null; phase?: string; intentional?: boolean };
+  | { type: "exit"; code: number | null; phase?: string };
 
 export type PolvoCodeDirEntry = {
   name: string;

@@ -114,7 +114,7 @@ export function ResizableChatLayout({ chat, site, className }: Props) {
           >
             <span className="absolute inset-y-0 -left-1 -right-1" />
           </button>
-          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <div className="flex h-full min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-background">
             {site}
           </div>
         </>

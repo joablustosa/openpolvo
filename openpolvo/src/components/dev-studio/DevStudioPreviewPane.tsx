@@ -1,5 +1,6 @@
-import { useEffect, useRef, type CSSProperties } from "react";
 import { DEV_STUDIO_WEBVIEW_PARTITION } from "@/modules/dev-studio/config";
+import { cn } from "@/lib/utils";
+import { usePreviewSurfaceFill } from "./usePreviewSurfaceFill";
 
 type ElectronWebviewElement = HTMLElement & {
   src: string;
@@ -12,53 +13,32 @@ type Props = {
   reloadKey: number;
   /** Browser: iframe com URL do WebContainer; Electron: webview local. */
   surface?: "iframe" | "webview";
+  className?: string;
 };
 
-const PREVIEW_SURFACE_CLASS =
-  "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background";
-
-const PREVIEW_MEDIA_STYLE: CSSProperties = {
-  display: "block",
-  position: "absolute",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  width: "100%",
-  height: "100%",
-  border: "none",
-};
+/** Preenche o slot `absolute inset-0` dentro de `[data-dev-studio-preview]`. */
+const PREVIEW_HOST_CLASS =
+  "absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-background";
 
 export function DevStudioPreviewPane({
   devUrl,
   running,
   reloadKey,
   surface = "webview",
+  className,
 }: Props) {
-  const webviewRef = useRef<ElectronWebviewElement | null>(null);
+  const { containerRef, mediaRef, syncSize } = usePreviewSurfaceFill([
+    devUrl,
+    reloadKey,
+    surface,
+  ]);
 
-  useEffect(() => {
-    if (surface !== "webview") return;
-    const el = webviewRef.current;
-    if (!el || !devUrl) return;
-    try {
-      if (el.src !== devUrl) el.src = devUrl;
-    } catch {
-      el.src = devUrl;
-    }
-  }, [devUrl, reloadKey, surface]);
-
-  useEffect(() => {
-    if (surface !== "webview") return;
-    const el = webviewRef.current;
-    if (!el) return;
-    Object.assign(el.style, PREVIEW_MEDIA_STYLE);
-  }, [surface, devUrl, reloadKey]);
+  const hostClass = cn(PREVIEW_HOST_CLASS, className);
 
   if (!devUrl) {
     return (
-      <div className={PREVIEW_SURFACE_CLASS}>
-        <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+      <div ref={containerRef} className={hostClass}>
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-6 text-center">
           <p className="text-sm font-medium text-foreground">Preview</p>
           <p className="max-w-sm text-xs text-muted-foreground">
             {running
@@ -72,12 +52,15 @@ export function DevStudioPreviewPane({
 
   if (surface === "iframe") {
     return (
-      <div className={PREVIEW_SURFACE_CLASS}>
+      <div ref={containerRef} className={hostClass}>
         <iframe
           key={`${devUrl}-${reloadKey}`}
+          ref={(el) => {
+            mediaRef.current = el;
+            syncSize();
+          }}
           title="Preview Open Polvo"
           src={devUrl}
-          style={PREVIEW_MEDIA_STYLE}
           allow="cross-origin-isolated; clipboard-read; clipboard-write"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
         />
@@ -86,16 +69,26 @@ export function DevStudioPreviewPane({
   }
 
   return (
-    <div className={PREVIEW_SURFACE_CLASS}>
+    <div ref={containerRef} className={hostClass}>
       {/* eslint-disable-next-line react/no-unknown-property -- webview Electron */}
       <webview
         key={`${devUrl}-${reloadKey}`}
-        ref={webviewRef as React.RefObject<HTMLElement>}
+        ref={(el) => {
+          mediaRef.current = el as ElectronWebviewElement | null;
+          if (devUrl && el) {
+            const wv = el as ElectronWebviewElement;
+            try {
+              if (wv.src !== devUrl) wv.src = devUrl;
+            } catch {
+              wv.src = devUrl;
+            }
+          }
+          syncSize();
+        }}
         src={devUrl}
         partition={DEV_STUDIO_WEBVIEW_PARTITION}
-        allowpopups="true"
+        allowpopups={true}
         webpreferences="contextIsolation=yes, javascript=yes"
-        style={PREVIEW_MEDIA_STYLE}
       />
     </div>
   );

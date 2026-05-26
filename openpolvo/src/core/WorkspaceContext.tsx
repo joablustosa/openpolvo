@@ -43,6 +43,8 @@ type WorkspaceContextValue = {
   clearDevStudio: () => void;
   /** Incrementado quando o projecto muda — força reinício do preview. */
   devStudioPreviewGeneration: number;
+  /** Reinicia o Vite no mesmo projecto (ex.: reabrir a mesma conversa). */
+  restartDevStudioPreview: () => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -128,14 +130,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const setDevStudioProject = useCallback(
     (workspacePath: string | null, title?: string | null) => {
-      setDevStudioWorkspacePathState(workspacePath);
+      const next = workspacePath?.trim() ?? "";
+      setDevStudioWorkspacePathState((prev) => {
+        const prevNorm = prev?.trim() ?? "";
+        if (next && next !== prevNorm) {
+          setDevStudioPreviewGeneration((n) => n + 1);
+        }
+        return workspacePath;
+      });
       setDevStudioProjectTitleState(title ?? null);
-      if (workspacePath?.trim()) {
-        setDevStudioPreviewGeneration((n) => n + 1);
-      }
     },
     [],
   );
+
+  const restartDevStudioPreview = useCallback(() => {
+    setDevStudioPreviewGeneration((n) => n + 1);
+  }, []);
 
   const clearDevStudio = useCallback(() => {
     setDevStudioWorkspacePathState(null);
@@ -207,6 +217,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDevStudioProject,
       clearDevStudio,
       devStudioPreviewGeneration,
+      restartDevStudioPreview,
     ],
   );
 

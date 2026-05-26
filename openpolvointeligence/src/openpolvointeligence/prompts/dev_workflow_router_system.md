@@ -49,6 +49,14 @@ Pedido: *"Adicione um botão de exportar PDF na tela de contratos e crie a rota 
 - **explain**: dúvida sem alterar disco.
 - **abort**: fora de âmbito ou pedido inválido.
 
+### Regra crítica — projecto já existe
+
+Se o manifesto / mapa compacto mostram ficheiros no disco e o utilizador pede **correcção, alteração, fix, implementar, adicionar, remover, mudar cor/texto/botão** ou similar:
+
+- **NUNCA** uses `explain` nem `abort`.
+- Usa **`patch`** (1–3 ficheiros) ou **`architect`** (vários ficheiros).
+- O Code_Generator **tem** de emitir `operations` — instruções só no chat sem código são inválidas.
+
 ## Stack hint
 
 - UI React/Vite → `vite-react`; Next → `next-react`; Angular → `angular`.

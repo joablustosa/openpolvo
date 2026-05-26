@@ -74,3 +74,25 @@ def test_build_excerpts_has_line_numbers():
     block = build_codegen_file_excerpts(plan, {"src/pages/ContractsPage.tsx": SAMPLE})
     assert "   6|" in block
     assert "blue-600" in block
+
+
+def test_patch_allowed_on_existing_file_outside_plan_when_in_project():
+    ops = [
+        {
+            "op": "patch",
+            "path": "src/components/Hero.tsx",
+            "patches": [
+                {
+                    "start_line": 1,
+                    "end_line": 1,
+                    "old_text": "import React from 'react';",
+                    "new_text": "import React from 'react';\n// fix",
+                },
+            ],
+        },
+    ]
+    files = {"src/components/Hero.tsx": "import React from 'react';\n"}
+    plan = {"files_to_modify": ["src/pages/Other.tsx"], "files_to_create": []}
+    resolved, errs = resolve_codegen_operations(ops, files, plan)
+    assert len(resolved) == 1
+    assert not errs

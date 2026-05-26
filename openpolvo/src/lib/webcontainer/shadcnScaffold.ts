@@ -172,7 +172,7 @@ const PACKAGE_JSON = {
   private: true,
   type: "module",
   scripts: {
-    dev: "vite",
+    dev: "vite --host 127.0.0.1 --port 5173 --strictPort",
     build: "vite build",
     preview: "vite preview",
   },
@@ -215,7 +215,7 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5175,
+    port: 5173,
     strictPort: false,
     hmr: { overlay: true },
   },

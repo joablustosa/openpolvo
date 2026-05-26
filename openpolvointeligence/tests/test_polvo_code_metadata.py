@@ -48,3 +48,22 @@ def test_build_metadata_pending_opens_native_plugin():
     assert meta["polvo_code_ops_pending"] is True
     assert meta["native_plugin"]["id"] == "dev_studio"
     assert meta["polvo_code_create_project"] is True
+
+
+def test_build_metadata_pending_with_partial_validation_warnings():
+    ops = [{"op": "write", "path": "a.ts", "content": "//"}]
+    meta = build_polvo_code_ops_metadata(
+        True,
+        ops,
+        ["patch[0]: old_text não encontrado"],
+        create_project=False,
+    )
+    assert meta["polvo_code_ops_pending"] is True
+    assert meta["polvo_code_ops_blocked"] is False
+    assert meta["polvo_code_ops"] == ops
+
+
+def test_build_metadata_blocked_when_no_ops():
+    meta = build_polvo_code_ops_metadata(True, [], ["sem operações"])
+    assert meta["polvo_code_ops_pending"] is False
+    assert meta["polvo_code_ops_blocked"] is True

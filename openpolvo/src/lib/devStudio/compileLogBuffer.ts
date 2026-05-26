@@ -1,4 +1,7 @@
-import { detectCompileErrors } from "@/lib/devStudio/compileErrorDetect";
+import {
+  detectCompileErrors,
+  detectPreviewErrors,
+} from "@/lib/devStudio/previewErrorDetect";
 
 const MAX_LINES = 400;
 
@@ -23,6 +26,11 @@ export function getDevStudioCompileLog(): string {
 
 export function devStudioHasCompileErrors(): boolean {
   return detectCompileErrors(getDevStudioCompileLog());
+}
+
+/** Build Vite ou erros de runtime na consola do preview. */
+export function devStudioHasPreviewErrors(): boolean {
+  return detectPreviewErrors(getDevStudioCompileLog());
 }
 
 export function previewConsoleLogsFromCompileLog(

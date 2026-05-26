@@ -149,9 +149,10 @@ def build_polvo_code_ops_metadata(
     }
     if validation_errors:
         out["polvo_code_ops_errors"] = validation_errors
-    blocked = bool(validation_errors) or not operations
+    # Aplica ops válidas mesmo com avisos parciais; bloqueia só quando não há nada a aplicar.
+    blocked = not operations
     out["polvo_code_ops_blocked"] = blocked
-    out["polvo_code_ops_pending"] = bool(operations and not blocked)
+    out["polvo_code_ops_pending"] = bool(operations)
     if out["polvo_code_ops_pending"]:
         out["native_plugin"] = {
             "id": "dev_studio",

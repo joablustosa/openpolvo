@@ -46,6 +46,11 @@ from openpolvointeligence.graphs.dev_workflow_codegen_logic import (
     resolve_codegen_operations,
 )
 from openpolvointeligence.graphs.dev_workflow_code_rag import run_code_rag_for_router
+from openpolvointeligence.graphs.dev_workflow_prompt_enricher_logic import (
+    build_raw_user_prompt,
+    normalize_enriched_prompt,
+    should_enrich,
+)
 from openpolvointeligence.graphs.dev_workflow_compiler_logic import (
     merge_compile_sources,
     parse_compile_output,
@@ -141,6 +146,11 @@ def route_after_router(state: DevWorkflowState) -> Literal[
     "architect", "code_generator", "explain_end", "abort_end"
 ]:
     route = state.get("route") or "architect"
+    has_project = bool(str(state.get("workspace_id") or "").strip()) or bool(
+        state.get("project_files"),
+    )
+    if route == "explain" and has_project:
+        return "code_generator"
     if route == "explain":
         return "explain_end"
     if route == "abort":
@@ -164,6 +174,51 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
     router_sys = _load_prompt("dev_workflow_router_system")
     architect_sys = _load_prompt("dev_workflow_architect_system")
     codegen_sys = _load_prompt("dev_workflow_codegen_system")
+    enricher_sys = _load_prompt("dev_workflow_prompt_enricher_system")
+
+    async def node_prompt_enricher(state: DevWorkflowState) -> dict[str, Any]:
+        """Produtifica pedidos vagos/curtos sem bloquear alterações incrementais."""
+        trace = truncate_trace(list(state.get("trace") or []))
+        msgs = state.get("messages") or []
+        raw = build_raw_user_prompt(msgs)
+
+        if not should_enrich(state, raw):
+            return {
+                "raw_user_prompt": raw,
+                "user_prompt": raw,
+                "enrichment_skipped": True,
+                "trace": trace + ["prompt_enricher:skip"],
+            }
+
+        chat = get_chat_model(settings, state.get("model_provider"), json_mode=True)
+        # Contexto mínimo: pedido cru + histórico curto (sem ficheiros; isso entra no context_manager).
+        short_history = tail_messages(msgs, 14)
+        human = (
+            "## Pedido cru\n"
+            + raw[:4000]
+            + "\n\n## Histórico curto\n"
+            + json.dumps(short_history, ensure_ascii=False)[:8000]
+        )
+        resp = await chat.ainvoke(
+            [SystemMessage(content=enricher_sys), HumanMessage(content=human)],
+        )
+        data = _parse_json_object(str(resp.content))
+        enriched = normalize_enriched_prompt(data, raw=raw)
+        return {
+            "raw_user_prompt": raw,
+            "enriched_prompt": enriched.get("full_prompt") or raw,
+            "enriched_brief": {
+                "objective": enriched.get("objective") or "",
+                "audience": enriched.get("audience") or "",
+                "sections": enriched.get("sections") or [],
+                "tone": enriched.get("tone") or "",
+                "palette_hint": enriched.get("palette_hint") or "",
+                "layout_shell": enriched.get("layout_shell") or "marketing",
+            },
+            "user_prompt": str(enriched.get("full_prompt") or raw)[:4000],
+            "enrichment_skipped": False,
+            "trace": trace + ["prompt_enricher"],
+        }
 
     async def node_context_manager(state: DevWorkflowState) -> dict[str, Any]:
         trace = truncate_trace(list(state.get("trace") or []))
@@ -219,9 +274,13 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             [SystemMessage(content=router_sys), HumanMessage(content=human)],
         )
         data = _parse_json_object(str(resp.content))
+        has_project = bool(str(state.get("workspace_id") or "").strip()) or bool(
+            state.get("project_files"),
+        )
         parsed = parse_router_response(
             data,
             user_prompt=str(state.get("user_prompt") or ""),
+            has_project=has_project,
         )
 
         trace_suffix = f"router:{parsed['route']}:{parsed['affected_layers']}"
@@ -346,11 +405,21 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         ops_raw = data.get("operations")
         if not isinstance(ops_raw, list):
             ops_raw = []
+        plan_dict = plan if isinstance(plan, dict) else {}
         resolved, resolve_errs = resolve_codegen_operations(
             ops_raw,
             project_files,
-            plan if isinstance(plan, dict) else {},
+            plan_dict,
         )
+        if not resolved and plan_dict.get("files_to_modify"):
+            resolved_loose, loose_errs = resolve_codegen_operations(
+                ops_raw,
+                project_files,
+                {},
+            )
+            if len(resolved_loose) > len(resolved):
+                resolved = resolved_loose
+                resolve_errs = resolve_errs + loose_errs
         valid, verr = validate_polvo_code_operations(resolved)
         verr = verr + resolve_errs
         pending: list[dict[str, Any]] = [
@@ -369,11 +438,34 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             project_title=str(data.get("project_title") or "").strip() or None,
             npm_install=bool(data.get("npm_install")),
         )
+        # Deriva modo de edição a partir do que efectivamente foi escrito no projecto.
+        created = 0
+        modified = 0
+        for o in valid:
+            if not isinstance(o, dict):
+                continue
+            if o.get("op") != "write":
+                continue
+            p = str(o.get("path") or "").strip().replace("\\", "/").lstrip("/")
+            if not p:
+                continue
+            existed = bool(project_files.get(p))
+            if existed:
+                modified += 1
+            else:
+                created += 1
+        derived_mode = "patch"
+        if created and modified:
+            derived_mode = "mixed"
+        elif created:
+            derived_mode = "create"
+        elif modified:
+            derived_mode = "modify"
         meta["dev_workflow"] = {
             "stack": plan.get("stack") if isinstance(plan, dict) else None,
             "route": state.get("route"),
             "compile_attempt": state.get("compile_attempt") or 0,
-            "edit_mode": str(data.get("edit_mode") or "patch"),
+            "edit_mode": derived_mode,
             "design_tokens": (
                 plan.get("design_tokens")
                 if isinstance(plan, dict) and plan.get("design_tokens")
@@ -545,6 +637,7 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
 
     g = StateGraph(DevWorkflowState)
 
+    g.add_node("prompt_enricher", node_prompt_enricher)
     g.add_node("context_manager", node_context_manager)
     g.add_node("router", node_router)
     g.add_node("architect", node_architect)
@@ -555,7 +648,8 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
     g.add_node("abort", node_abort)
     g.add_node("context_finalize", node_context_finalize)
 
-    g.add_edge(START, "context_manager")
+    g.add_edge(START, "prompt_enricher")
+    g.add_edge("prompt_enricher", "context_manager")
     g.add_edge("context_manager", "router")
     g.add_conditional_edges(
         "router",
@@ -649,6 +743,18 @@ async def run_dev_workflow_pipeline(
     mp = effective_provider(model_provider)
     meta.setdefault("model_provider", mp)
     meta.setdefault("routed_intent", "polvo_code_builder")
+
+    # Exporta brief do Prompt Enricher (transparente no UI).
+    dw_meta = meta.get("dev_workflow")
+    if not isinstance(dw_meta, dict):
+        dw_meta = {}
+    if out.get("enriched_brief") and isinstance(out.get("enriched_brief"), dict):
+        dw_meta.setdefault("enriched_brief", out.get("enriched_brief"))
+    if "enrichment_skipped" in out:
+        dw_meta.setdefault("prompt_enrichment_skipped", bool(out.get("enrichment_skipped")))
+    if dw_meta:
+        meta["dev_workflow"] = dw_meta
+
     merged_project_files = _merge_project_files_state(
         out,
         project_files,
@@ -679,7 +785,36 @@ async def run_dev_workflow_pipeline(
                         npm_install=True,
                     ),
                 )
-        elif merged_project_files:
+        if not meta.get("polvo_code_ops_pending"):
+            from openpolvointeligence.graphs.dev_workflow_routing import should_use_dev_workflow
+
+            user = last_user_text(messages)
+            if should_use_dev_workflow(
+                user,
+                sandbox_project_id=workspace_id,
+                project_files=merged_project_files,
+                dev_studio_context=meta.get("dev_studio_context")
+                if isinstance(meta.get("dev_studio_context"), dict)
+                else None,
+                preview_console_block=preview_block,
+                compile_log=compile_log,
+            ):
+                try:
+                    from openpolvointeligence.graphs.polvo_code_metadata import (
+                        polvo_code_ops_metadata_for_reply,
+                    )
+
+                    supplemental = await polvo_code_ops_metadata_for_reply(
+                        settings,
+                        model_provider,
+                        text or user,
+                        messages,
+                    )
+                    if supplemental.get("polvo_code_ops_pending"):
+                        meta.update(supplemental)
+                except Exception as exc:
+                    _logger.warning("fallback polvo_code_ops após dev workflow: %s", exc)
+        if not meta.get("polvo_code_ops_pending") and merged_project_files:
             file_ops = [
                 {"op": "write", "path": p, "content": c}
                 for p, c in merged_project_files.items()

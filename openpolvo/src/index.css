@@ -131,19 +131,8 @@
   #root {
     @apply flex h-dvh min-h-0 flex-col;
     }
-  /* Electron <webview>: preenche o painel de preview (Estúdio) */
-  webview {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  section[aria-label="Estúdio de desenvolvimento"] webview,
-  section[aria-label="Estúdio de desenvolvimento"] iframe {
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 100%;
-    min-height: 100%;
+  section[aria-label="Estúdio de desenvolvimento"] [data-dev-studio-preview] {
+    @apply relative min-h-0 flex-1 overflow-hidden;
   }
 }
 

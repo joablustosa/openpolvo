@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from openpolvointeligence.graphs.preview_source_sanitize import sanitize_write_op
+from openpolvointeligence.graphs.layout_scaffold_heal_logic import (
+    LAYOUT_SCAFFOLD_PATHS,
+)
 
 MAX_FULL_WRITE_LINES = 80
 MAX_PATCHES_PER_FILE = 12
@@ -138,6 +141,7 @@ def resolve_codegen_operations(
     files_to_create = {_norm_path(p) for p in (plan.get("files_to_create") or []) if p}
     files_to_modify = {_norm_path(p) for p in (plan.get("files_to_modify") or []) if p}
     allowed_paths = files_to_create | files_to_modify
+    layout_paths = {_norm_path(p) for p in LAYOUT_SCAFFOLD_PATHS}
 
     resolved: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -152,8 +156,10 @@ def resolve_codegen_operations(
             errors.append(f"op[{idx}] path inválido")
             continue
         if allowed_paths and path not in allowed_paths:
-            errors.append(f"op[{idx}] path fora do plano: {path}")
-            continue
+            # Permite patch em ficheiro existente no projecto (correcções mesmo se o Architect omitiu o path).
+            if not (kind == "patch" and path in project_files):
+                errors.append(f"op[{idx}] path fora do plano: {path}")
+                continue
 
         if kind == "mkdir":
             resolved.append({"op": "mkdir", "path": path})
@@ -167,6 +173,15 @@ def resolve_codegen_operations(
             base = project_files.get(path, "")
             if not base:
                 errors.append(f"op[{idx}] patch em {path} sem conteúdo base no project_files")
+                continue
+            # Guard incremental: ficheiro existente fora do plano só se não estiver no projecto.
+            if (
+                files_to_modify
+                and path not in files_to_modify
+                and path not in layout_paths
+                and path not in project_files
+            ):
+                errors.append(f"op[{idx}] path_outside_plan (existing file): {path}")
                 continue
             patched, patch_errs = apply_patches_to_file(base, patches)
             errors.extend(patch_errs)
@@ -187,6 +202,15 @@ def resolve_codegen_operations(
                 str(op.get("content") if op.get("content") is not None else ""),
             )
             exists = path in project_files and bool(project_files.get(path))
+            if (
+                exists
+                and files_to_modify
+                and path not in files_to_modify
+                and path not in layout_paths
+                and path not in project_files
+            ):
+                errors.append(f"op[{idx}] path_outside_plan (existing file): {path}")
+                continue
             ok, reason = _allow_full_write(
                 path,
                 content,

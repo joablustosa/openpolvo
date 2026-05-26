@@ -8,6 +8,7 @@ from openpolvointeligence.graphs.dev_workflow_architect_logic import (
 )
 from openpolvointeligence.graphs.dev_workflow_router_logic import (
     infer_affected_layers,
+    infer_force_code_route,
     parse_router_response,
 )
 
@@ -172,3 +173,24 @@ def test_match_paths_for_contracts():
         {},
     )
     assert "src/pages/ContractsPage.tsx" in matched["matched_existing"]
+
+
+def test_infer_force_code_route_correcao():
+    assert infer_force_code_route("Corrige a cor do botão no site", has_project=True) == "patch"
+
+
+def test_parse_router_overrides_explain_when_project_exists():
+    data = {
+        "route": "explain",
+        "affected_layers": "frontend",
+        "stack_hint": "vite-react",
+        "confidence": 0.9,
+        "reason": "dúvida",
+    }
+    out = parse_router_response(
+        data,
+        user_prompt="Corrige o erro no Hero e atualiza o preview",
+        has_project=True,
+    )
+    assert out["route"] in ("patch", "architect")
+    assert out["route"] != "explain"

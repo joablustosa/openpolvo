@@ -116,6 +116,39 @@ def match_paths_for_feature(
         keywords.append("pdf")
     if "export" in prompt or "exportar" in prompt:
         keywords.extend(["export", "exportar"])
+    if any(
+        k in prompt
+        for k in (
+            "corrige",
+            "corrigir",
+            "fix",
+            "altera",
+            "muda",
+            "modifica",
+            "landing",
+            "hero",
+            "footer",
+            "navbar",
+            "página",
+            "pagina",
+            "site",
+            "preview",
+            "componente",
+        )
+    ):
+        keywords.extend(
+            [
+                "landing",
+                "page",
+                "hero",
+                "footer",
+                "navbar",
+                "app",
+                "index",
+                "main",
+                "home",
+            ],
+        )
 
     all_paths = _dedupe_paths(
         list(manifest_paths) + paths_from_compact_map(compact),
@@ -215,6 +248,7 @@ def normalize_architect_plan(
         [str(p) for p in modify_raw if p] + [str(p) for p in legacy_targets if p],
         15,
     )
+    modify_before_step_filter = list(files_to_modify)
 
     # Enriquecer com paths do mapa compacto quando pedido menciona entidade existente
     feature_paths = match_paths_for_feature(
@@ -283,6 +317,11 @@ def normalize_architect_plan(
         allowed = step_files | route_files | keyword_matched
         files_to_modify = [p for p in files_to_modify if p in allowed]
         files_to_create = [p for p in files_to_create if p in allowed or p not in manifest_paths]
+        if not files_to_modify and modify_before_step_filter:
+            files_to_modify = _prune_to_rag_scope(
+                modify_before_step_filter,
+                rag_relevant_paths,
+            )
 
     stack = str(data.get("stack") or exec_raw.get("scope") or stack_hint or "vite-react")
     if stack not in (

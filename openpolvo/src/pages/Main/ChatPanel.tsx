@@ -10,6 +10,7 @@ import { OctopusTypingLoader } from "@/components/brand/OctopusTypingLoader";
 import { EmailDraftActions } from "@/components/chat/EmailDraftActions";
 import { FinanceSuggestionActions } from "@/components/chat/FinanceSuggestionActions";
 import { FormattedMessageContent } from "@/components/chat/FormattedMessageContent";
+import { EnrichedBriefBlock } from "@/components/chat/EnrichedBriefBlock";
 import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
 import { useAuth } from "@/auth/AuthContext";
 import { parseEmailMessageMeta } from "@/lib/emailChatMetadata";
@@ -24,6 +25,10 @@ import {
 } from "@/hooks/useJowWakeListener";
 import { useRecordUntilSilence } from "@/hooks/useRecordUntilSilence";
 import { displayNameFromToken } from "@/lib/userDisplay";
+import {
+  extractDevWorkflowEditModeFromMetadata,
+  extractEnrichedBriefFromMetadata,
+} from "@/lib/devStudioMetadata";
 import { cn } from "@/lib/utils";
 
 export function ChatPanel() {
@@ -280,6 +285,14 @@ export function ChatPanel() {
                     : "plain"
                 }
               />
+              {m.role === "assistant"
+                ? (() => {
+                    const brief = extractEnrichedBriefFromMetadata(m.metadata);
+                    if (!brief) return null;
+                    const editMode = extractDevWorkflowEditModeFromMetadata(m.metadata);
+                    return <EnrichedBriefBlock brief={brief} editMode={editMode} />;
+                  })()
+                : null}
               {m.role === "assistant" && token && parseEmailMessageMeta(m.metadata)?.email_send_draft ? (
                 <EmailDraftActions
                   token={token}

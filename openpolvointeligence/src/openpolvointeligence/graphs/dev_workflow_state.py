@@ -76,6 +76,11 @@ class DevWorkflowState(TypedDict, total=False):
     """Estado LangGraph do workflow de desenvolvimento."""
 
     user_prompt: str
+    # Prompt Enricher (opcional): preserva pedido cru + brief produtificado
+    raw_user_prompt: str
+    enriched_prompt: str
+    enriched_brief: dict[str, Any]
+    enrichment_skipped: bool
     model_provider: str | None
     workspace_id: str | None
     preview_console_block: str | None

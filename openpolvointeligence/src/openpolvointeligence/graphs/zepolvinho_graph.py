@@ -20,6 +20,10 @@ from openpolvointeligence.graphs.models import effective_provider, get_chat_mode
 from openpolvointeligence.graphs.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
 from openpolvointeligence.graphs.dev_workflow_graph import run_dev_workflow_pipeline
+from openpolvointeligence.graphs.dev_workflow_routing import (
+    boost_analysis_for_dev_workflow,
+    should_use_dev_workflow,
+)
 from openpolvointeligence.graphs.polvo_code_metadata import polvo_code_ops_metadata_for_reply
 from openpolvointeligence.graphs.task_list_metadata import (
     format_task_lists_for_prompt,
@@ -414,7 +418,70 @@ def build_zepolvinho_graph(settings: Settings):
             }
         else:
             analysis = _parse_analysis(raw)
+        analysis = boost_analysis_for_dev_workflow(
+            analysis,
+            user_prompt=last_user_text(msgs),
+            sandbox_project_id=state.get("sandbox_project_id"),
+            project_files=state.get("project_files"),
+            dev_studio_context=state.get("dev_studio_context"),
+            preview_console_block=state.get("preview_console_block"),
+            compile_log=state.get("compile_log"),
+        )
         return {"analysis": analysis}
+
+    async def _run_dev_workflow_reply(
+        state: ZepState,
+        analysis: dict[str, Any],
+        *,
+        routed: str,
+    ) -> dict[str, Any]:
+        msgs = state.get("messages") or []
+        dsc = state.get("dev_studio_context")
+        if not isinstance(dsc, dict):
+            dsc = None
+        text_dw, meta_dw = await run_dev_workflow_pipeline(
+            settings,
+            msgs,
+            state.get("model_provider"),
+            workspace_id=state.get("sandbox_project_id"),
+            preview_console_logs=state.get("preview_console_logs"),
+            compile_log=state.get("compile_log"),
+            project_file_tree=state.get("project_file_tree"),
+            project_files=state.get("project_files"),
+            dev_studio_context=dsc,
+        )
+        if not meta_dw.get("polvo_code_ops_pending") and should_use_dev_workflow(
+            last_user_text(msgs),
+            sandbox_project_id=state.get("sandbox_project_id"),
+            project_files=state.get("project_files"),
+            dev_studio_context=dsc,
+            preview_console_block=state.get("preview_console_block"),
+            compile_log=state.get("compile_log"),
+        ):
+            supplemental = await polvo_code_ops_metadata_for_reply(
+                settings,
+                state.get("model_provider"),
+                text_dw or last_user_text(msgs),
+                tail_messages(msgs),
+            )
+            if supplemental.get("polvo_code_ops_pending"):
+                meta_dw.update(supplemental)
+        meta_dw.update(
+            {
+                "intent": str(analysis.get("intent", "")),
+                "routed_intent": routed,
+                "intent_confidence": float(analysis.get("confidence", 0)),
+                "intent_reasoning": str(analysis.get("reasoning", "")),
+            },
+        )
+        meta_dw = await finalize_reply_metadata(
+            settings,
+            state.get("model_provider"),
+            msgs,
+            state.get("agent_memory"),
+            meta_dw,
+        )
+        return {"assistant_text": text_dw, "metadata": meta_dw}
 
     async def node_specialist(state: ZepState) -> dict[str, Any]:
         msgs = state.get("messages") or []
@@ -425,38 +492,33 @@ def build_zepolvinho_graph(settings: Settings):
         ctx_b = _build_classification_ctx(analysis)
         mp = effective_provider(state.get("model_provider"))
 
+        dev_ctx = {
+            "sandbox_project_id": state.get("sandbox_project_id"),
+            "project_files": state.get("project_files"),
+            "dev_studio_context": state.get("dev_studio_context"),
+            "preview_console_block": state.get("preview_console_block"),
+            "compile_log": state.get("compile_log"),
+        }
+        user_last = last_user_text(msgs)
+
+        if routed != "polvo_code_builder" and should_use_dev_workflow(user_last, **dev_ctx):
+            try:
+                return await _run_dev_workflow_reply(
+                    state,
+                    {**analysis, "intent": "polvo_code_builder"},
+                    routed="polvo_code_builder",
+                )
+            except Exception as exc:
+                import logging as _dw_log
+
+                _dw_log.getLogger(__name__).warning(
+                    "dev_workflow_pipeline (re-route) falhou (%s) — especialista genérico",
+                    exc,
+                )
+
         if routed == "polvo_code_builder":
             try:
-                dsc = state.get("dev_studio_context")
-                if not isinstance(dsc, dict):
-                    dsc = None
-                text_dw, meta_dw = await run_dev_workflow_pipeline(
-                    settings,
-                    msgs,
-                    state.get("model_provider"),
-                    workspace_id=state.get("sandbox_project_id"),
-                    preview_console_logs=state.get("preview_console_logs"),
-                    compile_log=state.get("compile_log"),
-                    project_file_tree=state.get("project_file_tree"),
-                    project_files=state.get("project_files"),
-                    dev_studio_context=dsc,
-                )
-                meta_dw.update(
-                    {
-                        "intent": str(analysis.get("intent", "")),
-                        "routed_intent": routed,
-                        "intent_confidence": float(analysis.get("confidence", 0)),
-                        "intent_reasoning": str(analysis.get("reasoning", "")),
-                    },
-                )
-                meta_dw = await finalize_reply_metadata(
-                    settings,
-                    state.get("model_provider"),
-                    msgs,
-                    state.get("agent_memory"),
-                    meta_dw,
-                )
-                return {"assistant_text": text_dw, "metadata": meta_dw}
+                return await _run_dev_workflow_reply(state, analysis, routed=routed)
             except Exception as exc:
                 import logging as _dw_log
 
@@ -913,14 +975,36 @@ async def run_reply_stream(
         analysis = _parse_analysis(raw) if raw else {
             "intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {},
         }
+        analysis = boost_analysis_for_dev_workflow(
+            analysis,
+            user_prompt=last_user_text(messages),
+            sandbox_project_id=sandbox_project_id,
+            project_files=project_files,
+            dev_studio_context=dev_studio_context,
+            preview_console_block=pcb_stream,
+            compile_log=compile_log,
+        )
     except Exception as exc:
         _log.warning("análise de intenção falhou: %s — usando geral", exc)
         analysis = {"intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {}}
+        analysis = boost_analysis_for_dev_workflow(
+            analysis,
+            user_prompt=last_user_text(messages),
+            sandbox_project_id=sandbox_project_id,
+            project_files=project_files,
+            dev_studio_context=dev_studio_context,
+            preview_console_block=pcb_stream,
+            compile_log=compile_log,
+        )
 
     # ── Grafo completo ─────────────────────────────────────────────────────────
     routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
     if routed == "polvo_code_builder":
-        yield {"type": "progress", "step": "dev_workflow", "label": "A planear alterações no projecto…"}
+        yield {
+            "type": "progress",
+            "step": "dev_workflow",
+            "label": "A entender e produtificar o pedido…",
+        }
 
     yield {"type": "progress", "step": "specialist", "label": "A preparar resposta..."}
     try:

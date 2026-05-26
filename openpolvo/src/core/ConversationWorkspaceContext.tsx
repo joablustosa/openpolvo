@@ -48,9 +48,14 @@ import {
   applyDevStudioOpsFromMeta,
   devStudioApplyFailureMessage,
   messageIndicatesDevStudioInteraction,
+  patchAssistantDevStudioProjectId,
+  resolveDevStudioProjectForConversation,
   shouldApplyDevStudioFromMetadata,
-  restoreDevStudioProjectFromMessages,
 } from "@/lib/devStudioMetadata";
+import {
+  removeDevStudioConversationProject,
+  saveDevStudioConversationProject,
+} from "@/lib/devStudio/conversationProjectLink";
 import { collectDevStudioChatPayload } from "@/lib/devStudioChatPayload";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
@@ -113,6 +118,7 @@ export function ConversationWorkspaceProvider({
     devStudioProjectTitle,
     setDevStudioProject,
     setDevStudioPreviewOpen,
+    restartDevStudioPreview,
   } = useWorkspace();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
@@ -224,11 +230,60 @@ export function ConversationWorkspaceProvider({
             setLlmSelectValue(conv.default_model_provider);
           }
         }
-        // Restaurar projecto Dev Studio se a conversa já gerou ficheiros (project_id presente).
-        const restored = restoreDevStudioProjectFromMessages(msgs);
+        // Liga conversa ↔ repositório no disco; abre preview e arranca Vite (useDevStudioRuntime).
+        const restored = resolveDevStudioProjectForConversation(id, msgs);
+        const { isElectron, desktopPolvoCode } = await import("@/lib/desktopApi");
+        const { clearLastDevStudioUrl } = await import("@/lib/devStudioPreviewBus");
+        const { clearDevStudioCompileLog } = await import(
+          "@/lib/devStudio/compileLogBuffer"
+        );
+        const inElectron = isElectron();
+        const prevPath = devStudioWorkspacePath?.trim() ?? "";
+
         if (restored) {
-          setDevStudioProject(restored.workspacePath, restored.title);
-          setDevStudioPreviewOpen(true);
+          let canOpen = true;
+          if (inElectron) {
+            try {
+              const lr = await desktopPolvoCode.listDir({
+                workspacePath: restored.workspacePath,
+                relPath: "",
+              });
+              if (!lr.ok) {
+                canOpen = false;
+                setDevStudioNotice(
+                  "Projecto não encontrado no disco (pode ter sido movido). Use «Escolher pasta» no Estúdio.",
+                );
+              }
+            } catch {
+              // Se a verificação falhar, tenta abrir na mesma.
+            }
+          }
+          if (canOpen) {
+            const nextPath = restored.workspacePath.trim();
+            const pathChanged = !prevPath || prevPath !== nextPath;
+            if (inElectron) {
+              clearLastDevStudioUrl();
+              clearDevStudioCompileLog();
+              if (pathChanged && prevPath) {
+                await desktopPolvoCode.devStop();
+              }
+            }
+            setDevStudioProject(restored.workspacePath, restored.title);
+            setDevStudioPreviewOpen(true);
+            if (!pathChanged) {
+              restartDevStudioPreview();
+            }
+          }
+        } else if (prevPath) {
+          if (inElectron) {
+            try {
+              await desktopPolvoCode.devStop();
+            } catch {
+              /* ignore */
+            }
+          }
+          setDevStudioProject(null, null);
+          setDevStudioPreviewOpen(false);
         }
       } catch (e) {
         if (e instanceof SessionReloginRedirected) {
@@ -247,8 +302,10 @@ export function ConversationWorkspaceProvider({
       token,
       conversations,
       onSessionUnauthorized,
+      devStudioWorkspacePath,
       setDevStudioProject,
       setDevStudioPreviewOpen,
+      restartDevStudioPreview,
     ],
   );
 
@@ -264,6 +321,14 @@ export function ConversationWorkspaceProvider({
       setActiveConversationId(c.id);
       setMessages([]);
       setLlmSelectValue(c.default_model_provider ?? dm);
+      try {
+        const { isElectron, desktopPolvoCode } = await import("@/lib/desktopApi");
+        if (isElectron()) await desktopPolvoCode.devStop();
+      } catch {
+        /* ignore */
+      }
+      setDevStudioProject(null, null);
+      setDevStudioPreviewOpen(false);
       return c.id;
     } catch (e) {
       if (e instanceof SessionReloginRedirected) {
@@ -278,7 +343,14 @@ export function ConversationWorkspaceProvider({
       );
       return null;
     }
-  }, [token, llmSelectValue, refreshConversations, onSessionUnauthorized]);
+  }, [
+    token,
+    llmSelectValue,
+    refreshConversations,
+    onSessionUnauthorized,
+    setDevStudioProject,
+    setDevStudioPreviewOpen,
+  ]);
 
   const sendAuthenticatedMessage = useCallback(
     async (text: string) => {
@@ -413,6 +485,23 @@ export function ConversationWorkspaceProvider({
             if (!pr.applied && pr.error) {
               setError(pr.error);
             } else if (pr.applied) {
+              if (pr.workspacePath?.trim()) {
+                saveDevStudioConversationProject(
+                  cidFinal,
+                  pr.workspacePath,
+                  pr.title ?? devStudioProjectTitle,
+                );
+                const baseMsgs =
+                  finalMessages ??
+                  (await fetchMessages(token, cidFinal).catch(() => [] as MessageDTO[]));
+                setMessages(
+                  patchAssistantDevStudioProjectId(
+                    baseMsgs,
+                    pr.workspacePath,
+                    pr.title ?? devStudioProjectTitle,
+                  ),
+                );
+              }
               const line = [pr.notice, pr.error].filter(Boolean).join(" ");
               if (line) setDevStudioNotice(line);
             }
@@ -452,6 +541,7 @@ export function ConversationWorkspaceProvider({
       devStudioProjectTitle,
       setDevStudioProject,
       setDevStudioPreviewOpen,
+      restartDevStudioPreview,
       messages,
     ],
   );
@@ -471,13 +561,30 @@ export function ConversationWorkspaceProvider({
         }
         throw e;
       }
+      removeDevStudioConversationProject(id);
       if (activeConversationId === id) {
         setActiveConversationId(null);
         setMessages([]);
+        try {
+          const { isElectron, desktopPolvoCode } = await import("@/lib/desktopApi");
+          if (isElectron()) await desktopPolvoCode.devStop();
+        } catch {
+          /* ignore */
+        }
+        setDevStudioProject(null, null);
+        setDevStudioPreviewOpen(false);
       }
       await refreshConversations();
     },
-    [token, activeConversationId, refreshConversations, onSessionUnauthorized],
+    [
+      token,
+      activeConversationId,
+      refreshConversations,
+      onSessionUnauthorized,
+      setDevStudioProject,
+      setDevStudioPreviewOpen,
+      restartDevStudioPreview,
+    ],
   );
 
   const renameConversation = useCallback(
