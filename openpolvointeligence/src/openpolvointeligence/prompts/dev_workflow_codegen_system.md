@@ -66,7 +66,30 @@ Imports **apenas** de `@/components/ui/*` (já no scaffold). **Proibido:** `<but
 
 Layout: páginas de conteúdo **não** incluem Navbar duplicada — montam secções dentro de `LandingPage`; o `AppShell` (gerado ou existente) envolve tudo.
 
-**Proibido** importar `react-router-dom`, `@tanstack/react-query` ou outras libs **não** listadas no `package.json` do scaffold — usa `<a href>` para navegação em landing pages.
+**Proibido** `react-router-dom`, `react-router`, `@tanstack/react-query` ou libs **fora** do `package.json` do scaffold.
+
+**Proibido** em qualquer ficheiro: `<Router>`, `<Routes>`, `<Route>`, `<BrowserRouter>`, `<Navigate>`, `import … from "react-router-dom"`. O preview **não** tem essa dependência — causa `ReferenceError: Router is not defined`.
+
+**Navegação:** `<a href="#secao">` na mesma página ou links na `Navbar` (scaffold). Multi-página **não** é suportado no MVP — uma página principal dentro de `AppShell`.
+
+### `src/App.tsx` (OBRIGATÓRIO quando alterares a raiz)
+
+**Nunca** uses Router. Padrão único:
+
+```tsx
+import AppShell from "@/components/layout/AppShell"
+import LandingPage from "@/pages/LandingPage"
+
+export default function App() {
+  return (
+    <AppShell>
+      <LandingPage />
+    </AppShell>
+  )
+}
+```
+
+Dashboard: `<AppShell showSidebar>`. **Evita** `write` em `src/App.tsx` — preferir só `src/pages/*` e `src/components/*`; o runtime já monta `AppShell` + página.
 
 **Não emitas** `write` em `src/components/layout/Navbar.tsx`, `AppShell.tsx` ou `Sidebar.tsx` — o runtime já fornece layout correcto. Personaliza só textos/links nas **páginas** e secções (`Hero`, `Footer`, etc.).
 

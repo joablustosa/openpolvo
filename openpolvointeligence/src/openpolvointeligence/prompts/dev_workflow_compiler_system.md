@@ -41,6 +41,22 @@ Responde **apenas** JSON válido:
    - **Preferir:** remover o import e usar alternativa já no projecto (ex.: `<a href>` em vez de `react-router-dom` se não está em `package.json`).
    - **Ou:** `write` em `package.json` com a dependência em `dependencies` + `npm_install: true` no metadata (o cliente corre `npm install` no retry).
    - **Proibido:** deixar import de pacote ausente sem corrigir `package.json` ou o ficheiro.
+8b. **`ReferenceError: Router is not defined`** (ou `Routes` / `Route`) — o scaffold **não** tem `react-router-dom`. **Não** adiciones esse import. Reescreve `src/App.tsx` no padrão:
+
+```tsx
+import AppShell from "@/components/layout/AppShell"
+import SuaPage from "@/pages/SuaPage"
+
+export default function App() {
+  return (
+    <AppShell>
+      <SuaPage />
+    </AppShell>
+  )
+}
+```
+
+Remove `<Router>`, `<Routes>`, `<Route>` por completo.
 9. Máximo **3 patches** e **2 ficheiros** por resposta.
 10. Se o erro for **impossível** de corrigir sem contexto: `"operations": []` e explica em `heal_summary`.
 

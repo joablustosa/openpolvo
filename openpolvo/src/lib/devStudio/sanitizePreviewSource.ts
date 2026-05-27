@@ -2,6 +2,9 @@
  * Remove imports inválidos em projectos preview (ex.: react-router-dom sem estar no package.json).
  */
 
+import type { DevStudioOp } from "@/lib/devStudioMetadata";
+import { fixAppTsxIfRouterBroken, stripReactRouterJsx, usesRouterJsx } from "./routerJsxStrip";
+
 const FORBIDDEN_PACKAGES = [
   "react-router-dom",
   "react-router",
@@ -25,7 +28,7 @@ export function previewSourceHasForbiddenImports(content: string): boolean {
   return ANY_FORBIDDEN_RE.test(content);
 }
 
-/** Converte Link (react-router) em âncoras HTML; remove imports proibidos. */
+/** Converte Link (react-router) em âncoras HTML; remove imports e JSX de router. */
 export function sanitizePreviewTsx(content: string, filePath = ""): string {
   if (!content.trim()) return content;
   const isTsx =
@@ -52,10 +55,16 @@ export function sanitizePreviewTsx(content: string, filePath = ""): string {
   out = out.replace(/\sto='/g, " href='");
   out = out.replace(/\scomponent=\{[^}]+\}/g, "");
 
+  out = stripReactRouterJsx(out);
+  const norm = filePath.replace(/\\/g, "/").replace(/^\//, "");
+  if (norm === "src/App.tsx" || (!filePath && usesRouterJsx(out))) {
+    out = fixAppTsxIfRouterBroken(out);
+  }
+
   return out;
 }
 
-export function sanitizeDevStudioOps(ops: import("@/lib/devStudioMetadata").DevStudioOp[]) {
+export function sanitizeDevStudioOps(ops: DevStudioOp[]) {
   return ops.map((op) => {
     if (op.op !== "write" || !op.content) return op;
     const path = op.path.replace(/\\/g, "/");

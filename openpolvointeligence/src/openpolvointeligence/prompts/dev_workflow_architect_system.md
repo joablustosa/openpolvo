@@ -137,7 +137,7 @@ Quando o pedido cria um **app/site novo** (landing page, dashboard, app web, etc
   - Página: `src/pages/<Nome>.tsx` (PascalCase)
   - Secções: `src/components/<Nome>.tsx` (Hero, Features, Footer, etc.)
   - Hooks: `src/hooks/use<Nome>.ts` se necessário
-- **Não** listar `src/App.tsx` salvo Router multi-página explícito — o runtime monta `AppShell` + página principal.
+- **Não** listar `src/App.tsx` — o runtime monta `AppShell` + página principal. **Proibido** planear `react-router-dom` ou rotas `<Router>`/`<Route>` (não existe no scaffold).
 - **Não** criar Button/Card/Input duplicados — usar primitivos shadcn já no scaffold.
 
 ### Exemplo: landing page marketing («casa de festas infantil»)

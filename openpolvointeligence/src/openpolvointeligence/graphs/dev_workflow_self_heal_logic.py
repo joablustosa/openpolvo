@@ -13,6 +13,9 @@ from openpolvointeligence.graphs.dev_workflow_codegen_logic import resolve_codeg
 from openpolvointeligence.graphs.layout_scaffold_heal_logic import (
     build_layout_scaffold_heal_ops,
 )
+from openpolvointeligence.graphs.preview_source_sanitize import (
+    build_router_reference_heal_ops,
+)
 from openpolvointeligence.graphs.dev_workflow_compiler_logic import (
     build_self_heal_human_message,
     merge_compile_sources,
@@ -81,6 +84,34 @@ async def run_self_heal(
     """
     Invoca correcção determinística de layout (se aplicável) ou LLM Self-Healing.
     """
+    router_ops = build_router_reference_heal_ops(compile_log, project_files)
+    if router_ops:
+        valid, verr = validate_polvo_code_operations(router_ops)
+        updated_files = apply_heal_to_project_files(project_files, valid)
+        meta = build_polvo_code_ops_metadata(
+            bool(valid),
+            valid,
+            verr,
+            create_project=False,
+            npm_install=False,
+        )
+        meta["dev_workflow"] = {
+            "self_heal": True,
+            "root_cause": "router_jsx",
+            "heal_summary": "App.tsx corrigido (AppShell sem react-router).",
+        }
+        return {
+            "polvo_code_ops": valid,
+            "pending_writes": [
+                {"op": o["op"], "path": o["path"], "content": o.get("content")}
+                for o in valid
+            ],
+            "project_files": updated_files,
+            "heal_summary": meta["dev_workflow"]["heal_summary"],
+            "metadata": meta,
+            "heal_errors": verr,
+        }
+
     deterministic = build_layout_scaffold_heal_ops(compile_log)
     if deterministic:
         valid, verr = validate_polvo_code_operations(deterministic)

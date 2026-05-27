@@ -66,21 +66,7 @@ export function SitePanel() {
     else if (w) w.src = src;
   }, [src]);
 
-  useEffect(() => {
-    if (!isElectron) return;
-    const webview = webviewRef.current;
-    if (!webview) return;
-
-    // Força o webview a ocupar 100% do viewport.
-    // O sizing "em px" pode ficar curto em alguns layouts (grid/flex + redimensionamento),
-    // causando a faixa preta (conteúdo cortado).
-    webview.style.display = "block";
-    webview.style.position = "absolute";
-    webview.style.inset = "0";
-    webview.style.width = "100%";
-    webview.style.height = "100%";
-  }, [isElectron, src]);
-
+  // Sincronização do SRC caso mude externamente
   useEffect(() => {
     if (!isElectron || !src) return;
     const el = webviewRef.current;
@@ -163,7 +149,6 @@ export function SitePanel() {
   return (
     <section
       className={cn(
-        // Flex é mais previsível que grid para o <webview> (Electron) ocupar 100% da altura.
         "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-muted/30",
       )}
       aria-label="Sistema integrado"
@@ -196,8 +181,9 @@ export function SitePanel() {
         </p>
       ) : null}
 
+      {/* AJUSTE AQUI: Garante que o container se comporta perfeitamente como pai do absoluto */}
       <div
-        className="relative flex-1 min-h-0 min-w-0 overflow-hidden bg-background"
+        className="relative flex-1 h-full min-h-0 min-w-0 overflow-hidden bg-background"
       >
         {isElectron ? (
           <webview
@@ -208,6 +194,9 @@ export function SitePanel() {
             src={src}
             partition="persist:smartagent"
             allowpopups={true}
+            // AJUSTE AQUI: Força os estilos diretamente via classes Tailwind no elemento do Electron
+            className="absolute inset-0 block h-full w-full"
+            style={{ width: "100%", height: "100%" }}
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 p-6 text-center">

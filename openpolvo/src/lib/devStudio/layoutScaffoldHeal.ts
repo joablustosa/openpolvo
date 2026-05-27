@@ -11,7 +11,7 @@ export const LAYOUT_SCAFFOLD_PATHS = [
 ] as const;
 
 const LAYOUT_IMPORT_ERROR_RE =
-  /Failed to resolve import|react-router-dom|react-router|\.\/Sidebar|\.\/Navbar|AppShell\.tsx/i;
+  /Failed to resolve import|react-router-dom|react-router|ReferenceError:\s*Router\s+is not defined|\.\/Sidebar|\.\/Navbar|AppShell\.tsx/i;
 
 /** Restaura ficheiros de layout do scaffold (sem react-router-dom, AppShell sem import Sidebar). */
 export function buildLayoutScaffoldHealOps(

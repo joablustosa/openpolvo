@@ -15,7 +15,7 @@ LAYOUT_SCAFFOLD_PATHS = (
 )
 
 _LAYOUT_IMPORT_ERROR_RE = re.compile(
-    r"Failed to resolve import|react-router-dom|react-router|\./Sidebar|\./Navbar|AppShell\.tsx",
+    r"Failed to resolve import|react-router-dom|react-router|ReferenceError:\s*Router\s+is not defined|\./Sidebar|\./Navbar|AppShell\.tsx",
     re.I,
 )
 
