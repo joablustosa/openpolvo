@@ -8,9 +8,17 @@ from openpolvointeligence.graphs.preview_source_sanitize import sanitize_write_o
 from openpolvointeligence.graphs.layout_scaffold_heal_logic import (
     LAYOUT_SCAFFOLD_PATHS,
 )
+from openpolvointeligence.graphs.shadcn_scaffold_exports import rewrite_shadcn_imports
 
 MAX_FULL_WRITE_LINES = 80
 MAX_PATCHES_PER_FILE = 12
+
+
+def _fix_shadcn_imports_in_content(path: str, content: str) -> str:
+    if not path.endswith((".tsx", ".jsx", ".ts", ".js")):
+        return content
+    fixed, _changed = rewrite_shadcn_imports(content)
+    return fixed
 
 
 def _norm_path(p: str) -> str:
@@ -189,6 +197,7 @@ def resolve_codegen_operations(
             errors.extend(patch_errs)
             if patched is None:
                 continue
+            patched = _fix_shadcn_imports_in_content(path, patched)
             resolved.append(
                 {
                     "op": "write",
@@ -203,6 +212,7 @@ def resolve_codegen_operations(
                 path,
                 str(op.get("content") if op.get("content") is not None else ""),
             )
+            content = _fix_shadcn_imports_in_content(path, content)
             exists = path in project_files and bool(project_files.get(path))
             if (
                 exists

@@ -72,10 +72,10 @@ class Settings(BaseSettings):
         default=3,
         validation_alias="DEV_WORKFLOW_MAX_REVIEW_ROUNDS",
     )
-    # Build sandbox real (tsc/vite) — portão anti-bug. Desligado por defeito:
-    # degrade graciosamente quando não há Node/npm ou o flag está off.
+    # Build sandbox real (tsc/vite) — portão anti-bug. Ligado por defeito; degrada
+    # graciosamente quando não há Node/npm ou DEV_WORKFLOW_BUILD_SANDBOX_ENABLED=0.
     dev_workflow_build_sandbox_enabled: bool = Field(
-        default=False,
+        default=True,
         validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_ENABLED",
     )
     dev_workflow_build_sandbox_tool: str = Field(

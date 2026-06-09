@@ -75,6 +75,8 @@ def parse_compile_output(
                 "module not found",
                 "failed to resolve",
                 "unexpected token",
+                "does not provide an export named",
+                "uncaught syntaxerror",
             )
         ):
             continue

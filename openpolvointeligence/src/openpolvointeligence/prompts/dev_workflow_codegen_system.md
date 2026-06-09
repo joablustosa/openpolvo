@@ -57,7 +57,7 @@ Imports **apenas** de `@/components/ui/*` (já no scaffold). **Proibido:** `<but
 |-----------|-----|
 | `Button` | CTAs, submits, acções |
 | `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | Secções, features, pricing |
-| `Input`, `Label` | Formulários |
+| `Input`, `Label` | Formulários — **imports separados** (ver tabela abaixo) |
 | `Badge` | Tags, status |
 | `Dialog`, `DialogTrigger`, `DialogContent`, … | Modais |
 | `Table`, `TableHeader`, `TableBody`, `TableRow`, `TableCell` | Dados tabulares |
@@ -65,6 +65,22 @@ Imports **apenas** de `@/components/ui/*` (já no scaffold). **Proibido:** `<but
 | `Separator` | Divisores |
 
 Layout: páginas de conteúdo **não** incluem Navbar duplicada — montam secções dentro de `LandingPage`; o `AppShell` (gerado ou existente) envolve tudo.
+
+### Imports shadcn — um ficheiro ui por primitivo (OBRIGATÓRIO)
+
+Cada símbolo vem do **seu** módulo. **Proibido** agrupar símbolos de ficheiros diferentes num só import.
+
+| Símbolo(s) | Import correcto |
+|------------|-----------------|
+| `Input` | `import { Input } from "@/components/ui/input"` |
+| `Label` | `import { Label } from "@/components/ui/label"` |
+| `Button` | `import { Button } from "@/components/ui/button"` |
+| `Badge` | `import { Badge } from "@/components/ui/badge"` |
+| `Card`, `CardHeader`, … | `import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"` |
+| `Select`, `SelectTrigger`, … | `import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select"` |
+
+❌ **ERRADO:** `import { Input, Label } from "@/components/ui/input"` — `Label` não existe em `input.tsx`.  
+✅ **CORRECTO:** duas linhas — `input` + `label`.
 
 **Stack full-stack (scaffold):** Vite + React + react-router-dom + Hono + Drizzle + PGlite.
 
@@ -183,7 +199,17 @@ Só quando: path em `files_to_create`; ficheiro não existe; novo ≤ **120 linh
 }
 ```
 
-### ✅ CORRECTO — formulário com Input shadcn
+### ✅ CORRECTO — formulário com Input + Label shadcn (imports separados)
+
+```json
+{
+  "op": "write",
+  "path": "src/components/ContactForm.tsx",
+  "content": "import { Button } from \"@/components/ui/button\"\nimport { Input } from \"@/components/ui/input\"\nimport { Label } from \"@/components/ui/label\"\n\nexport function ContactForm() {\n  return (\n    <form className=\"space-y-4\">\n      <Label htmlFor=\"email\">E-mail</Label>\n      <Input id=\"email\" name=\"email\" type=\"email\" />\n      <Button type=\"submit\">Enviar</Button>\n    </form>\n  )\n}\n"
+}
+```
+
+### ✅ CORRECTO — patch em formulário existente
 
 ```json
 {

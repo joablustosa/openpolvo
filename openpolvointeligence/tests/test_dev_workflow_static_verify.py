@@ -55,6 +55,18 @@ def test_static_verify_ok_clean_project():
     assert result["ok"] is True
 
 
+def test_static_verify_detects_wrong_shadcn_import():
+    files = {
+        "src/components/ContactForm.tsx": (
+            'import { Input, Label } from "@/components/ui/input"\n'
+            "export function ContactForm(){return null}\n"
+        ),
+    }
+    result = run_static_verify(files)
+    assert result["ok"] is False
+    assert any("Label" in e for e in result["errors"])
+
+
 def test_static_verify_server_paths():
     files = {
         "server/index.ts": 'import { Hono } from "hono";\nexport const app = new Hono();\n',

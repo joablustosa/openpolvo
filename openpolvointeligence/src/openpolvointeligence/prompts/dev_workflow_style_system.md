@@ -18,7 +18,7 @@ Guia visual **obrigatório** para todo o JSX/CSS gerado. O resultado deve parece
 
 ## Componentes shadcn (reutiliza, não recries)
 
-`Button`, `Card`, `Badge`, `Input`, `Label`, `Textarea`, `Select`, `Tabs`, `Dialog`, `DropdownMenu`, `Tooltip`, `Avatar`, `Separator`, `ScrollArea`, `Table`, `Chart`. Importa de `@/components/ui/*`. **Proibido** `<button>`/`<input>` HTML cru ou divs a imitar Card.
+`Button`, `Card`, `Badge`, `Input`, `Label`, `Textarea`, `Select`, `Tabs`, `Dialog`, `DropdownMenu`, `Tooltip`, `Avatar`, `Separator`, `ScrollArea`, `Table`, `Chart`. Importa de `@/components/ui/*` — **cada primitivo do seu ficheiro** (`Label` de `label`, `Input` de `input`; nunca `Label` de `input`). **Proibido** `<button>`/`<input>` HTML cru ou divs a imitar Card.
 
 ## Layout e acessibilidade
 

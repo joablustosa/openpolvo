@@ -76,6 +76,13 @@ async def test_run_build_sandbox_disabled_degrades_gracefully():
     assert result["ok"] is True
 
 
+async def test_run_build_sandbox_default_enabled_without_node_degrades():
+    settings = Settings(openai_api_key=None)
+    # Sem package.json completo ou node — deve degradar ou falhar graciosamente.
+    result = await run_build_sandbox(settings, {"src/App.tsx": "export default 1;"})
+    assert result["ok"] is True or result.get("ran") is False
+
+
 async def test_run_build_sandbox_empty_files_degrades():
     settings = Settings(dev_workflow_build_sandbox_enabled=True, openai_api_key=None)
     result = await run_build_sandbox(settings, {})

@@ -13,6 +13,9 @@ from openpolvointeligence.graphs.dev_workflow_codegen_logic import resolve_codeg
 from openpolvointeligence.graphs.layout_scaffold_heal_logic import (
     build_layout_scaffold_heal_ops,
 )
+from openpolvointeligence.graphs.shadcn_scaffold_exports import (
+    build_shadcn_import_heal_ops,
+)
 from openpolvointeligence.graphs.preview_source_sanitize import (
     build_router_reference_heal_ops,
 )
@@ -108,6 +111,33 @@ async def run_self_heal(
             "self_heal": True,
             "root_cause": "router_jsx",
             "heal_summary": "App.tsx corrigido (AppShell sem react-router).",
+        }
+        return {
+            "polvo_code_ops": valid,
+            "pending_writes": [
+                {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
+            ],
+            "project_files": updated_files,
+            "heal_summary": meta["dev_workflow"]["heal_summary"],
+            "metadata": meta,
+            "heal_errors": verr,
+        }
+
+    shadcn_ops = build_shadcn_import_heal_ops(project_files, compile_log)
+    if shadcn_ops:
+        valid, verr = validate_polvo_code_operations(shadcn_ops)
+        updated_files = apply_heal_to_project_files(project_files, valid)
+        meta = build_polvo_code_ops_metadata(
+            bool(valid),
+            valid,
+            verr,
+            create_project=False,
+            npm_install=False,
+        )
+        meta["dev_workflow"] = {
+            "self_heal": True,
+            "root_cause": "shadcn_import",
+            "heal_summary": "Imports shadcn corrigidos (símbolos no módulo ui correcto).",
         }
         return {
             "polvo_code_ops": valid,

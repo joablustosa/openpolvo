@@ -14,6 +14,7 @@ export function detectCompileErrors(log: string): boolean {
 
 export function detectRuntimePreviewErrors(log: string): boolean {
   if (!log.trim()) return false;
+  if (/\bdoes not provide an export named\b/i.test(log)) return true;
   if (/\bUncaught\s+\w+Error\b/i.test(log)) return true;
   if (/\bReferenceError:\s*\w+\s+is not defined\b/i.test(log)) return true;
   if (/\bTypeError:\s+/i.test(log)) return true;

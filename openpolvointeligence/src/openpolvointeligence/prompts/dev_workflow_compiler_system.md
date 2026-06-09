@@ -41,7 +41,8 @@ Responde **apenas** JSON válido:
    - **Preferir:** corrigir o caminho do import para um ficheiro/pacote já no scaffold (`react`, `react-dom`, `react-router-dom`, `lucide-react`, `hono`, `drizzle-orm`, `@electric-sql/pglite`, `@/components/ui/*`).
    - **Ou:** `write` em `package.json` com a dependência em `dependencies` + `npm_install: true` no metadata (o cliente corre `npm install` no retry).
    - **Proibido:** deixar import de pacote ausente sem corrigir `package.json` ou o ficheiro.
-8b. **`ReferenceError: Router is not defined`** (ou `Routes` / `Route`) — `react-router-dom` **faz parte** do scaffold. **Não** o removas: adiciona o import em falta. Padrão: `BrowserRouter` envolve a app no `src/main.tsx` e `src/App.tsx` declara as rotas:
+8a. **`does not provide an export named 'Label'`** (ou outro símbolo) — separa imports shadcn: `Label` de `@/components/ui/label`, `Input` de `@/components/ui/input`, `Button` de `@/components/ui/button`. Nunca agrupes primitivos de ficheiros ui diferentes.
+8b. **`ReferenceError: Router is not defined`** (ou `Routes` / `Route`) — `react-router-dom` **faz parte** do scaffold.
 
 ```tsx
 import { Routes, Route } from "react-router-dom"

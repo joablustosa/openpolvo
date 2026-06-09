@@ -32,9 +32,15 @@ const fs = require("fs");
 const crypto = require("crypto");
 const logger = require("./logger.cjs");
 
-// Windows: alguns drivers/GPU fazem o Chromium sair com ecrã branco ou crash (4294967295).
-// PowerShell: $env:OPEN_POLVO_DISABLE_GPU="1"; npm run dev
-if (process.platform === "win32" && process.env.OPEN_POLVO_DISABLE_GPU === "1") {
+// Windows: muitos drivers/GPU fazem o Chromium pintar ecrã preto/branco ou crashar
+// (exit 4294967295). Por isso desligamos a aceleração de hardware por defeito no
+// Windows. Quem tiver GPU/driver estável pode reactivar:
+//   PowerShell: $env:OPEN_POLVO_ENABLE_GPU="1"; npm run dev
+// (OPEN_POLVO_DISABLE_GPU="1" continua a forçar o desligar em qualquer plataforma.)
+const wantsDisableGpu =
+  process.env.OPEN_POLVO_DISABLE_GPU === "1" ||
+  (process.platform === "win32" && process.env.OPEN_POLVO_ENABLE_GPU !== "1");
+if (wantsDisableGpu) {
   try {
     app.disableHardwareAcceleration();
   } catch {

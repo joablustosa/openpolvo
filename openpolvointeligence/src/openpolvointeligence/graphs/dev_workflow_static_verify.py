@@ -8,6 +8,9 @@ from typing import Any
 from openpolvointeligence.graphs.preview_source_sanitize import (
     preview_source_has_forbidden_imports,
 )
+from openpolvointeligence.graphs.shadcn_scaffold_exports import (
+    validate_shadcn_named_imports,
+)
 
 _IMPORT_RE = re.compile(
     r"""import\s+(?:\{[^}]*\}|[\w\s,*]+)\s+from\s+['"]([^'"]+)['"]""",
@@ -110,6 +113,11 @@ def run_static_verify(
                 {"path": path, "line": 1, "column": None, "code": "import", "message": msg},
             )
 
+        for shadcn_err in validate_shadcn_named_imports(path, body):
+            msg = str(shadcn_err.get("message") or "")
+            errors.append(f"{msg} em {path}")
+            digest.append(shadcn_err)
+
         for m in _IMPORT_RE.finditer(body):
             spec = m.group(1)
             if spec in _FORBIDDEN_PACKAGES:
@@ -118,6 +126,8 @@ def run_static_verify(
                 digest.append(
                     {"path": path, "line": 1, "column": None, "code": "import", "message": msg},
                 )
+            elif spec.startswith("@/components/ui/"):
+                continue
             elif spec.startswith("@/") or spec.startswith("."):
                 if not _resolve_local_import(spec, merged):
                     msg = f"Import não resolvido '{spec}' em {path}"
