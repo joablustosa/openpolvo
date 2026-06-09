@@ -250,7 +250,9 @@ class PgVectorStore:
     async def delete_project(self, project_id: str) -> None:
         async with await self._connect() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("DELETE FROM code_rag_chunks WHERE project_id = %s", (project_id,))
+                await cur.execute(
+                    "DELETE FROM code_rag_chunks WHERE project_id = %s", (project_id,)
+                )
                 await conn.commit()
 
 

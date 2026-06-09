@@ -71,7 +71,7 @@ export function FinExpenseBarChart({ rows, currency }: Props) {
               interval={0}
             />
             <Tooltip
-              formatter={(value: number) => [`${Number(value).toFixed(2)} ${currency}`, "Total"]}
+              formatter={(value) => [`${Number(value).toFixed(2)} ${currency}`, "Total"]}
               labelFormatter={(_, payload) =>
                 String((payload[0]?.payload as { fullName?: string })?.fullName ?? "")
               }

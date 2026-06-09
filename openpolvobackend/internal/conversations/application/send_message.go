@@ -15,11 +15,11 @@ import (
 )
 
 type SendMessageCommand struct {
-	UserID         uuid.UUID
-	ConversationID uuid.UUID
-	Text           string
-	ModelProvider  domain.ModelProvider
-	LLMProfileID   *uuid.UUID
+	UserID             uuid.UUID
+	ConversationID     uuid.UUID
+	Text               string
+	ModelProvider      domain.ModelProvider
+	LLMProfileID       *uuid.UUID
 	SandboxProjectID   string
 	ProjectFileTree    []string
 	ProjectFiles       map[string]string
@@ -46,6 +46,8 @@ type SendMessage struct {
 	MetaForReply func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext
 	// Opcional: tarefas agendadas do utilizador para o agente sugerir ou criar automações.
 	ScheduledTasksForReply func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief
+	// Opcional: persiste projetos de dev vinculados à conversa quando o metadata indica trabalho de dev.
+	DevProjects convports.DevProjectRecorder
 }
 
 // LLMReplyConfigurator aplica chaves/modelos do SQLite ao ReplyInput (opcional).
@@ -85,9 +87,9 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 		return nil, err
 	}
 	repIn := agentports.ReplyInput{
-		Messages:         hist,
-		ModelProvider:    model,
-		ConversationID:   conv.ID.String(),
+		Messages:       hist,
+		ModelProvider:  model,
+		ConversationID: conv.ID.String(),
 	}
 	if s.AgentMemory != nil {
 		if row, err := s.AgentMemory.Get(ctx, conv.ID); err == nil {
@@ -171,6 +173,7 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 		CreatedAt:      time.Now().UTC(),
 	})
 	ApplyAgentMemoryPatch(ctx, s.AgentMemory, conv.ID, meta)
+	recordDevProject(ctx, s.DevProjects, cmd.UserID, conv.ID, assistantText, meta)
 	_ = s.Conversations.TouchUpdatedAt(ctx, conv.ID, time.Now().UTC())
 	if conv.Title == nil || strings.TrimSpace(*conv.Title) == "" {
 		title := text

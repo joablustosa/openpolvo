@@ -14,10 +14,10 @@ import {
   previewConsoleLogsFromCompileLog,
 } from "@/lib/devStudio/compileLogBuffer";
 import { detectPreviewErrors } from "@/lib/devStudio/previewErrorDetect";
-import { collectProjectFilesForHeal } from "@/lib/devStudio/collectProjectFilesForHeal";
 import { requestDevStudioSelfHeal } from "@/lib/devStudioSelfHealApi";
 import { isElectron } from "@/lib/desktopApi";
 import {
+  applyOpsInWebContainerWithSelfHeal,
   getWebContainerPreviewService,
   isWebContainerWorkspace,
 } from "@/lib/webcontainer";
@@ -98,7 +98,7 @@ export async function runPreviewErrorAutoHeal(
 
   try {
     const compileLog = getLog().trim().slice(-12_000);
-    if (useWebContainerWorkspace(wp)) {
+    if (isWebContainerWorkspace(wp)) {
       const result = await runWebContainerAutoHeal(compileLog);
       if (result.ok) {
         lastHealAt = Date.now();
@@ -144,8 +144,6 @@ export async function runPreviewErrorAutoHeal(
 async function runWebContainerAutoHeal(
   compileLog: string,
 ): Promise<{ ok: boolean; summary?: string; error?: string }> {
-  const { applyOpsInWebContainerWithSelfHeal, getWebContainerPreviewService } =
-    await import("@/lib/webcontainer");
   const svc = getWebContainerPreviewService();
   const heal = await requestDevStudioSelfHeal({
     compile_log: compileLog,
@@ -154,6 +152,7 @@ async function runWebContainerAutoHeal(
     user_prompt: AUTO_USER_PROMPT,
   });
   if (!heal.heal_ops.length) {
+    dispatchDevStudioApplyEnd(false);
     return { ok: false, error: heal.assistant_text || "Sem correcções geradas." };
   }
   await applyOpsInWebContainerWithSelfHeal({
@@ -161,6 +160,7 @@ async function runWebContainerAutoHeal(
     npmInstall: false,
     userPrompt: AUTO_USER_PROMPT,
   });
+  clearDevStudioCompileLog();
   dispatchDevStudioApplyEnd(true);
   return { ok: true, summary: heal.assistant_text || "Preview corrigido (WebContainer)." };
 }

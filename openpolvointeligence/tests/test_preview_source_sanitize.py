@@ -7,22 +7,21 @@ from openpolvointeligence.graphs.preview_source_sanitize import (
 )
 
 
-def test_sanitize_removes_react_router_import():
-    raw = '''import { Link } from "react-router-dom"
+def test_sanitize_keeps_react_router_import():
+    raw = """import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 
 export default function Navbar() {
   return <Link to="/">Home</Link>
 }
-'''
+"""
     out = sanitize_preview_tsx(raw, "src/components/layout/Navbar.tsx")
-    assert "react-router-dom" not in out
-    assert "<a" in out
-    assert "href=" in out
+    assert "react-router-dom" in out
+    assert "<Link" in out
 
 
-def test_sanitize_app_tsx_router_without_import():
-    raw = '''import LandingPage from "@/pages/LandingPage"
+def test_sanitize_app_tsx_router_without_import_fixes():
+    raw = """import LandingPage from "@/pages/LandingPage"
 
 export default function App() {
   return (
@@ -33,13 +32,11 @@ export default function App() {
     </Router>
   )
 }
-'''
+"""
     out = sanitize_preview_tsx(raw, "src/App.tsx")
-    assert "Router" not in out
-    assert "Routes" not in out
-    assert "Route" not in out
+    assert "react-router-dom" in out
     assert "AppShell" in out
-    assert "<LandingPage />" in out
+    assert "<LandingPage />" in out or "LandingPage" in out
 
 
 def test_build_router_reference_heal_ops():
@@ -48,7 +45,7 @@ def test_build_router_reference_heal_ops():
         "src/App.tsx": (
             'import LandingPage from "@/pages/LandingPage"\n'
             "export default function App() {\n"
-            "  return <Router><Routes><Route path=\"/\" element={<LandingPage />} /></Routes></Router>;\n"
+            '  return <Router><Routes><Route path="/" element={<LandingPage />} /></Routes></Router>;\n'
             "}\n"
         ),
         "src/pages/LandingPage.tsx": "export default function LandingPage() { return null }\n",
@@ -58,18 +55,21 @@ def test_build_router_reference_heal_ops():
     assert ops[0]["path"] == "src/App.tsx"
     body = ops[0]["content"]
     assert "AppShell" in body
-    assert "Router" not in body
+    assert "react-router-dom" in body
 
 
-def test_forbidden_detected():
-    assert preview_source_has_forbidden_imports('import { Link } from "react-router-dom"')
+def test_forbidden_detected_next():
+    assert preview_source_has_forbidden_imports('import Link from "next/link"')
 
 
-def test_strip_router_keeps_element():
-    raw = "<Router><Route path=\"/\" element={<Foo />} /></Router>"
+def test_forbidden_not_react_router():
+    assert not preview_source_has_forbidden_imports('import { Link } from "react-router-dom"')
+
+
+def test_strip_router_is_noop():
+    raw = '<Router><Route path="/" element={<Foo />} /></Router>'
     out = strip_react_router_jsx(raw)
-    assert "<Foo />" in out
-    assert "Router" not in out
+    assert out == raw
 
 
 def test_fix_app_rebuilds_from_pages():
@@ -78,3 +78,4 @@ def test_fix_app_rebuilds_from_pages():
     fixed = fix_app_tsx_if_router_broken(app, files)
     assert "HomePage" in fixed
     assert "AppShell" in fixed
+    assert "react-router-dom" in fixed

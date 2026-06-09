@@ -13,7 +13,9 @@ class MessagePart(BaseModel):
 class ReplyRequest(BaseModel):
     messages: list[MessagePart]
     model_provider: str = Field(default="openai", description="openai | google")
-    openai_api_key: str | None = Field(default=None, description="Override por pedido (API Go / SQLite local)")
+    openai_api_key: str | None = Field(
+        default=None, description="Override por pedido (API Go / SQLite local)"
+    )
     google_api_key: str | None = Field(default=None, description="Override por pedido")
     openai_model: str | None = Field(default=None, description="Override do modelo OpenAI")
     google_model: str | None = Field(default=None, description="Override do modelo Gemini")
@@ -83,6 +85,10 @@ class DevStudioSelfHealRequest(BaseModel):
     google_api_key: str | None = None
     openai_model: str | None = None
     google_model: str | None = None
+    conversation_id: str | None = Field(
+        default=None,
+        description="ID estável da conversa — chave do RAG de memória de erros.",
+    )
     user_prompt: str | None = Field(
         default=None,
         description="Pedido original do utilizador (contexto mínimo para correcção).",

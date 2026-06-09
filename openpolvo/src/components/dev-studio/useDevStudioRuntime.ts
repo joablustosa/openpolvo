@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { desktopPolvoCode, isElectron, type PolvoCodeEvent } from "@/lib/desktopApi";
+import { isElectron, type PolvoCodeEvent } from "@/lib/desktopApi";
 import {
   DEV_STUDIO_APPLY_END,
   DEV_STUDIO_APPLY_START,
@@ -13,7 +13,15 @@ import {
   isWebContainerSupported,
   isWebContainerWorkspace,
 } from "@/lib/webcontainer";
-import { devStudioHasCompileErrors } from "@/lib/devStudio/compileLogBuffer";
+import {
+  appendDevStudioCompileLog,
+  devStudioHasCompileErrors,
+  devStudioHasPreviewErrors,
+} from "@/lib/devStudio/compileLogBuffer";
+import {
+  schedulePreviewAutoHeal,
+} from "@/lib/devStudio/previewAutoHeal";
+import { installPreviewConsoleBridge } from "@/lib/devStudio/previewConsoleBridge";
 import {
   devPreviewStatusAfterStart,
   ensureElectronDevPreview,
@@ -55,6 +63,8 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
   const [lastLogLine, setLastLogLine] = useState<string | null>(null);
   const previewRunId = useRef(0);
   const useWebContainer = isWebContainerWorkspace(workspacePath);
+  const workspacePathRef = useRef(workspacePath);
+  workspacePathRef.current = workspacePath;
 
   const bumpPreview = useCallback(() => {
     setPreviewReloadKey((k) => k + 1);
@@ -89,7 +99,10 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
       setStatusLine("A reiniciar preview no browser…");
       try {
         const svc = getWebContainerPreviewService();
-        const url = await svc.runProject({ ops: [], npmInstall: false });
+        const url = await svc.runProject({
+          ops: [],
+          npmInstall: !svc.hasInstalledOnce(),
+        });
         if (runId !== previewRunId.current) return;
         applyDevUrl(url);
       } catch (e) {
@@ -129,7 +142,15 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
     return svc.subscribe((ev) => {
       if (ev.type === "log") {
         const line = ev.line.trim();
-        if (line) setLastLogLine(line.slice(-200));
+        if (line) {
+          setLastLogLine(line.slice(-200));
+          // Espelha no buffer global para que o auto-heal (que lê esse buffer)
+          // detecte erros de build/runtime do WebContainer.
+          appendDevStudioCompileLog(line);
+          if (devStudioHasPreviewErrors()) {
+            schedulePreviewAutoHeal(workspacePathRef.current);
+          }
+        }
       } else if (ev.type === "phase") {
         const p = ev.phase;
         if (p === "installing" || p === "mounting") {
@@ -160,6 +181,9 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
         if (/npm install/i.test(ev.line)) {
           setPhase("installing");
           setStatusLine(phaseLabel("installing"));
+        }
+        if (devStudioHasPreviewErrors()) {
+          schedulePreviewAutoHeal(workspacePathRef.current);
         }
       } else if (ev.type === "url" && ev.url) {
         applyDevUrl(ev.url);
@@ -209,6 +233,11 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
     };
   }, [applyDevUrl]);
 
+  // Ponte do console da iframe (WebContainer) → buffer de logs + auto-heal.
+  useEffect(() => {
+    return installPreviewConsoleBridge(() => workspacePathRef.current);
+  }, []);
+
   useEffect(() => {
     if (!workspacePath.trim()) {
       setDevUrl("");
@@ -218,8 +247,12 @@ export function useDevStudioRuntime(workspacePath: string, previewGeneration: nu
     }
     if (useWebContainer) {
       const svc = getWebContainerPreviewService();
-      if (svc.getPreviewUrl()) {
-        applyDevUrl(svc.getPreviewUrl());
+      const existing = svc.getPreviewUrl();
+      if (existing) {
+        applyDevUrl(existing);
+      } else if (svc.hasVirtualFiles()) {
+        // Conversa restaurada com projecto, mas sem preview a correr → arranca.
+        void startPreview();
       }
       return;
     }

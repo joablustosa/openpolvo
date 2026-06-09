@@ -27,7 +27,9 @@ _HEADERS = {
 def _extract_text(html: str, max_chars: int = 8000) -> str:
     """Extrai texto legível de HTML sem dependência de BS4."""
     # Remove scripts, estilos e comentários.
-    html = re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(
+        r"<(script|style)[^>]*>.*?</(script|style)>", " ", html, flags=re.DOTALL | re.IGNORECASE
+    )
     html = re.sub(r"<!--.*?-->", " ", html, flags=re.DOTALL)
     # Remove todas as tags restantes.
     text = re.sub(r"<[^>]+>", " ", html)
@@ -115,13 +117,18 @@ Cria a postagem mais relevante e envolvente possível."""
         "title": str(data.get("title", "Novidade em destaque")).strip(),
         "description": str(data.get("description", "Confira as últimas tendências!")).strip(),
         "hashtags": [str(h).strip() for h in (data.get("hashtags") or []) if str(h).strip()],
-        "image_prompt": str(data.get("image_prompt", "modern digital marketing concept, vibrant colors, professional")).strip(),
+        "image_prompt": str(
+            data.get(
+                "image_prompt", "modern digital marketing concept, vibrant colors, professional"
+            )
+        ).strip(),
         "source_url": str(data.get("source_url", "")).strip(),
         "source_title": str(data.get("source_title", "")).strip(),
     }
 
 
 # ─── Geração de imagem DALL-E ─────────────────────────────────────────────────
+
 
 async def generate_image_dalle(settings: Settings, prompt: str) -> str:
     """Gera imagem via DALL-E 3 e devolve a URL pública (válida ~1h)."""
@@ -132,7 +139,11 @@ async def generate_image_dalle(settings: Settings, prompt: str) -> str:
         from openai import AsyncOpenAI  # noqa: PLC0415
 
         client = AsyncOpenAI(api_key=key)
-        safe_prompt = prompt[:900] + " No text, no words, no letters in the image." if len(prompt) > 800 else prompt + " No text, no words, no letters in the image."
+        safe_prompt = (
+            prompt[:900] + " No text, no words, no letters in the image."
+            if len(prompt) > 800
+            else prompt + " No text, no words, no letters in the image."
+        )
         resp = await client.images.generate(
             model="dall-e-3",
             prompt=safe_prompt,
@@ -148,6 +159,7 @@ async def generate_image_dalle(settings: Settings, prompt: str) -> str:
 
 
 # ─── Orquestrador principal ───────────────────────────────────────────────────
+
 
 async def generate_social_post(
     settings: Settings,

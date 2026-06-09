@@ -73,10 +73,68 @@ export class WebContainerPreviewService {
   private listeners = new Set<Listener>();
   private serverReadyUnsub: (() => void) | null = null;
   private compileLogLines: string[] = [];
+  /** Conversa activa cujo projecto virtual está montado. */
+  private conversationId = "";
+  /** Estado dos projectos virtuais por conversa (isolamento). */
+  private savedStates = new Map<string, VirtualProjectFiles>();
+  /** `npm install` já correu nesta instância de container (node_modules partilhado). */
+  private installedOnce = false;
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  getConversationId(): string {
+    return this.conversationId;
+  }
+
+  hasVirtualFiles(): boolean {
+    return Object.keys(this.virtualFiles).length > 0;
+  }
+
+  hasInstalledOnce(): boolean {
+    return this.installedOnce;
+  }
+
+  /** Substitui os ficheiros virtuais (ex.: hidratação a partir do backend). */
+  setVirtualFiles(files: VirtualProjectFiles): void {
+    this.virtualFiles = { ...files };
+  }
+
+  /**
+   * Troca a conversa activa: guarda o estado actual e restaura o do destino.
+   * Como há um único WebContainer por página, paramos o dev server e limpamos o
+   * URL para forçar re-mount/run da conversa-alvo. Devolve `true` se mudou.
+   */
+  async switchConversation(conversationId: string): Promise<boolean> {
+    const next = conversationId.trim();
+    if (next === this.conversationId) return false;
+    if (this.conversationId) {
+      this.savedStates.set(this.conversationId, { ...this.virtualFiles });
+    }
+    await this.stopDevProcess();
+    this.runGeneration += 1;
+    this.conversationId = next;
+    const saved = next ? this.savedStates.get(next) : undefined;
+    this.virtualFiles = saved ? { ...saved } : {};
+    this.previewUrl = "";
+    this.compileLogLines = [];
+    this.setPhase("idle");
+    return true;
+  }
+
+  /** Remove o estado guardado de uma conversa (ex.: ao eliminá-la). */
+  forgetConversation(conversationId: string): void {
+    const id = conversationId.trim();
+    if (!id) return;
+    this.savedStates.delete(id);
+    if (id === this.conversationId) {
+      this.conversationId = "";
+      this.virtualFiles = {};
+      this.previewUrl = "";
+      this.compileLogLines = [];
+    }
   }
 
   getPreviewUrl(): string {
@@ -147,7 +205,10 @@ export class WebContainerPreviewService {
     if (options.ops.length) {
       this.mergeOps(options.ops);
     }
-    this.virtualFiles = ensureRunnableViteProject(this.virtualFiles);
+    this.virtualFiles = ensureRunnableViteProject(
+      this.virtualFiles,
+      options.designTokens,
+    );
 
     try {
       this.setPhase("booting");
@@ -171,6 +232,7 @@ export class WebContainerPreviewService {
         if (installCode !== 0) {
           throw new Error(`npm install terminou com código ${installCode}`);
         }
+        this.installedOnce = true;
       }
 
       this.setPhase("starting");
@@ -236,6 +298,7 @@ export class WebContainerPreviewService {
     this.previewUrl = "";
     this.virtualFiles = {};
     this.compileLogLines = [];
+    this.installedOnce = false;
     this.setPhase("idle");
     bootPromise = null;
     if (this.container) {

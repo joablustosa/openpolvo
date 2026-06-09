@@ -53,6 +53,8 @@ class ArchitectPlan(TypedDict, total=False):
     go_modules: list[str]
     backend_routes: list[dict[str, Any]]
     frontend_changes: list[dict[str, Any]]
+    api_endpoints: list[dict[str, Any]]
+    db_tables: list[dict[str, Any]]
     excluded_note: str
 
 
@@ -83,6 +85,8 @@ class DevWorkflowState(TypedDict, total=False):
     enrichment_skipped: bool
     model_provider: str | None
     workspace_id: str | None
+    # ID estável da conversa — chave primária do RAG de código e de memória de erros.
+    conversation_id: str | None
     preview_console_block: str | None
     preview_console_logs: list[dict[str, Any]] | None
 
@@ -103,6 +107,8 @@ class DevWorkflowState(TypedDict, total=False):
     rag_skipped_paths: int
 
     route: RouteDecision
+    # Classificação explícita do pedido: new_app | feature | bug_fix | explain | abort
+    request_kind: str
     affected_layers: AffectedLayer
     stack_hint: StackId | None
     route_confidence: float
@@ -111,6 +117,9 @@ class DevWorkflowState(TypedDict, total=False):
 
     plan: ArchitectPlan | None
 
+    # Guia de estilo profissional recuperado por domínio (Style RAG, zero-token).
+    style_guide: dict[str, Any]
+
     pending_writes: list[PendingWrite]
     polvo_code_ops: list[dict[str, Any]]
 
@@ -118,12 +127,26 @@ class DevWorkflowState(TypedDict, total=False):
     error_digest: list[CompileErrorDigest]
     compile_attempt: int
     max_compile_retries: int
+    # Resultado do build sandbox real (tsc/vite) — portão anti-bug.
+    build_result: dict[str, Any]
 
     assistant_text: str
     metadata: dict[str, Any]
     trace: list[str]
 
     messages: list[dict[str, Any]]
+
+    # Times worker+revisor (Dev Workflow Teams)
+    prompt_review: dict[str, Any]
+    plan_review: dict[str, Any]
+    plan_approved: bool
+    orchestration: dict[str, Any]
+    build_tasks: list[dict[str, Any]]
+    code_review: dict[str, Any]
+    code_approved: bool
+    static_verify: dict[str, Any]
+    team_rounds: dict[str, int]
+    team_traces: dict[str, list[str]]
 
 
 def content_sha256(text: str) -> str:

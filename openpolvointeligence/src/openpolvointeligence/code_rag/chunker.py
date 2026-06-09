@@ -58,7 +58,11 @@ def _infer_chunk_type(path: str, content: str) -> ChunkType:
         return "config"
     if any(pat in pl for pat in ROUTE_PATH_PATTERNS):
         return "route"
-    if "route.ts" in pl or "route.tsx" in pl or re.search(r"router\.(get|post|put|delete)", content, re.I):
+    if (
+        "route.ts" in pl
+        or "route.tsx" in pl
+        or re.search(r"router\.(get|post|put|delete)", content, re.I)
+    ):
         return "route"
     if pl.endswith((".tsx", ".jsx")) and (
         "export default function" in content
@@ -159,7 +163,9 @@ def chunk_file(path: str, content: str) -> list[CodeChunk]:
     if blocks:
         for name, start, end in blocks[:MAX_CHUNKS_PER_FILE]:
             excerpt = _line_range_excerpt(content, start, end)
-            ctype: ChunkType = "hook" if name.startswith("use") and name[3:4].isupper() else "function"
+            ctype: ChunkType = (
+                "hook" if name.startswith("use") and name[3:4].isupper() else "function"
+            )
             if base_type == "component" and start <= 30:
                 ctype = "component"
             chunks.append(
@@ -202,8 +208,10 @@ def should_index_path(path: str) -> bool:
     suffix = PurePosixPath(path).suffix.lower()
     if suffix in SKIP_EXTENSIONS:
         return False
-    if suffix and suffix not in INDEXABLE_EXTENSIONS and not any(
-        pat in path.lower() for pat in CONFIG_PATH_PATTERNS
+    if (
+        suffix
+        and suffix not in INDEXABLE_EXTENSIONS
+        and not any(pat in path.lower() for pat in CONFIG_PATH_PATTERNS)
     ):
         return False
     return True

@@ -22,6 +22,11 @@ from openpolvointeligence.graphs.dev_workflow_compiler_logic import (
     parse_compile_output,
     pick_primary_error_file,
 )
+from openpolvointeligence.graphs.dev_workflow_error_memory import (
+    build_error_memory_block,
+    index_error_fix,
+    recall_similar_errors,
+)
 from openpolvointeligence.graphs.models import get_chat_model
 from openpolvointeligence.graphs.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
@@ -80,9 +85,13 @@ async def run_self_heal(
     error_digest: list[dict[str, Any]],
     project_files: dict[str, str],
     plan: dict[str, Any] | None = None,
+    error_memory_block: str = "",
 ) -> dict[str, Any]:
     """
     Invoca correcção determinística de layout (se aplicável) ou LLM Self-Healing.
+
+    `error_memory_block` injecta correcções similares passadas (RAG de memória de
+    erros) no contexto do LLM, sem alterar os caminhos determinísticos.
     """
     router_ops = build_router_reference_heal_ops(compile_log, project_files)
     if router_ops:
@@ -103,8 +112,7 @@ async def run_self_heal(
         return {
             "polvo_code_ops": valid,
             "pending_writes": [
-                {"op": o["op"], "path": o["path"], "content": o.get("content")}
-                for o in valid
+                {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
             ],
             "project_files": updated_files,
             "heal_summary": meta["dev_workflow"]["heal_summary"],
@@ -131,8 +139,7 @@ async def run_self_heal(
         return {
             "polvo_code_ops": valid,
             "pending_writes": [
-                {"op": o["op"], "path": o["path"], "content": o.get("content")}
-                for o in valid
+                {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
             ],
             "project_files": updated_files,
             "heal_summary": meta["dev_workflow"]["heal_summary"],
@@ -149,6 +156,8 @@ async def run_self_heal(
         plan=plan,
         user_prompt=user_prompt,
     )
+    if error_memory_block.strip():
+        human = f"{error_memory_block.strip()}\n\n{human}"
     chat = get_chat_model(settings, model_provider, json_mode=True, max_tokens=8192)
     resp = await chat.ainvoke(
         [SystemMessage(content=_load_prompt()), HumanMessage(content=human)],
@@ -188,8 +197,7 @@ async def run_self_heal(
     return {
         "polvo_code_ops": valid,
         "pending_writes": [
-            {"op": o["op"], "path": o["path"], "content": o.get("content")}
-            for o in valid
+            {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
         ],
         "project_files": updated_files,
         "heal_summary": str(data.get("heal_summary") or "").strip(),
@@ -208,8 +216,13 @@ async def run_dev_workflow_self_heal(
     preview_console_logs: list[dict[str, Any]] | None = None,
     project_files: dict[str, str] | None = None,
     plan: dict[str, Any] | None = None,
+    conversation_id: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Entry point API: recebe log do frontend WebContainer e devolve ops corrigidas."""
+    """Entry point API: recebe log do frontend WebContainer e devolve ops corrigidas.
+
+    `conversation_id` é a chave do RAG de memória de erros: recupera correcções
+    similares passadas e memoriza o novo par erro→fix.
+    """
     merged = merge_compile_sources(preview_console_block, compile_log, preview_console_logs)
     ok, error_digest = parse_compile_output(merged)
     if ok or not error_digest:
@@ -219,6 +232,10 @@ async def run_dev_workflow_self_heal(
         )
 
     files = dict(project_files or {})
+    project_id = (conversation_id or "").strip() or None
+    recalled = await recall_similar_errors(settings, project_id, error_digest)
+    error_memory_block = build_error_memory_block(recalled)
+
     result = await run_self_heal(
         settings,
         model_provider,
@@ -227,8 +244,19 @@ async def run_dev_workflow_self_heal(
         error_digest=error_digest,
         project_files=files,
         plan=plan,
+        error_memory_block=error_memory_block,
     )
     summary = result.get("heal_summary") or "Apliquei correcções automáticas ao preview."
+    if project_id and result.get("polvo_code_ops") and result.get("heal_summary"):
+        await index_error_fix(
+            settings,
+            project_id,
+            error_digest=error_digest,
+            fix_summary=str(result.get("heal_summary") or ""),
+            root_cause=str(
+                (result.get("metadata") or {}).get("dev_workflow", {}).get("root_cause") or ""
+            ),
+        )
     meta = result.get("metadata") or {}
     meta.setdefault("routed_intent", "polvo_code_builder")
     meta["dev_studio_context"] = {

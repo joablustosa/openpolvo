@@ -52,10 +52,16 @@ import {
   resolveDevStudioProjectForConversation,
   shouldApplyDevStudioFromMetadata,
 } from "@/lib/devStudioMetadata";
+import { applyDevStudioFileIncremental } from "@/lib/devStudio/incrementalDevStudioApply";
 import {
   removeDevStudioConversationProject,
   saveDevStudioConversationProject,
 } from "@/lib/devStudio/conversationProjectLink";
+import {
+  fetchConversationProject,
+  fetchProjectWithFiles,
+  projectFilesToRecord,
+} from "@/lib/devStudio/projectApi";
 import { collectDevStudioChatPayload } from "@/lib/devStudioChatPayload";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
@@ -211,6 +217,53 @@ export function ConversationWorkspaceProvider({
     if (!ok) setLlmSelectValue("auto");
   }, [llmProfiles, llmSelectValue]);
 
+  /**
+   * Restaura o preview WebContainer de uma conversa (browser):
+   * isola o estado por conversa e hidrata os ficheiros a partir do backend
+   * (preferido), com fallback ao estado em sessão / metadata.
+   */
+  const restoreWebContainerProjectForConversation = useCallback(
+    async (id: string, msgs: MessageDTO[]) => {
+      if (!token) return;
+      const { getWebContainerPreviewService, WEBCONTAINER_WORKSPACE_ID } =
+        await import("@/lib/webcontainer");
+      const svc = getWebContainerPreviewService();
+      await svc.switchConversation(id);
+
+      let backendTitle: string | null = null;
+      try {
+        const proj = await fetchConversationProject(token, id);
+        if (proj) {
+          backendTitle = proj.title;
+          const withFiles = await fetchProjectWithFiles(token, proj.id);
+          if (withFiles && withFiles.files.length) {
+            svc.setVirtualFiles(projectFilesToRecord(withFiles.files));
+          }
+        }
+      } catch {
+        // Sem backend — usa o estado em sessão / metadata como fallback.
+      }
+
+      const restored = resolveDevStudioProjectForConversation(id, msgs);
+      if (svc.hasVirtualFiles()) {
+        const title = backendTitle ?? restored?.title ?? devStudioProjectTitle;
+        setDevStudioProject(WEBCONTAINER_WORKSPACE_ID, title);
+        setDevStudioPreviewOpen(true);
+        restartDevStudioPreview();
+      } else {
+        setDevStudioProject(null, null);
+        setDevStudioPreviewOpen(false);
+      }
+    },
+    [
+      token,
+      devStudioProjectTitle,
+      setDevStudioProject,
+      setDevStudioPreviewOpen,
+      restartDevStudioPreview,
+    ],
+  );
+
   const selectConversation = useCallback(
     async (id: string | null, defaultModel?: ModelProvider | string) => {
       setActiveConversationId(id);
@@ -230,19 +283,27 @@ export function ConversationWorkspaceProvider({
             setLlmSelectValue(conv.default_model_provider);
           }
         }
-        // Liga conversa ↔ repositório no disco; abre preview e arranca Vite (useDevStudioRuntime).
-        const restored = resolveDevStudioProjectForConversation(id, msgs);
+        // Liga conversa ↔ projecto (disco no Electron; WebContainer no browser).
+        // Estado de verificação contínua é por conversa — limpa ao trocar.
         const { isElectron, desktopPolvoCode } = await import("@/lib/desktopApi");
-        const { clearLastDevStudioUrl } = await import("@/lib/devStudioPreviewBus");
+        const { resetPreviewAutoHealSession } = await import(
+          "@/lib/devStudio/previewAutoHeal"
+        );
         const { clearDevStudioCompileLog } = await import(
           "@/lib/devStudio/compileLogBuffer"
         );
+        resetPreviewAutoHealSession();
+        clearDevStudioCompileLog();
         const inElectron = isElectron();
-        const prevPath = devStudioWorkspacePath?.trim() ?? "";
 
-        if (restored) {
-          let canOpen = true;
-          if (inElectron) {
+        if (inElectron) {
+          const restored = resolveDevStudioProjectForConversation(id, msgs);
+          const { clearLastDevStudioUrl } = await import(
+            "@/lib/devStudioPreviewBus"
+          );
+          const prevPath = devStudioWorkspacePath?.trim() ?? "";
+          if (restored) {
+            let canOpen = true;
             try {
               const lr = await desktopPolvoCode.listDir({
                 workspacePath: restored.workspacePath,
@@ -257,33 +318,38 @@ export function ConversationWorkspaceProvider({
             } catch {
               // Se a verificação falhar, tenta abrir na mesma.
             }
-          }
-          if (canOpen) {
-            const nextPath = restored.workspacePath.trim();
-            const pathChanged = !prevPath || prevPath !== nextPath;
-            if (inElectron) {
+            if (canOpen) {
+              const nextPath = restored.workspacePath.trim();
+              const pathChanged = !prevPath || prevPath !== nextPath;
               clearLastDevStudioUrl();
-              clearDevStudioCompileLog();
               if (pathChanged && prevPath) {
                 await desktopPolvoCode.devStop();
               }
+              try {
+                const { repairDevStudioProjectOnDisk } = await import(
+                  "@/lib/devStudio/repairDevStudioProject",
+                );
+                await repairDevStudioProjectOnDisk(nextPath);
+              } catch {
+                /* reparo best-effort */
+              }
+              setDevStudioProject(restored.workspacePath, restored.title);
+              setDevStudioPreviewOpen(true);
+              if (!pathChanged) {
+                restartDevStudioPreview();
+              }
             }
-            setDevStudioProject(restored.workspacePath, restored.title);
-            setDevStudioPreviewOpen(true);
-            if (!pathChanged) {
-              restartDevStudioPreview();
-            }
-          }
-        } else if (prevPath) {
-          if (inElectron) {
+          } else if (prevPath) {
             try {
               await desktopPolvoCode.devStop();
             } catch {
               /* ignore */
             }
+            setDevStudioProject(null, null);
+            setDevStudioPreviewOpen(false);
           }
-          setDevStudioProject(null, null);
-          setDevStudioPreviewOpen(false);
+        } else {
+          await restoreWebContainerProjectForConversation(id, msgs);
         }
       } catch (e) {
         if (e instanceof SessionReloginRedirected) {
@@ -306,6 +372,7 @@ export function ConversationWorkspaceProvider({
       setDevStudioProject,
       setDevStudioPreviewOpen,
       restartDevStudioPreview,
+      restoreWebContainerProjectForConversation,
     ],
   );
 
@@ -322,8 +389,23 @@ export function ConversationWorkspaceProvider({
       setMessages([]);
       setLlmSelectValue(c.default_model_provider ?? dm);
       try {
+        const { resetPreviewAutoHealSession } = await import(
+          "@/lib/devStudio/previewAutoHeal"
+        );
+        const { clearDevStudioCompileLog } = await import(
+          "@/lib/devStudio/compileLogBuffer"
+        );
+        resetPreviewAutoHealSession();
+        clearDevStudioCompileLog();
         const { isElectron, desktopPolvoCode } = await import("@/lib/desktopApi");
-        if (isElectron()) await desktopPolvoCode.devStop();
+        if (isElectron()) {
+          await desktopPolvoCode.devStop();
+        } else {
+          const { getWebContainerPreviewService } = await import(
+            "@/lib/webcontainer"
+          );
+          await getWebContainerPreviewService().switchConversation(c.id);
+        }
       } catch {
         /* ignore */
       }
@@ -391,7 +473,14 @@ export function ConversationWorkspaceProvider({
                 setDevStudioNotice(event.label.trim());
               }
             } else if (event.type === "file") {
-              /* reservado */
+              void applyDevStudioFileIncremental(event.file, {
+                workspacePath: devStudioWorkspacePath,
+              }).then((ok) => {
+                if (ok && event.file.path?.trim()) {
+                  setDevStudioNotice(`A escrever ${event.file.path}…`);
+                  setDevStudioPreviewOpen(true);
+                }
+              });
             } else if (event.type === "messages_saved") {
               finalMessages = event.messages;
               setMessages(event.messages);
@@ -481,6 +570,7 @@ export function ConversationWorkspaceProvider({
               setDevStudioProject,
               openPlugin,
               userPrompt: text,
+              conversationId: cidFinal,
             });
             if (!pr.applied && pr.error) {
               setError(pr.error);
@@ -562,6 +652,17 @@ export function ConversationWorkspaceProvider({
         throw e;
       }
       removeDevStudioConversationProject(id);
+      try {
+        const { isElectron } = await import("@/lib/desktopApi");
+        if (!isElectron()) {
+          const { getWebContainerPreviewService } = await import(
+            "@/lib/webcontainer"
+          );
+          getWebContainerPreviewService().forgetConversation(id);
+        }
+      } catch {
+        /* ignore */
+      }
       if (activeConversationId === id) {
         setActiveConversationId(null);
         setMessages([]);

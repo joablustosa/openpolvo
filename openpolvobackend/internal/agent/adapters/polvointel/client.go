@@ -14,6 +14,7 @@ import (
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	wfports "github.com/open-polvo/open-polvo/internal/workflows/ports"
 )
+
 type Client struct {
 	baseURL     string
 	internalKey string
@@ -95,13 +96,13 @@ func (c *Client) GenerateGraphJSON(ctx context.Context, provider domain.ModelPro
 		return "", fmt.Errorf("polvointel: client not configured")
 	}
 	body, err := json.Marshal(map[string]string{
-		"model_provider":   string(provider),
-		"prompt":           userRequest,
-		"recording_json":   recordingJSON,
-		"openai_api_key":   ov.OpenAIAPIKey,
-		"google_api_key":   ov.GoogleAPIKey,
-		"openai_model":     ov.OpenAIModel,
-		"google_model":     ov.GoogleModel,
+		"model_provider": string(provider),
+		"prompt":         userRequest,
+		"recording_json": recordingJSON,
+		"openai_api_key": ov.OpenAIAPIKey,
+		"google_api_key": ov.GoogleAPIKey,
+		"openai_model":   ov.OpenAIModel,
+		"google_model":   ov.GoogleModel,
 	})
 	if err != nil {
 		return "", err
@@ -333,6 +334,7 @@ func truncate(s string, n int) string {
 // DevStudioSelfHealInput pedido de correcção automática de erros de build.
 type DevStudioSelfHealInput struct {
 	ModelProvider      string
+	ConversationID     string
 	UserPrompt         string
 	CompileLog         string
 	PreviewConsoleLogs []map[string]any
@@ -347,6 +349,9 @@ func (c *Client) DevStudioSelfHeal(ctx context.Context, in DevStudioSelfHealInpu
 	}
 	body := map[string]any{
 		"model_provider": in.ModelProvider,
+	}
+	if strings.TrimSpace(in.ConversationID) != "" {
+		body["conversation_id"] = strings.TrimSpace(in.ConversationID)
 	}
 	if strings.TrimSpace(in.UserPrompt) != "" {
 		body["user_prompt"] = in.UserPrompt

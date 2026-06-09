@@ -69,7 +69,7 @@ export function FinTransactionFormFields({
       </div>
       <div className="space-y-1 sm:col-span-2">
         <label className="text-[11px] font-medium text-muted-foreground">Categoria (opcional)</label>
-        <Select value={txCat || "__none__"} onValueChange={(v) => setTxCat(v === "__none__" ? "" : v)}>
+        <Select value={txCat || "__none__"} onValueChange={(v) => setTxCat(v && v !== "__none__" ? v : "")}>
           <SelectTrigger className="h-10 min-h-[44px]">
             <SelectValue placeholder="—" />
           </SelectTrigger>

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from openpolvointeligence.graphs.dev_workflow_router_logic import AffectedLayer
@@ -182,14 +181,16 @@ def _prune_to_rag_scope(paths: list[str], rag_paths: list[str] | None) -> list[s
 _PALETTE_BASES = frozenset({"zinc", "slate", "neutral"})
 _BORDER_RADIUS = frozenset({"sm", "md", "lg"})
 _LAYOUT_SHELLS = frozenset({"marketing", "dashboard"})
-_ACCENTS = frozenset({
-    "blue",
-    "violet",
-    "emerald",
-    "orange",
-    "rose",
-    "cyan",
-})
+_ACCENTS = frozenset(
+    {
+        "blue",
+        "violet",
+        "emerald",
+        "orange",
+        "rose",
+        "cyan",
+    }
+)
 _MODES = frozenset({"light", "dark"})
 
 
@@ -376,9 +377,7 @@ def build_architect_human_suffix(state: dict[str, Any]) -> str:
     layer = state.get("affected_layers") or "fullstack"
     compact = state.get("compact_context_map") or {}
     manifest = [
-        str(r.get("path", ""))
-        for r in (state.get("file_manifest") or [])
-        if isinstance(r, dict)
+        str(r.get("path", "")) for r in (state.get("file_manifest") or []) if isinstance(r, dict)
     ]
     feature = match_paths_for_feature(
         str(state.get("user_prompt") or ""),

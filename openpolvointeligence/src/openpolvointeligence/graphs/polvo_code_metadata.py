@@ -92,9 +92,7 @@ def validate_polvo_code_operations(raw_ops: list[Any]) -> tuple[list[dict[str, A
         try:
             m = PolvoCodeOpModel.model_validate(row)
         except ValidationError as e:
-            errors.append(
-                f"op[{idx}]: {e.errors()[0]['msg'] if e.errors() else 'inválida'}"
-            )
+            errors.append(f"op[{idx}]: {e.errors()[0]['msg'] if e.errors() else 'inválida'}")
             continue
         if m.op == "write":
             c = m.content if m.content is not None else ""

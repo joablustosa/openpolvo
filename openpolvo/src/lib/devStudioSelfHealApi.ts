@@ -9,6 +9,8 @@ export type DevStudioSelfHealRequest = {
   project_files: Record<string, string>;
   user_prompt?: string;
   model_provider?: "openai" | "google";
+  /** Conversa ativa: chaveia o RAG de memória de erros por projeto no Intelligence. */
+  conversation_id?: string;
 };
 
 export type DevStudioSelfHealResult = {
@@ -51,6 +53,9 @@ export async function requestDevStudioSelfHeal(
       compile_log: body.compile_log,
       preview_console_logs: body.preview_console_logs,
       project_files: body.project_files,
+      ...(body.conversation_id?.trim()
+        ? { conversation_id: body.conversation_id.trim() }
+        : {}),
     }),
   });
 

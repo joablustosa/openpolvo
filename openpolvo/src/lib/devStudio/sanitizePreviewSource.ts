@@ -1,13 +1,12 @@
 /**
- * Remove imports inválidos em projectos preview (ex.: react-router-dom sem estar no package.json).
+ * Sanitiza TSX de projectos preview — remove imports de pacotes ausentes no scaffold.
+ * react-router-dom é permitido (incluído no scaffold full-stack).
  */
 
 import type { DevStudioOp } from "@/lib/devStudioMetadata";
-import { fixAppTsxIfRouterBroken, stripReactRouterJsx, usesRouterJsx } from "./routerJsxStrip";
+import { fixAppTsxIfRouterBroken, usesRouterJsx } from "./routerJsxStrip";
 
 const FORBIDDEN_PACKAGES = [
-  "react-router-dom",
-  "react-router",
   "@tanstack/react-query",
   "next/link",
   "next/navigation",
@@ -28,7 +27,7 @@ export function previewSourceHasForbiddenImports(content: string): boolean {
   return ANY_FORBIDDEN_RE.test(content);
 }
 
-/** Converte Link (react-router) em âncoras HTML; remove imports e JSX de router. */
+/** Sanitiza TSX — mantém react-router-dom; remove apenas pacotes proibidos. */
 export function sanitizePreviewTsx(content: string, filePath = ""): string {
   if (!content.trim()) return content;
   const isTsx =
@@ -42,22 +41,13 @@ export function sanitizePreviewTsx(content: string, filePath = ""): string {
 
   for (const line of lines) {
     if (FORBIDDEN_IMPORT_RE.test(line.trim())) continue;
-    if (/^\s*import\s+.*react-router/.test(line)) continue;
+    if (/^\s*import\s+.*next\//.test(line)) continue;
     kept.push(line);
   }
 
   let out = kept.join("\n");
-
-  out = out.replace(/<Link\b/g, "<a");
-  out = out.replace(/<\/Link>/g, "</a>");
-  out = out.replace(/\sto=\{/g, " href={");
-  out = out.replace(/\sto="/g, ' href="');
-  out = out.replace(/\sto='/g, " href='");
-  out = out.replace(/\scomponent=\{[^}]+\}/g, "");
-
-  out = stripReactRouterJsx(out);
   const norm = filePath.replace(/\\/g, "/").replace(/^\//, "");
-  if (norm === "src/App.tsx" || (!filePath && usesRouterJsx(out))) {
+  if (norm === "src/App.tsx" && usesRouterJsx(out) && !out.includes("react-router-dom")) {
     out = fixAppTsxIfRouterBroken(out);
   }
 

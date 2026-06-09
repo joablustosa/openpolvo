@@ -67,7 +67,11 @@ def _strip_json_fence(s: str) -> str:
     if s.startswith("```"):
         parts = s.split("\n")
         if len(parts) >= 2:
-            inner = "\n".join(parts[1:-1]) if parts[-1].strip().startswith("```") else "\n".join(parts[1:])
+            inner = (
+                "\n".join(parts[1:-1])
+                if parts[-1].strip().startswith("```")
+                else "\n".join(parts[1:])
+            )
             return inner.strip()
     return s
 
@@ -130,7 +134,14 @@ def validate_operations(
             continue
 
         lid = str(o.get("list_id", "")).strip()
-        if name in ("patch_list_title", "append_items", "patch_item", "delete_item", "delete_list", "run_list"):
+        if name in (
+            "patch_list_title",
+            "append_items",
+            "patch_item",
+            "delete_item",
+            "delete_list",
+            "run_list",
+        ):
             if lid not in known_list_ids:
                 errors.append(f"{name}: list_id desconhecido ou inválido")
                 continue
@@ -240,7 +251,11 @@ async def task_list_ops_metadata_for_reply(
     task_lists_raw: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
     raw = await extract_task_list_operations(
-        settings, model_provider, assistant_text, messages, task_lists_raw,
+        settings,
+        model_provider,
+        assistant_text,
+        messages,
+        task_lists_raw,
     )
     wants = bool(raw.get("wants_mutations"))
     ops_raw = raw.get("operations")

@@ -122,22 +122,22 @@ Dependências: lib PDF só se necessário (`gofpdf`, etc.) — **preferir backen
 
 ## Stack
 
-`vite-react`, `next-react`, `angular`, `go-api`, `node-api`, `fullstack-mixed` — alinha com Router e mapa compacto.
+Scaffold do estúdio: **vite-react + Tailwind v4 + shadcn + Hono** (`react-router-dom` no `main.tsx`; backend em `server/*` com Drizzle + PGlite). Usa `vite-react` (frontend) ou `fullstack-mixed` (com backend Hono); `go-api`/`node-api` só para APIs isoladas. Alinha com o Router e o mapa compacto.
 
 ## Stack padrão para projecto novo (`create_project: true`)
 
 Quando o pedido cria um **app/site novo** (landing page, dashboard, app web, etc.), usa **`stack: "vite-react"`**:
 
 - O runtime gera **automaticamente**: Vite + React + TypeScript + Tailwind v4 + shadcn (`src/components/ui/*`, `src/lib/utils.ts`, `src/index.css`, configs). **Não listes** esses ficheiros.
-- **Proibido** `files_to_create` em `src/components/layout/*` (scaffold Navbar usa `<a href>`, sem react-router-dom). **Não listar** layout shell:
-  - `src/components/layout/AppShell.tsx`
-  - `src/components/layout/Navbar.tsx`
-  - `src/components/layout/Sidebar.tsx` (sempre gerado pelo runtime; não listar)
+- **Proibido** `files_to_create` em `src/components/layout/AppShell.tsx`, `Navbar.tsx`, `Sidebar.tsx` (scaffold).
 - **Listar apenas** ficheiros de produto:
-  - Página: `src/pages/<Nome>.tsx` (PascalCase)
+  - Páginas: `src/pages/<Nome>.tsx` (PascalCase) — multi-página com react-router-dom
   - Secções: `src/components/<Nome>.tsx` (Hero, Features, Footer, etc.)
   - Hooks: `src/hooks/use<Nome>.ts` se necessário
-- **Não** listar `src/App.tsx` — o runtime monta `AppShell` + página principal. **Proibido** planear `react-router-dom` ou rotas `<Router>`/`<Route>` (não existe no scaffold).
+  - Backend: `server/db/schema.ts`, `server/routes/*`, alterações em `server/index.ts`
+  - Cliente API: `src/lib/api.ts` quando houver endpoints novos
+- **Evitar** listar `src/App.tsx` — o runtime gera rotas a partir de `src/pages/*`.
+- Incluir `api_endpoints` e `db_tables` quando houver persistência.
 - **Não** criar Button/Card/Input duplicados — usar primitivos shadcn já no scaffold.
 
 ### Exemplo: landing page marketing («casa de festas infantil»)

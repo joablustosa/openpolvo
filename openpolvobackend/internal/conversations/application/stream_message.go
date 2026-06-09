@@ -16,11 +16,11 @@ import (
 
 // StreamMessageCommand é igual a SendMessageCommand mas para o fluxo SSE.
 type StreamMessageCommand struct {
-	UserID         uuid.UUID
-	ConversationID uuid.UUID
-	Text           string
-	ModelProvider  domain.ModelProvider
-	LLMProfileID   *uuid.UUID
+	UserID             uuid.UUID
+	ConversationID     uuid.UUID
+	Text               string
+	ModelProvider      domain.ModelProvider
+	LLMProfileID       *uuid.UUID
 	SandboxProjectID   string
 	ProjectFileTree    []string
 	ProjectFiles       map[string]string
@@ -45,17 +45,19 @@ type StreamEvent struct {
 // StreamMessage orquestra o fluxo SSE: guarda a mensagem do utilizador, abre o
 // stream Python e devolve um canal de eventos + função de cleanup.
 type StreamMessage struct {
-	Conversations   convports.ConversationRepository
-	Messages        convports.MessageRepository
-	Streamer        agentports.ChatStreamer
-	LLM             LLMReplyConfigurator
-	AgentMemory     convports.AgentMemoryRepository
-	SMTPForReply      func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
-	ContactsForReply  func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief
-	TaskListsForReply func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief
-	FinanceForReply   func(ctx context.Context, userID uuid.UUID) *agentports.FinanceContext
+	Conversations          convports.ConversationRepository
+	Messages               convports.MessageRepository
+	Streamer               agentports.ChatStreamer
+	LLM                    LLMReplyConfigurator
+	AgentMemory            convports.AgentMemoryRepository
+	SMTPForReply           func(ctx context.Context, userID uuid.UUID) *agentports.SMTPContext
+	ContactsForReply       func(ctx context.Context, userID uuid.UUID) []agentports.ContactBrief
+	TaskListsForReply      func(ctx context.Context, userID uuid.UUID) []agentports.TaskListBrief
+	FinanceForReply        func(ctx context.Context, userID uuid.UUID) *agentports.FinanceContext
 	MetaForReply           func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext
 	ScheduledTasksForReply func(ctx context.Context, userID uuid.UUID) []agentports.ScheduledTaskBrief
+	// Opcional: persiste projetos de dev vinculados à conversa quando o metadata indica trabalho de dev.
+	DevProjects convports.DevProjectRecorder
 }
 
 // StreamResult contém a conversa, histórico e um scanner do stream Python.
@@ -98,9 +100,9 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 		return nil, err
 	}
 	repIn := agentports.ReplyInput{
-		Messages:         hist,
-		ModelProvider:    model,
-		ConversationID:   conv.ID.String(),
+		Messages:       hist,
+		ModelProvider:  model,
+		ConversationID: conv.ID.String(),
 	}
 	if s.AgentMemory != nil {
 		if row, err := s.AgentMemory.Get(ctx, conv.ID); err == nil {
@@ -163,6 +165,7 @@ func (s *StreamMessage) SaveAssistant(ctx context.Context, conv domain.Conversat
 		CreatedAt:      time.Now().UTC(),
 	})
 	ApplyAgentMemoryPatch(ctx, s.AgentMemory, conv.ID, meta)
+	recordDevProject(ctx, s.DevProjects, userID, conv.ID, text, meta)
 	_ = s.Conversations.TouchUpdatedAt(ctx, conv.ID, time.Now().UTC())
 	if conv.Title == nil || strings.TrimSpace(*conv.Title) == "" {
 		title := userText

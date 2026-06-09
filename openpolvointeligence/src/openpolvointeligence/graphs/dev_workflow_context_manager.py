@@ -15,7 +15,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.dev_workflow_state import (
     FileRef,
-    content_sha256,
     infer_lang,
     manifest_from_tree,
 )
@@ -214,8 +213,7 @@ def format_chat_history(messages: list[dict[str, Any]]) -> str:
 def _fallback_conversation_digest(messages: list[dict[str, Any]]) -> str:
     capped = tail_messages(messages)
     return "\n".join(
-        f"- {m.get('role', '?')}: {str(m.get('content', ''))[:180]}"
-        for m in capped[-6:]
+        f"- {m.get('role', '?')}: {str(m.get('content', ''))[:180]}" for m in capped[-6:]
     )
 
 
@@ -405,6 +403,26 @@ async def run_context_manager(
     diff_instructions = _normalize_diff_instructions(data.get("diff_instructions"))
     use_diff = bool(data.get("use_diff_mode")) and bool(diff_instructions)
 
+    # Classificação determinística preliminar (router refina depois com hint do LLM).
+    from openpolvointeligence.graphs.dev_workflow_request_kind import (
+        classify_request_kind,
+        prefers_diff_mode,
+    )
+
+    has_project = bool(project_files) or bool(file_tree)
+    has_build_errors = bool((preview_console_block or "").strip())
+    prelim_kind = classify_request_kind(
+        prompt_text,
+        has_project=has_project,
+        has_build_errors=has_build_errors,
+    )
+    # Nova app reconstrói (sem diff); bug_fix/feature pequena preferem patch incremental.
+    if prelim_kind == "new_app":
+        use_diff = False
+        diff_instructions = []
+    elif prelim_kind in ("bug_fix", "feature") and not prefers_diff_mode(prelim_kind):
+        use_diff = use_diff and bool(diff_instructions)
+
     project_digest = str(data.get("project_digest") or "").strip()
     if not project_digest:
         project_digest = json.dumps(compact, ensure_ascii=False)[:2000]
@@ -420,6 +438,7 @@ async def run_context_manager(
         "compact_context_map": compact,
         "diff_instructions": diff_instructions,
         "use_diff_mode": use_diff,
+        "request_kind": prelim_kind,
         "file_manifest": manifest,
         "structural_index": structural,
     }

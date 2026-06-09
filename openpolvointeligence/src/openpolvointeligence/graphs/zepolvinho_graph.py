@@ -54,7 +54,11 @@ def _strip_json_fence(s: str) -> str:
     if s.startswith("```"):
         lines = s.split("\n")
         if len(lines) >= 2:
-            inner = "\n".join(lines[1:-1]) if lines[-1].strip().startswith("```") else "\n".join(lines[1:])
+            inner = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip().startswith("```")
+                else "\n".join(lines[1:])
+            )
             return inner.strip()
     return s
 
@@ -296,8 +300,8 @@ def route_intent(intent: str, confidence: float) -> str:
 def _build_classification_ctx(analysis: dict[str, Any]) -> str:
     enc = json.dumps(analysis.get("entities") or {}, ensure_ascii=False)
     return (
-        f'INTENT: {analysis.get("intent")} (confiança: {float(analysis.get("confidence", 0)) * 100:.0f}%)'
-        f'\nREASONING: {analysis.get("reasoning", "")}\nENTITIES: {enc}'
+        f"INTENT: {analysis.get('intent')} (confiança: {float(analysis.get('confidence', 0)) * 100:.0f}%)"
+        f"\nREASONING: {analysis.get('reasoning', '')}\nENTITIES: {enc}"
     )
 
 
@@ -444,6 +448,7 @@ def build_zepolvinho_graph(settings: Settings):
             msgs,
             state.get("model_provider"),
             workspace_id=state.get("sandbox_project_id"),
+            conversation_id=state.get("conversation_id"),
             preview_console_logs=state.get("preview_console_logs"),
             compile_log=state.get("compile_log"),
             project_file_tree=state.get("project_file_tree"),
@@ -486,7 +491,9 @@ def build_zepolvinho_graph(settings: Settings):
     async def node_specialist(state: ZepState) -> dict[str, Any]:
         msgs = state.get("messages") or []
         analysis = state.get("analysis") or {}
-        routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
+        routed = route_intent(
+            str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0))
+        )
         capped = tail_messages(msgs)
         summary = conversation_summary(capped)
         ctx_b = _build_classification_ctx(analysis)
@@ -533,7 +540,9 @@ def build_zepolvinho_graph(settings: Settings):
         web_aux_block = ""
         web_aux_meta: dict[str, Any] = {}
         if routed == "pedido_dados" and (settings.serpapi_api_key or "").strip():
-            from openpolvointeligence.graphs.web_research_intent import user_requests_live_web_auxiliary
+            from openpolvointeligence.graphs.web_research_intent import (
+                user_requests_live_web_auxiliary,
+            )
 
             if user_requests_live_web_auxiliary(last_user_text(msgs, 6000)):
                 try:
@@ -551,19 +560,22 @@ def build_zepolvinho_graph(settings: Settings):
                         "\n\n## Pesquisa web automática (SERP + páginas + unificador multi-site)\n"
                         "O pipeline já correu buscas, visitou páginas seleccionadas e fundiu os resumos. "
                         "Usa isto para eixos do gráfico e narrativa; só quantifica o que conste aqui — "
-                        "senão marca dados do JSON como ilustrativos.\n\n"
-                        + tw
+                        "senão marca dados do JSON como ilustrativos.\n\n" + tw
                     )
                     web_aux_meta = {**wm, "web_auxiliary_for_charts": True}
                 except Exception as exc:
                     import logging as _wax
 
-                    _wax.getLogger(__name__).warning("pesquisa web auxiliar (pedido_dados): %s", exc)
+                    _wax.getLogger(__name__).warning(
+                        "pesquisa web auxiliar (pedido_dados): %s", exc
+                    )
 
         # Pesquisa web enriquecida: sub-grafo LangGraph (planeador → SerpAPI → síntese → crítica → refinamento).
         if routed == "pesquisa_web_tempo_real" and (settings.serpapi_api_key or "").strip():
             try:
-                from openpolvointeligence.graphs.web_research_subgraph import run_web_research_pipeline
+                from openpolvointeligence.graphs.web_research_subgraph import (
+                    run_web_research_pipeline,
+                )
 
                 text_wr, wr_meta = await run_web_research_pipeline(
                     settings,
@@ -580,7 +592,11 @@ def build_zepolvinho_graph(settings: Settings):
                 }
                 meta_wr.update(wr_meta)
                 meta_wr = await finalize_reply_metadata(
-                    settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta_wr,
+                    settings,
+                    state.get("model_provider"),
+                    msgs,
+                    state.get("agent_memory"),
+                    meta_wr,
                 )
                 return {"assistant_text": text_wr, "metadata": meta_wr}
             except Exception as exc:
@@ -656,11 +672,15 @@ def build_zepolvinho_graph(settings: Settings):
         if isinstance(mc, dict):
             parts: list[str] = []
             if mc.get("whatsapp_configured"):
-                parts.append(f"WhatsApp (Phone Number ID: `{mc.get('wa_phone_number_id', '')}`) ✓ configurado")
+                parts.append(
+                    f"WhatsApp (Phone Number ID: `{mc.get('wa_phone_number_id', '')}`) ✓ configurado"
+                )
             if mc.get("facebook_configured"):
                 parts.append(f"Facebook Page (Page ID: `{mc.get('fb_page_id', '')}`) ✓ configurado")
             if mc.get("instagram_configured"):
-                parts.append(f"Instagram Business (Account ID: `{mc.get('ig_account_id', '')}`) ✓ configurado")
+                parts.append(
+                    f"Instagram Business (Account ID: `{mc.get('ig_account_id', '')}`) ✓ configurado"
+                )
             if parts:
                 meta_block = (
                     "\n\n## Integração Meta do utilizador (Open Polvo)\n"
@@ -704,7 +724,9 @@ def build_zepolvinho_graph(settings: Settings):
                 [SystemMessage(content=sys), *hist_prefix, hist_sys, *_to_lc_messages(capped)],
             )
         else:
-            sys = _system_with_formatting(base, settings) + "\n\nContexto da classificação:\n" + ctx_b
+            sys = (
+                _system_with_formatting(base, settings) + "\n\nContexto da classificação:\n" + ctx_b
+            )
             if routed == "criacao_email" and smtp_block:
                 sys += smtp_block
             if routed == "criacao_email" and contacts_block:
@@ -713,7 +735,12 @@ def build_zepolvinho_graph(settings: Settings):
                 sys += task_lists_block
             if routed == "financas_pessoais" and finance_block:
                 sys += finance_block
-            if meta_block and routed in ("post_instagram", "post_facebook", "automacao", "pedido_conteudo"):
+            if meta_block and routed in (
+                "post_instagram",
+                "post_facebook",
+                "automacao",
+                "pedido_conteudo",
+            ):
                 sys += meta_block
             if routed == "pedido_dados" and web_aux_block:
                 sys += web_aux_block
@@ -746,7 +773,8 @@ def build_zepolvinho_graph(settings: Settings):
                     ),
                 )
                 if meta.get("email_send_pending") and isinstance(
-                    meta.get("email_send_draft"), dict,
+                    meta.get("email_send_draft"),
+                    dict,
                 ):
                     draft0 = meta["email_send_draft"]
                     b0 = str(draft0.get("body") or "")
@@ -806,7 +834,11 @@ def build_zepolvinho_graph(settings: Settings):
         if web_aux_meta:
             meta.update(web_aux_meta)
         meta = await finalize_reply_metadata(
-            settings, state.get("model_provider"), msgs, state.get("agent_memory"), meta,
+            settings,
+            state.get("model_provider"),
+            msgs,
+            state.get("agent_memory"),
+            meta,
         )
         return {"assistant_text": text, "metadata": meta}
 
@@ -972,9 +1004,16 @@ async def run_reply_stream(
         chat_analyze = get_chat_model(settings, model_provider, json_mode=True)
         resp = await chat_analyze.ainvoke([*pre_a, *_to_lc_messages(capped)])
         raw = str(resp.content).strip()
-        analysis = _parse_analysis(raw) if raw else {
-            "intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {},
-        }
+        analysis = (
+            _parse_analysis(raw)
+            if raw
+            else {
+                "intent": "geral",
+                "confidence": 0.3,
+                "reasoning": "",
+                "entities": {},
+            }
+        )
         analysis = boost_analysis_for_dev_workflow(
             analysis,
             user_prompt=last_user_text(messages),
@@ -998,12 +1037,18 @@ async def run_reply_stream(
         )
 
     # ── Grafo completo ─────────────────────────────────────────────────────────
-    routed = route_intent(str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0)))
+    routed = route_intent(
+        str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0))
+    )
     if routed == "polvo_code_builder":
         yield {
             "type": "progress",
             "step": "dev_workflow",
-            "label": "A entender e produtificar o pedido…",
+            "label": (
+                "A planear, orquestrar e construir (times de agentes)…"
+                if getattr(settings, "dev_workflow_team_mode", True)
+                else "A entender e produtificar o pedido…"
+            ),
         }
 
     yield {"type": "progress", "step": "specialist", "label": "A preparar resposta..."}
@@ -1027,6 +1072,32 @@ async def run_reply_stream(
             dev_studio_context=dev_studio_context,
             compile_log=compile_log,
         )
+        ops = (meta or {}).get("polvo_code_ops") if isinstance(meta, dict) else None
+        if isinstance(ops, list):
+            for op in ops:
+                if not isinstance(op, dict) or op.get("op") != "write":
+                    continue
+                path = str(op.get("path") or "").strip()
+                if not path:
+                    continue
+                ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+                lang_map = {
+                    "tsx": "tsx",
+                    "jsx": "jsx",
+                    "ts": "typescript",
+                    "js": "javascript",
+                    "css": "css",
+                    "json": "json",
+                    "md": "markdown",
+                }
+                yield {
+                    "type": "file",
+                    "file": {
+                        "path": path,
+                        "language": lang_map.get(ext, "plaintext"),
+                        "content": str(op.get("content") or ""),
+                    },
+                }
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:
         _log.exception("run_reply falhou no stream: %s", exc)

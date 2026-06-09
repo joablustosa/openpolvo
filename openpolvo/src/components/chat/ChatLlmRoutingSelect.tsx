@@ -32,7 +32,7 @@ export function ChatLlmRoutingSelect({
   const withKeys = profiles.filter((p) => p.has_api_key);
 
   return (
-    <Select value={value} onValueChange={onValueChange}>
+    <Select value={value} onValueChange={(v) => onValueChange(v ?? "")}>
       <SelectTrigger
         size="sm"
         disabled={disabled}

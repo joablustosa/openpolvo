@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+
 def merge_compile_sources(
     preview_console_block: str | None,
     compile_log: str | None,

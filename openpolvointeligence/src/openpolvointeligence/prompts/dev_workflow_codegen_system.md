@@ -66,30 +66,37 @@ Imports **apenas** de `@/components/ui/*` (já no scaffold). **Proibido:** `<but
 
 Layout: páginas de conteúdo **não** incluem Navbar duplicada — montam secções dentro de `LandingPage`; o `AppShell` (gerado ou existente) envolve tudo.
 
-**Proibido** `react-router-dom`, `react-router`, `@tanstack/react-query` ou libs **fora** do `package.json` do scaffold.
+**Stack full-stack (scaffold):** Vite + React + react-router-dom + Hono + Drizzle + PGlite.
 
-**Proibido** em qualquer ficheiro: `<Router>`, `<Routes>`, `<Route>`, `<BrowserRouter>`, `<Navigate>`, `import … from "react-router-dom"`. O preview **não** tem essa dependência — causa `ReferenceError: Router is not defined`.
+**Navegação:** multi-página com `react-router-dom` — páginas em `src/pages/*`; o runtime gera `App.tsx` com `<Routes>` se não enviares `src/App.tsx`.
 
-**Navegação:** `<a href="#secao">` na mesma página ou links na `Navbar` (scaffold). Multi-página **não** é suportado no MVP — uma página principal dentro de `AppShell`.
+**Backend:** ficheiros em `server/*` — Hono routes, Drizzle schema em `server/db/schema.ts`, cliente PGlite em `server/db/client.ts`. Frontend consome `/api/*` via `src/lib/api.ts`.
 
-### `src/App.tsx` (OBRIGATÓRIO quando alterares a raiz)
+**Proibido** `@tanstack/react-query`, `next/*` ou libs **fora** do `package.json` do scaffold.
 
-**Nunca** uses Router. Padrão único:
+### `src/App.tsx`
+
+**Evita** `write` em `src/App.tsx` salvo multi-rota explícita — preferir `src/pages/*`; o runtime monta rotas automaticamente.
+
+`react-router-dom` **faz parte** do scaffold (`BrowserRouter` já está no `src/main.tsx`). Quando precisares de declarar rotas, usa `<Routes>`/`<Route>` dentro do `AppShell`:
 
 ```tsx
+import { Routes, Route } from "react-router-dom"
 import AppShell from "@/components/layout/AppShell"
 import LandingPage from "@/pages/LandingPage"
 
 export default function App() {
   return (
     <AppShell>
-      <LandingPage />
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+      </Routes>
     </AppShell>
   )
 }
 ```
 
-Dashboard: `<AppShell showSidebar>`. **Evita** `write` em `src/App.tsx` — preferir só `src/pages/*` e `src/components/*`; o runtime já monta `AppShell` + página.
+Página única: podes renderizar `<LandingPage />` directamente dentro de `<AppShell>`. Dashboard: `<AppShell showSidebar>`. **Evita** `write` em `src/App.tsx` — preferir só `src/pages/*` e `src/components/*`; o runtime já monta `AppShell` + página.
 
 **Não emitas** `write` em `src/components/layout/Navbar.tsx`, `AppShell.tsx` ou `Sidebar.tsx` — o runtime já fornece layout correcto. Personaliza só textos/links nas **páginas** e secções (`Hero`, `Footer`, etc.).
 

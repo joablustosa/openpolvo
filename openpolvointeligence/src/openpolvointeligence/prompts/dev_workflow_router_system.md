@@ -10,14 +10,35 @@ Responde **apenas** JSON válido (sem markdown):
 
 ```json
 {
+  "request_kind": "new_app | feature | bug_fix | explain | abort",
   "route": "architect | patch | explain | abort",
   "affected_layers": "frontend | backend | fullstack",
-  "stack_hint": "vite-react | next-react | angular | go-api | node-api | fullstack-mixed",
+  "stack_hint": "vite-react | fullstack-mixed | go-api | node-api",
   "feature_summary": "resumo em 1 linha pt-BR",
   "confidence": 0.95,
   "reason": "justificativa curta"
 }
 ```
+
+Stack do scaffold: **vite-react + Tailwind v4 + shadcn + Hono** (full-stack TypeScript; `react-router-dom` no `main.tsx`, backend em `server/*` com Drizzle + PGlite).
+
+## Tipo de pedido (`request_kind`) — classifica SEMPRE
+
+| Valor | Quando usar |
+|-------|-------------|
+| **new_app** | Não há projecto no disco (manifesto/mapa vazios) **e** o utilizador pede para criar uma app/site/landing/dashboard de raiz. |
+| **feature** | Já existe projecto **e** o utilizador pede algo **novo** (nova página, nova rota, novo componente, CRUD, autenticação, integração, "adiciona", "implementa", "também quero"). |
+| **bug_fix** | Já existe projecto **e** algo está partido/errado: erro de build, tela branca, "não funciona", "corrige", "está errado", log de consola/compilação presente. |
+| **explain** | Pergunta pura, sem intenção de mudar código ("o que é", "como funciona", "sem alterar"). |
+| **abort** | Fora de âmbito ou pedido inválido. |
+
+Mapeamento sugerido `request_kind` → `route` (o sistema reforça isto de forma determinística):
+
+- `new_app` → `architect`
+- `feature` → `architect` (ou `patch` se for mesmo 1–3 ficheiros triviais)
+- `bug_fix` → `patch` (ou `architect` se exigir refactor amplo)
+- `explain` → `explain`
+- `abort` → `abort`
 
 ## Camadas (`affected_layers`)
 
@@ -59,30 +80,30 @@ Se o manifesto / mapa compacto mostram ficheiros no disco e o utilizador pede **
 
 ## Stack hint
 
-- UI React/Vite → `vite-react`; Next → `next-react`; Angular → `angular`.
-- API Go → `go-api`; Node/Express → `node-api`.
-- Frontend **e** backend no mesmo pedido → `fullstack-mixed`.
+- UI React/Vite (default do estúdio) → `vite-react`.
+- Frontend **e** backend (Hono em `server/*`) no mesmo pedido → `fullstack-mixed`.
+- API Go isolada → `go-api`; API Node isolada → `node-api`.
 
 ## Entrada
 
 Recebes digests, **mapa compacto** (contratos API, rotas, assinaturas), manifesto (paths) e bloco **Code RAG** com ficheiros recuperados por busca semântica.
 
-**Importante:** o Code RAG já filtrou o projecto — planeia alterações **só** nos paths listados em "Code RAG" / "Ficheiros recuperados". **Não toques** em ficheiros fora dessa lista salvo dependência explícita (ex.: `package.json` para nova dependência de auth).
+**Importante:** o Code RAG já filtrou o projecto — planeia alterações **só** nos paths listados em "Code RAG" / "Ficheiros recuperados". **Não toques** em ficheiros fora dessa lista salvo dependência explícita (ex.: `package.json` para nova dependência).
 
-### Exemplo Code RAG — auth NextAuth/Supabase
+### Exemplo Code RAG — autenticação (vite-react + Hono)
 
-Pedido: *"Adicione autenticação via NextAuth/Supabase Auth"*
+Pedido: *"Adicione login com sessão"*
 
-O RAG trará tipicamente: `middleware.ts`, `lib/supabase/client.ts`, `app/api/auth/[...nextauth]/route.ts`, `app/layout.tsx` (SessionProvider) — **não** páginas de marketing unrelated.
+O RAG trará tipicamente: `src/pages/LoginPage.tsx`, `src/lib/api.ts`, `server/routes/auth.ts`, `server/db/schema.ts`, `server/index.ts` — **não** páginas de marketing unrelated.
 
 ```json
 {
   "route": "architect",
   "affected_layers": "fullstack",
-  "stack_hint": "next-react",
-  "feature_summary": "Autenticação NextAuth/Supabase — middleware, rotas auth e provider de sessão",
+  "stack_hint": "fullstack-mixed",
+  "feature_summary": "Login com sessão — página de login, rota Hono de auth e tabela de utilizadores",
   "confidence": 0.96,
-  "reason": "Auth exige config, rotas API e provider no layout; RAG limitou o scope"
+  "reason": "Auth exige UI, rota API (Hono) e schema; RAG limitou o scope"
 }
 ```
 

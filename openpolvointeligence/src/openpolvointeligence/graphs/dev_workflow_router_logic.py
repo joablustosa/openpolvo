@@ -5,6 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
+from openpolvointeligence.graphs.dev_workflow_request_kind import (
+    classify_request_kind,
+    route_for_request_kind,
+)
 from openpolvointeligence.graphs.dev_workflow_state import RouteDecision, StackId
 
 AffectedLayer = Literal["frontend", "backend", "fullstack"]
@@ -258,12 +262,33 @@ def parse_router_response(
     *,
     user_prompt: str,
     has_project: bool = False,
+    has_build_errors: bool = False,
 ) -> dict[str, Any]:
-    """Normaliza JSON do LLM Router."""
-    route = normalize_route(str(data.get("route", "architect")))
+    """Normaliza JSON do LLM Router e classifica o tipo de pedido."""
+    # Classificação explícita: determinística com prioridade, hint do LLM como apoio.
+    request_kind = classify_request_kind(
+        user_prompt,
+        has_project=has_project,
+        has_build_errors=has_build_errors,
+        llm_hint=str(data.get("request_kind") or data.get("kind") or "") or None,
+    )
+
+    llm_route = normalize_route(str(data.get("route", "architect")))
+    # A rota deriva primeiro do tipo de pedido; o LLM só refina dentro do mesmo tipo.
+    kind_route = route_for_request_kind(
+        request_kind,
+        user_prompt=user_prompt,
+        has_project=has_project,
+    )
+    route = normalize_route(kind_route)
+    # Permite ao LLM escolher patch quando o tipo deu architect (bug/feature pequena).
+    if request_kind in ("feature", "bug_fix") and llm_route == "patch":
+        route = "patch"
+
     forced = infer_force_code_route(user_prompt, has_project=has_project)
     if forced and route in ("explain", "abort"):
         route = forced
+
     layer = normalize_affected_layers(
         str(data.get("affected_layers") or data.get("layer") or ""),
         user_prompt,
@@ -273,6 +298,7 @@ def parse_router_response(
     conf = max(0.0, min(1.0, conf))
     return {
         "route": route,
+        "request_kind": request_kind,
         "affected_layers": layer,
         "stack_hint": stack,
         "route_confidence": conf,

@@ -45,7 +45,11 @@ def should_enrich(state: DevWorkflowState, raw_user_prompt: str | None = None) -
         return True
 
     # Se parecer já detalhado (múltiplas frases/itens), não enriquecer.
-    if raw.count(".") >= 2 or raw.count("\n") >= 2 or any(k in raw.lower() for k in ("objetivo", "público", "seções", "secções")):
+    if (
+        raw.count(".") >= 2
+        or raw.count("\n") >= 2
+        or any(k in raw.lower() for k in ("objetivo", "público", "seções", "secções"))
+    ):
         return False
 
     # Perguntas muito abertas (“faz um site”, “melhora isso”) beneficiam.
@@ -111,4 +115,3 @@ def normalize_enriched_prompt(data: dict[str, Any], *, raw: str) -> dict[str, An
 
 def build_raw_user_prompt(messages: list[dict[str, Any]] | None) -> str:
     return _norm(last_user_text(messages or [], 4000))
-

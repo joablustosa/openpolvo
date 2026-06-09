@@ -53,7 +53,11 @@ def _parse_critic_json(raw: str) -> dict[str, Any]:
     if s.startswith("```"):
         lines = s.split("\n")
         if len(lines) >= 2:
-            inner = "\n".join(lines[1:-1]) if lines[-1].strip().startswith("```") else "\n".join(lines[1:])
+            inner = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip().startswith("```")
+                else "\n".join(lines[1:])
+            )
             s = inner.strip()
     try:
         d = json.loads(s)
@@ -118,7 +122,11 @@ def build_web_research_graph(settings: Settings) -> Any:
         if not norm:
             norm = [{"q": uq[:400] or "pesquisa", "engine": "duckduckgo"}]
         trace.append(f"plan:{len(norm)} queries")
-        return {"queries": norm, "refine_round": int(state.get("refine_round") or 0), "trace": trace}
+        return {
+            "queries": norm,
+            "refine_round": int(state.get("refine_round") or 0),
+            "trace": trace,
+        }
 
     async def node_research(state: WebResearchState) -> dict[str, Any]:
         trace = list(state.get("trace") or [])
@@ -220,12 +228,15 @@ def build_web_research_graph(settings: Settings) -> Any:
         extra_parts: list[str] = []
         uni = str(state.get("unified_cross_site") or "").strip()
         if uni:
-            extra_parts.append("## Consolidação multi-site (grafo unificador)\n" + _clip(uni, 10_000))
+            extra_parts.append(
+                "## Consolidação multi-site (grafo unificador)\n" + _clip(uni, 10_000)
+            )
         sblocks = state.get("site_blocks") or []
         if isinstance(sblocks, list) and sblocks:
             joined = "\n\n---\n\n".join(str(x) for x in sblocks if x)
             extra_parts.append(
-                "## Conteúdo por URL (trafilatura + agente de extração web)\n" + _clip(joined, 12_000)
+                "## Conteúdo por URL (trafilatura + agente de extração web)\n"
+                + _clip(joined, 12_000)
             )
         extra = ""
         if extra_parts:
@@ -258,11 +269,7 @@ def build_web_research_graph(settings: Settings) -> Any:
         dossier = str(state.get("dossier", "")).strip()
         bundle = _clip("\n\n---\n\n".join(state.get("snippets") or []))
         uni = str(state.get("unified_cross_site") or "").strip()
-        uni_blk = (
-            f"\n\n## Consolidação multi-site\n{_clip(uni, 8000)}\n"
-            if uni
-            else ""
-        )
+        uni_blk = f"\n\n## Consolidação multi-site\n{_clip(uni, 8000)}\n" if uni else ""
         user = (
             f"## Pedido do utilizador\n{uq}\n\n## Dossier de trabalho (interno)\n{dossier}"
             f"{uni_blk}\n\n## Excertos brutos (referência de URLs)\n{bundle}"

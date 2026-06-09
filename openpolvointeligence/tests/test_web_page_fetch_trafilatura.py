@@ -1,6 +1,9 @@
 """Extração principal HTML (trafilatura) para pesquisa web."""
 
-from openpolvointeligence.graphs.web_page_fetch import extract_main_content_trafilatura, strip_html_to_text
+from openpolvointeligence.graphs.web_page_fetch import (
+    extract_main_content_trafilatura,
+    strip_html_to_text,
+)
 
 
 def test_trafilatura_prefers_article_over_nav_noise() -> None:

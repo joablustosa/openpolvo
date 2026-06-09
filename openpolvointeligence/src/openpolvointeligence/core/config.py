@@ -26,12 +26,20 @@ class Settings(BaseSettings):
     serpapi_ddg_kl: str | None = Field(default=None, validation_alias="SERPAPI_DDG_KL")
     serpapi_ddg_safe: int = Field(default=0, validation_alias="SERPAPI_DDG_SAFE")
     # Pesquisa web: aprofundar N URLs dos resultados SerpAPI (fetch + sub-grafo por site).
-    web_research_max_deep_urls: int = Field(default=4, validation_alias="WEB_RESEARCH_MAX_DEEP_URLS")
+    web_research_max_deep_urls: int = Field(
+        default=4, validation_alias="WEB_RESEARCH_MAX_DEEP_URLS"
+    )
     web_fetch_timeout_s: float = Field(default=18.0, validation_alias="WEB_FETCH_TIMEOUT_S")
-    web_fetch_max_response_bytes: int = Field(default=600_000, validation_alias="WEB_FETCH_MAX_RESPONSE_BYTES")
-    web_fetch_max_text_chars: int = Field(default=24_000, validation_alias="WEB_FETCH_MAX_TEXT_CHARS")
+    web_fetch_max_response_bytes: int = Field(
+        default=600_000, validation_alias="WEB_FETCH_MAX_RESPONSE_BYTES"
+    )
+    web_fetch_max_text_chars: int = Field(
+        default=24_000, validation_alias="WEB_FETCH_MAX_TEXT_CHARS"
+    )
     # Extração principal do HTML (trafilatura); se falso, usa só regex interna.
-    web_fetch_use_trafilatura: bool = Field(default=True, validation_alias="WEB_FETCH_USE_TRAFILATURA")
+    web_fetch_use_trafilatura: bool = Field(
+        default=True, validation_alias="WEB_FETCH_USE_TRAFILATURA"
+    )
     port: int = Field(default=8090, validation_alias="PORT")
 
     @field_validator("serpapi_ddg_safe", mode="before")
@@ -43,10 +51,13 @@ class Settings(BaseSettings):
             return int(v)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return 0
+
     host: str = Field(default="0.0.0.0", validation_alias="HOST")
     # Raízes para procurar `.cursor/skills/**/SKILL.md` (separador `;` ou `,`). Vazio = auto-detect.
     skills_scan_roots: str = Field(default="", validation_alias="OP_SKILLS_SCAN_ROOTS")
-    skills_prompt_budget_chars: int = Field(default=6000, validation_alias="OP_SKILLS_PROMPT_BUDGET_CHARS")
+    skills_prompt_budget_chars: int = Field(
+        default=6000, validation_alias="OP_SKILLS_PROMPT_BUDGET_CHARS"
+    )
     # Code RAG (pgvector + embeddings)
     code_rag_database_url: str = Field(default="", validation_alias="CODE_RAG_DATABASE_URL")
     code_rag_embedding_model: str = Field(
@@ -55,10 +66,45 @@ class Settings(BaseSettings):
     )
     code_rag_router_top_k: int = Field(default=8, validation_alias="CODE_RAG_ROUTER_TOP_K")
     code_rag_auto_index: bool = Field(default=True, validation_alias="CODE_RAG_AUTO_INDEX")
+    # Dev Workflow Teams — worker+revisor por etapa
+    dev_workflow_team_mode: bool = Field(default=True, validation_alias="DEV_WORKFLOW_TEAM_MODE")
+    dev_workflow_max_review_rounds: int = Field(
+        default=3,
+        validation_alias="DEV_WORKFLOW_MAX_REVIEW_ROUNDS",
+    )
+    # Build sandbox real (tsc/vite) — portão anti-bug. Desligado por defeito:
+    # degrade graciosamente quando não há Node/npm ou o flag está off.
+    dev_workflow_build_sandbox_enabled: bool = Field(
+        default=False,
+        validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_ENABLED",
+    )
+    dev_workflow_build_sandbox_tool: str = Field(
+        default="tsc",
+        validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_TOOL",
+    )
+    dev_workflow_build_sandbox_package_manager: str = Field(
+        default="npm",
+        validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_PACKAGE_MANAGER",
+    )
+    dev_workflow_build_sandbox_install_timeout_s: float = Field(
+        default=240.0,
+        validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_INSTALL_TIMEOUT_S",
+    )
+    dev_workflow_build_sandbox_build_timeout_s: float = Field(
+        default=120.0,
+        validation_alias="DEV_WORKFLOW_BUILD_SANDBOX_BUILD_TIMEOUT_S",
+    )
+    # RAG de memória de erros (pares erro→fix por conversa/projecto).
+    dev_workflow_error_memory_enabled: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_ERROR_MEMORY_ENABLED",
+    )
 
     @property
     def has_any_llm_key(self) -> bool:
-        return bool((self.openai_api_key or "").strip()) or bool((self.google_api_key or "").strip())
+        return bool((self.openai_api_key or "").strip()) or bool(
+            (self.google_api_key or "").strip()
+        )
 
 
 @lru_cache

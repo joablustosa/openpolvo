@@ -8,7 +8,11 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from openpolvointeligence.graphs.message_utils import conversation_summary, last_user_text, tail_messages
+from openpolvointeligence.graphs.message_utils import (
+    conversation_summary,
+    last_user_text,
+    tail_messages,
+)
 from openpolvointeligence.graphs.models import get_chat_model
 
 _MAX_GLOBAL = 6000
@@ -75,7 +79,7 @@ async def merge_global_memory_llm(
     summary = conversation_summary(capped, last_n=12)
     sys = (
         "És um compressor de memória para um assistente. Recebes o resumo recente do chat e a memória global "
-        "anterior. Produz APENAS um JSON válido: {\"global_memory\": \"...\"}.\n"
+        'anterior. Produz APENAS um JSON válido: {"global_memory": "..."}.\n'
         "A string `global_memory` deve ter no máximo 4500 caracteres, em português europeu, estilo bullet ou frases curtas: "
         "preferências do utilizador, nomes, stack, URLs, decisões de produto. Omite trivialidades e mensagens de saudação. "
         "Se a memória anterior ainda for válida, funde-a com novidades; remove contradições antigas."
@@ -119,7 +123,10 @@ async def finalize_reply_metadata(
     if should_refresh_memory_facts(messages):
         try:
             new_global = await merge_global_memory_llm(
-                settings, model_provider, messages, prev["global"],
+                settings,
+                model_provider,
+                messages,
+                prev["global"],
             )
         except Exception:
             new_global = None

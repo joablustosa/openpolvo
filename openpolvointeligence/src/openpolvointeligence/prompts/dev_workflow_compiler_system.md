@@ -38,25 +38,27 @@ Responde **apenas** JSON válido:
 6. **Syntax / JSX** — tags não fechadas, `}` em falta, aspas, ponto-e-vírgula.
 7. **TypeScript** — corrige tipos só na linha indicada; não reescrevas interfaces inteiras.
 8. **Module not found / Failed to resolve import** — escolhe **uma** via:
-   - **Preferir:** remover o import e usar alternativa já no projecto (ex.: `<a href>` em vez de `react-router-dom` se não está em `package.json`).
+   - **Preferir:** corrigir o caminho do import para um ficheiro/pacote já no scaffold (`react`, `react-dom`, `react-router-dom`, `lucide-react`, `hono`, `drizzle-orm`, `@electric-sql/pglite`, `@/components/ui/*`).
    - **Ou:** `write` em `package.json` com a dependência em `dependencies` + `npm_install: true` no metadata (o cliente corre `npm install` no retry).
    - **Proibido:** deixar import de pacote ausente sem corrigir `package.json` ou o ficheiro.
-8b. **`ReferenceError: Router is not defined`** (ou `Routes` / `Route`) — o scaffold **não** tem `react-router-dom`. **Não** adiciones esse import. Reescreve `src/App.tsx` no padrão:
+8b. **`ReferenceError: Router is not defined`** (ou `Routes` / `Route`) — `react-router-dom` **faz parte** do scaffold. **Não** o removas: adiciona o import em falta. Padrão: `BrowserRouter` envolve a app no `src/main.tsx` e `src/App.tsx` declara as rotas:
 
 ```tsx
+import { Routes, Route } from "react-router-dom"
 import AppShell from "@/components/layout/AppShell"
-import SuaPage from "@/pages/SuaPage"
+import HomePage from "@/pages/HomePage"
 
 export default function App() {
   return (
     <AppShell>
-      <SuaPage />
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+      </Routes>
     </AppShell>
   )
 }
 ```
 
-Remove `<Router>`, `<Routes>`, `<Route>` por completo.
 9. Máximo **3 patches** e **2 ficheiros** por resposta.
 10. Se o erro for **impossível** de corrigir sem contexto: `"operations": []` e explica em `heal_summary`.
 

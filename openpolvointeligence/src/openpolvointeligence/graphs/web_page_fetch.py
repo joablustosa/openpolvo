@@ -94,7 +94,10 @@ async def fetch_url_plaintext(
         async with httpx.AsyncClient(
             timeout=timeout_s,
             follow_redirects=True,
-            headers={"User-Agent": _DEFAULT_UA, "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"},
+            headers={
+                "User-Agent": _DEFAULT_UA,
+                "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+            },
         ) as client:
             resp = await client.get(u)
             resp.raise_for_status()

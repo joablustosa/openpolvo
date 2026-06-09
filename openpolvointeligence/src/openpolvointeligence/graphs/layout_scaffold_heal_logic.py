@@ -46,4 +46,3 @@ def build_layout_scaffold_heal_ops(compile_log: str) -> list[dict[str, Any]] | N
         if content:
             ops.append({"op": "write", "path": path, "content": content})
     return ops or None
-

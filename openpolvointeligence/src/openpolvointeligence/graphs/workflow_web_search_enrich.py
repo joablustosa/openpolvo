@@ -38,7 +38,9 @@ async def run_workflow_web_search_enrich(
     max_u = max(1, min(8, int(settings.web_research_max_deep_urls or 4)))
     urls = pick_urls_for_deep_dive([synthetic], max_urls=max_u, max_per_host=2)
     if not urls:
-        return "## Conteúdo extraído das páginas\n_(Nenhuma URL elegível para aprofundamento seguro.)_"
+        return (
+            "## Conteúdo extraído das páginas\n_(Nenhuma URL elegível para aprofundamento seguro.)_"
+        )
 
     site_g = build_site_research_graph(settings)
     sem = asyncio.Semaphore(3)

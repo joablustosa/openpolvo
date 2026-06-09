@@ -193,6 +193,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDevStudioProject,
       clearDevStudio,
       devStudioPreviewGeneration,
+      restartDevStudioPreview,
     }),
     [
       activeApp,

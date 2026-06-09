@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 type MediaEl = HTMLElement;
 
-const MIN_HOST_HEIGHT_PX = 64;
+const MIN_HOST_HEIGHT_PX = 32;
 
 /**
  * Electron <webview> e iframes não herdam bem height:100% em cadeias flex.
@@ -42,16 +42,37 @@ export function usePreviewSurfaceFill(deps: unknown[]) {
       syncSize();
       requestAnimationFrame(syncSize);
     });
-    const t = window.setTimeout(syncSize, 120);
+
+    // Re-sincroniza durante os primeiros segundos: cobre o webview/iframe que
+    // anexa tarde ou só ganha altura depois do dom-ready da página gerada.
+    const timeouts = [80, 200, 400, 800, 1500, 2500].map((ms) =>
+      window.setTimeout(syncSize, ms),
+    );
+
     const ro = new ResizeObserver(() => syncSize());
     ro.observe(container);
     window.addEventListener("resize", syncSize);
 
+    // Electron webview: re-sincroniza quando o conteúdo termina de carregar.
+    const media = mediaRef.current;
+    const onDomReady = () => syncSize();
+    if (media && media.tagName.toLowerCase() === "webview") {
+      media.addEventListener("dom-ready", onDomReady);
+      media.addEventListener("did-finish-load", onDomReady);
+    } else if (media && media.tagName.toLowerCase() === "iframe") {
+      media.addEventListener("load", onDomReady);
+    }
+
     return () => {
       cancelAnimationFrame(raf1);
-      window.clearTimeout(t);
+      timeouts.forEach((t) => window.clearTimeout(t));
       ro.disconnect();
       window.removeEventListener("resize", syncSize);
+      if (media) {
+        media.removeEventListener("dom-ready", onDomReady);
+        media.removeEventListener("did-finish-load", onDomReady);
+        media.removeEventListener("load", onDomReady);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-sync quando URL/recarrega
   }, [syncSize, ...deps]);

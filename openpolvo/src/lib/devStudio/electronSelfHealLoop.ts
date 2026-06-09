@@ -32,6 +32,8 @@ export type ElectronSelfHealOptions = {
   runInstall: boolean;
   userPrompt?: string;
   designTokens?: Partial<DesignTokens>;
+  /** Conversa ativa: chaveia o RAG de memória de erros por projeto no Intelligence. */
+  conversationId?: string;
   bootstrapNewProject?: {
     title: string;
     files: { path: string; content: string }[];
@@ -136,8 +138,11 @@ export async function applyOpsInElectronWithSelfHeal(
         title: bootstrap.title,
         files: bootstrap.files,
       });
-      if (!wpRes.ok || !("workspacePath" in wpRes) || !wpRes.workspacePath) {
+      if (!wpRes.ok) {
         throw new Error(wpRes.error ?? "Falha ao criar o projecto.");
+      }
+      if (!wpRes.workspacePath) {
+        throw new Error("Falha ao criar o projecto.");
       }
       workspacePath = wpRes.workspacePath;
     } else if (pendingOps.length) {
@@ -191,7 +196,7 @@ export async function applyOpsInElectronWithSelfHeal(
     if (deterministic?.length) {
       pendingOps = deterministic;
       lastHealSummary =
-        "Layout scaffold restaurado (AppShell, Navbar, Sidebar; sem react-router-dom).";
+        "Layout scaffold restaurado (AppShell, Navbar, Sidebar).";
       healAttempts += 1;
       continue;
     }
@@ -201,6 +206,7 @@ export async function applyOpsInElectronWithSelfHeal(
       preview_console_logs: previewConsoleLogsFromCompileLog(compileLog),
       project_files: projectFilesForHeal,
       user_prompt: options.userPrompt,
+      conversation_id: options.conversationId,
     });
 
     if (!heal.heal_ops.length) {

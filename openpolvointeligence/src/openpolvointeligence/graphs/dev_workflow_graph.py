@@ -1,11 +1,17 @@
-"""Grafo LangGraph para desenvolvimento de apps (Frontend Angular/Next + Backend Go/Node).
+"""Grafo LangGraph para desenvolvimento de apps.
 
-Fluxo:
-  START → context_manager → router → (architect?) → code_generator → compiler_checker
-                                                                    ↺ self_healer (retry)
-                                                                    → context_finalize → END
+Stack do scaffold: **vite-react + Tailwind v4 + shadcn + Hono** (full-stack TS;
+react-router-dom no main.tsx). Sem Angular/Next/NextAuth/Supabase.
 
-Estratégia de tokens: ver docstring de ``DevWorkflowState`` e ``_prompt_bundle``.
+Fluxo (team mode):
+  START → prompt_enricher (time) → context_manager → router
+        → architect (time) → orchestrator (time) → code_generator (time)
+        → static_verify → compiler_checker → build_sandbox ↺ self_healer
+        → context_finalize → END
+
+Fluxo legacy (DEV_WORKFLOW_TEAM_MODE=false):
+  START → prompt_enricher → context_manager → router → architect → code_generator
+        → compiler_checker → build_sandbox ↺ self_healer → context_finalize → END
 """
 
 from __future__ import annotations
@@ -41,11 +47,32 @@ from openpolvointeligence.graphs.dev_workflow_router_logic import (
     build_router_human_suffix,
     parse_router_response,
 )
+from openpolvointeligence.graphs.dev_workflow_request_kind import create_project_for_kind
 from openpolvointeligence.graphs.dev_workflow_codegen_logic import (
     build_codegen_file_excerpts,
     resolve_codegen_operations,
 )
-from openpolvointeligence.graphs.dev_workflow_code_rag import run_code_rag_for_router
+from openpolvointeligence.graphs.dev_workflow_code_rag import (
+    reindex_project_files,
+    retrieve_for_architect,
+    retrieve_for_codegen_task,
+    run_code_rag_for_router,
+    stable_project_id,
+)
+from openpolvointeligence.graphs.dev_workflow_style_rag import (
+    build_style_guide_block,
+    design_tokens_from_style_guide,
+    retrieve_style_guide,
+)
+from openpolvointeligence.graphs.dev_workflow_build_sandbox import (
+    build_errors_to_digest,
+    run_build_sandbox,
+)
+from openpolvointeligence.graphs.dev_workflow_error_memory import (
+    build_error_memory_block,
+    index_error_fix,
+    recall_similar_errors,
+)
 from openpolvointeligence.graphs.dev_workflow_prompt_enricher_logic import (
     build_raw_user_prompt,
     normalize_enriched_prompt,
@@ -64,6 +91,16 @@ from openpolvointeligence.graphs.dev_workflow_context_manager import (
     run_context_manager,
 )
 from openpolvointeligence.graphs.preview_console_context import merge_preview_console_block
+from openpolvointeligence.graphs.dev_workflow_static_verify import run_static_verify
+from openpolvointeligence.graphs.dev_workflow_orchestrator_logic import (
+    build_tasks_from_plan,
+)
+from openpolvointeligence.graphs.dev_workflow_team_integration import (
+    run_architect_team,
+    run_fullstack_codegen_team,
+    run_orchestrator_team,
+    run_prompt_enricher_team,
+)
 
 _logger = logging.getLogger(__name__)
 _PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
@@ -130,6 +167,32 @@ def _prompt_bundle(state: DevWorkflowState) -> str:
     )
 
 
+def _request_kind_codegen_directive(kind: str) -> str:
+    """Directiva curta que orienta o codegen consoante o tipo de pedido."""
+    k = (kind or "").strip().lower()
+    if k == "new_app":
+        return (
+            "\n\n## Tipo de pedido: NOVA APLICAÇÃO\n"
+            "Gera o projecto completo e coerente (multi-página com react-router-dom, "
+            "componentes shadcn reais, lógica funcional). Pode usar writes completos."
+        )
+    if k == "feature":
+        return (
+            "\n\n## Tipo de pedido: NOVA FEATURE\n"
+            "NÃO recries o scaffold nem ficheiros existentes que não mudam. "
+            "Cria só os ficheiros novos da feature e aplica PATCHES mínimos (old_text exacto) "
+            "nos ficheiros existentes que precisam de ligação (rotas, navegação, imports)."
+        )
+    if k == "bug_fix":
+        return (
+            "\n\n## Tipo de pedido: CORRECÇÃO DE BUG\n"
+            "Altera o MÍNIMO necessário para resolver o erro. Usa PATCHES (old_text exacto) "
+            "nos ficheiros afectados. NÃO reescrevas ficheiros inteiros nem recries o scaffold. "
+            "Mantém o resto do código intacto."
+        )
+    return ""
+
+
 def _normalize_route(raw: str) -> RouteDecision:
     from openpolvointeligence.graphs.dev_workflow_router_logic import normalize_route
 
@@ -142,9 +205,9 @@ def _normalize_stack(raw: str | None) -> StackId | None:
     return normalize_stack(raw)
 
 
-def route_after_router(state: DevWorkflowState) -> Literal[
-    "architect", "code_generator", "explain_end", "abort_end"
-]:
+def route_after_router(
+    state: DevWorkflowState,
+) -> Literal["architect", "code_generator", "explain_end", "abort_end"]:
     route = state.get("route") or "architect"
     has_project = bool(str(state.get("workspace_id") or "").strip()) or bool(
         state.get("project_files"),
@@ -160,8 +223,24 @@ def route_after_router(state: DevWorkflowState) -> Literal[
     return "architect"
 
 
-def route_after_compiler(state: DevWorkflowState) -> Literal["context_finalize", "retry_self_heal"]:
+def route_after_compiler(
+    state: DevWorkflowState,
+) -> Literal["build_sandbox", "context_finalize", "retry_self_heal"]:
     if state.get("compile_ok"):
+        # Build sandbox real é o portão final anti-bug antes de finalizar.
+        return "build_sandbox"
+    attempt = int(state.get("compile_attempt") or 0)
+    max_r = int(state.get("max_compile_retries") or DEFAULT_MAX_COMPILE_RETRIES)
+    if attempt < max_r:
+        return "retry_self_heal"
+    return "context_finalize"
+
+
+def route_after_build_sandbox(
+    state: DevWorkflowState,
+) -> Literal["context_finalize", "retry_self_heal"]:
+    br = state.get("build_result") or {}
+    if not isinstance(br, dict) or br.get("ok"):
         return "context_finalize"
     attempt = int(state.get("compile_attempt") or 0)
     max_r = int(state.get("max_compile_retries") or DEFAULT_MAX_COMPILE_RETRIES)
@@ -170,35 +249,90 @@ def route_after_compiler(state: DevWorkflowState) -> Literal["context_finalize",
     return "context_finalize"
 
 
+def route_after_static_verify(
+    state: DevWorkflowState,
+) -> Literal["compiler_checker", "retry_self_heal"]:
+    sv = state.get("static_verify") or {}
+    if isinstance(sv, dict) and sv.get("ok"):
+        return "compiler_checker"
+    attempt = int(state.get("compile_attempt") or 0)
+    max_r = int(state.get("max_compile_retries") or DEFAULT_MAX_COMPILE_RETRIES)
+    if attempt < max_r:
+        return "retry_self_heal"
+    return "compiler_checker"
+
+
 def build_dev_workflow_graph(settings: Settings) -> Any:
+    team_mode = bool(getattr(settings, "dev_workflow_team_mode", True))
+    max_review_rounds = int(getattr(settings, "dev_workflow_max_review_rounds", 3) or 3)
+
     router_sys = _load_prompt("dev_workflow_router_system")
     architect_sys = _load_prompt("dev_workflow_architect_system")
     codegen_sys = _load_prompt("dev_workflow_codegen_system")
+    style_sys = _load_prompt("dev_workflow_style_system")
     enricher_sys = _load_prompt("dev_workflow_prompt_enricher_system")
+    prompt_reviewer_sys = _load_prompt("dev_workflow_prompt_reviewer_system") if team_mode else ""
+    plan_reviewer_sys = _load_prompt("dev_workflow_plan_reviewer_system") if team_mode else ""
+    orchestrator_sys = _load_prompt("dev_workflow_orchestrator_system") if team_mode else ""
+    code_reviewer_sys = _load_prompt("dev_workflow_code_reviewer_system") if team_mode else ""
 
     async def node_prompt_enricher(state: DevWorkflowState) -> dict[str, Any]:
         """Produtifica pedidos vagos/curtos sem bloquear alterações incrementais."""
         trace = truncate_trace(list(state.get("trace") or []))
+        team_traces = dict(state.get("team_traces") or {})
         msgs = state.get("messages") or []
         raw = build_raw_user_prompt(msgs)
+        compile_attempt = int(state.get("compile_attempt") or 0)
 
-        if not should_enrich(state, raw):
+        if not should_enrich(state, raw) or compile_attempt > 0:
             return {
                 "raw_user_prompt": raw,
                 "user_prompt": raw,
                 "enrichment_skipped": True,
                 "trace": trace + ["prompt_enricher:skip"],
+                "team_traces": team_traces,
+            }
+
+        short_history = tail_messages(msgs, 14)
+        short_history_json = json.dumps(short_history, ensure_ascii=False)[:8000]
+
+        if team_mode:
+            team_out = await run_prompt_enricher_team(
+                settings,
+                dict(state),
+                enricher_sys=enricher_sys,
+                prompt_reviewer_sys=prompt_reviewer_sys,
+                raw=raw,
+                short_history_json=short_history_json,
+                max_rounds=max_review_rounds,
+            )
+            enriched = team_out["enriched"]
+            team_traces["prompt"] = team_out["trace"]
+            review = team_out.get("review") or {}
+            return {
+                "raw_user_prompt": raw,
+                "enriched_prompt": enriched.get("full_prompt") or raw,
+                "enriched_brief": {
+                    "objective": enriched.get("objective") or "",
+                    "audience": enriched.get("audience") or "",
+                    "sections": enriched.get("sections") or [],
+                    "tone": enriched.get("tone") or "",
+                    "palette_hint": enriched.get("palette_hint") or "",
+                    "layout_shell": enriched.get("layout_shell") or "marketing",
+                },
+                "user_prompt": str(enriched.get("full_prompt") or raw)[:4000],
+                "enrichment_skipped": False,
+                "prompt_review": review,
+                "team_traces": team_traces,
+                "team_rounds": {
+                    **(state.get("team_rounds") or {}),
+                    "prompt": team_out.get("rounds", 1),
+                },
+                "trace": trace + ["prompt_enricher:team"],
             }
 
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=True)
-        # Contexto mínimo: pedido cru + histórico curto (sem ficheiros; isso entra no context_manager).
-        short_history = tail_messages(msgs, 14)
-        human = (
-            "## Pedido cru\n"
-            + raw[:4000]
-            + "\n\n## Histórico curto\n"
-            + json.dumps(short_history, ensure_ascii=False)[:8000]
-        )
+        human = "## Pedido cru\n" + raw[:4000] + "\n\n## Histórico curto\n" + short_history_json
         resp = await chat.ainvoke(
             [SystemMessage(content=enricher_sys), HumanMessage(content=human)],
         )
@@ -218,6 +352,7 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             "user_prompt": str(enriched.get("full_prompt") or raw)[:4000],
             "enrichment_skipped": False,
             "trace": trace + ["prompt_enricher"],
+            "team_traces": team_traces,
         }
 
     async def node_context_manager(state: DevWorkflowState) -> dict[str, Any]:
@@ -249,10 +384,12 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         if compile_attempt > 0 and error_digest:
             return {
                 "route": "patch",
+                "request_kind": "bug_fix",
                 "affected_layers": state.get("affected_layers") or "fullstack",
                 "stack_hint": state.get("stack_hint"),
                 "route_confidence": 1.0,
                 "route_reason": "retry pós-compilador",
+                "style_guide": state.get("style_guide") or {},
                 "trace": trace + ["router:patch_retry"],
             }
 
@@ -277,46 +414,142 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         has_project = bool(str(state.get("workspace_id") or "").strip()) or bool(
             state.get("project_files"),
         )
+        has_build_errors = bool(
+            (state.get("preview_console_block") or "").strip()
+            or (state.get("compile_log") or "").strip()
+        )
         parsed = parse_router_response(
             data,
             user_prompt=str(state.get("user_prompt") or ""),
             has_project=has_project,
+            has_build_errors=has_build_errors,
         )
 
-        trace_suffix = f"router:{parsed['route']}:{parsed['affected_layers']}"
+        trace_suffix = (
+            f"router:{parsed['route']}:{parsed.get('request_kind')}:{parsed['affected_layers']}"
+        )
         if rag_update.get("rag_relevant_paths"):
             trace_suffix += f":rag{len(rag_update['rag_relevant_paths'])}"
+
+        brief = (
+            state.get("enriched_brief") if isinstance(state.get("enriched_brief"), dict) else None
+        )
+        style_guide = retrieve_style_guide(str(state.get("user_prompt") or ""), brief)
 
         return {
             **parsed,
             **rag_update,
-            "trace": trace + [trace_suffix],
+            "style_guide": style_guide,
+            "trace": trace + [f"{trace_suffix}:style:{style_guide.get('domain')}"],
         }
 
     async def node_architect(state: DevWorkflowState) -> dict[str, Any]:
         trace = truncate_trace(list(state.get("trace") or []))
-        chat = get_chat_model(settings, state.get("model_provider"), json_mode=True)
+        team_traces = dict(state.get("team_traces") or {})
         manifest_paths = [
             str(r.get("path", ""))
             for r in (state.get("file_manifest") or [])
             if isinstance(r, dict) and r.get("path")
         ]
-        human = _prompt_bundle(state) + build_architect_human_suffix(state)
+        style_guide = state.get("style_guide") or {}
+        style_tokens = design_tokens_from_style_guide(style_guide)
+        style_block = build_style_guide_block(style_guide)
+
+        # Code RAG focado no plano (reusa bloco do router se já recuperado).
+        arch_rag_block = str(state.get("rag_context_block") or "")
+        if not arch_rag_block:
+            project_id = stable_project_id(dict(state))
+            arch_rag_block, _ = await retrieve_for_architect(
+                settings,
+                project_id,
+                str(state.get("user_prompt") or ""),
+                feature_summary=str(state.get("feature_summary") or ""),
+            )
+
+        human = (
+            _prompt_bundle(state)
+            + _request_kind_codegen_directive(str(state.get("request_kind") or ""))
+            + build_architect_human_suffix(state)
+            + (f"\n\n{style_block}" if style_block else "")
+            + (f"\n\n{arch_rag_block}" if arch_rag_block else "")
+        )
+        layer = state.get("affected_layers") or "fullstack"
+
+        def normalize_plan_fn(data: dict[str, Any]) -> dict[str, Any]:
+            # O Architect usa o style_guide para preencher design_tokens quando o
+            # LLM não os fornece (o LLM tem prioridade quando os define).
+            if style_tokens and not data.get("design_tokens"):
+                data = {**data, "design_tokens": style_tokens}
+            return normalize_architect_plan(
+                data,
+                affected_layers=layer,  # type: ignore[arg-type]
+                stack_hint=state.get("stack_hint"),
+                user_prompt=str(state.get("user_prompt") or ""),
+                manifest_paths=manifest_paths,
+                compact_context_map=state.get("compact_context_map") or {},
+                rag_relevant_paths=list(state.get("rag_relevant_paths") or []),
+            )
+
+        if team_mode:
+            team_out = await run_architect_team(
+                settings,
+                dict(state),
+                architect_sys=architect_sys,
+                plan_reviewer_sys=plan_reviewer_sys,
+                human_base=human,
+                normalize_plan_fn=normalize_plan_fn,
+                max_rounds=max_review_rounds,
+            )
+            plan = team_out["plan"]
+            team_traces["plan"] = team_out["trace"]
+            return {
+                "plan": plan,
+                "plan_review": team_out.get("review") or {},
+                "plan_approved": bool((team_out.get("review") or {}).get("approved")),
+                "team_traces": team_traces,
+                "trace": trace + [f"architect:team:{len(plan.get('targets') or [])}files"],
+            }
+
+        chat = get_chat_model(settings, state.get("model_provider"), json_mode=True)
         resp = await chat.ainvoke(
             [SystemMessage(content=architect_sys), HumanMessage(content=human)],
         )
         data = _parse_json_object(str(resp.content))
-        layer = state.get("affected_layers") or "fullstack"
-        plan = normalize_architect_plan(
-            data,
-            affected_layers=layer,  # type: ignore[arg-type]
-            stack_hint=state.get("stack_hint"),
-            user_prompt=str(state.get("user_prompt") or ""),
-            manifest_paths=manifest_paths,
-            compact_context_map=state.get("compact_context_map") or {},
-            rag_relevant_paths=list(state.get("rag_relevant_paths") or []),
-        )
+        plan = normalize_plan_fn(data)
         return {"plan": plan, "trace": trace + [f"architect:{len(plan.get('targets') or [])}files"]}
+
+    async def node_orchestrator(state: DevWorkflowState) -> dict[str, Any]:
+        """Decompõe plano aprovado em build_tasks ordenadas (time)."""
+        trace = truncate_trace(list(state.get("trace") or []))
+        team_traces = dict(state.get("team_traces") or {})
+        plan = state.get("plan") or {}
+
+        if not team_mode:
+            tasks = build_tasks_from_plan(
+                {**plan, "_project_files": state.get("project_files") or {}}
+            )
+            return {
+                "build_tasks": tasks,
+                "orchestration": {"skipped": True},
+                "trace": trace + ["orchestrator:skip"],
+            }
+
+        team_out = await run_orchestrator_team(
+            settings,
+            dict(state),
+            orchestrator_sys=orchestrator_sys,
+            max_rounds=max_review_rounds,
+        )
+        team_traces["orchestrator"] = team_out["trace"]
+        return {
+            "build_tasks": team_out["build_tasks"],
+            "orchestration": {
+                "approved": bool((team_out.get("review") or {}).get("approved")),
+                "notes": team_out.get("notes") or "",
+            },
+            "team_traces": team_traces,
+            "trace": trace + [f"orchestrator:{len(team_out['build_tasks'])}tasks"],
+        }
 
     async def node_code_generator(state: DevWorkflowState) -> dict[str, Any]:
         trace = truncate_trace(list(state.get("trace") or []))
@@ -331,13 +564,10 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
 
         if prebuilt and not (state.get("error_digest") or []):
             rationales = [
-                str(d.get("rationale", "")).strip()
-                for d in diff_instructions
-                if d.get("rationale")
+                str(d.get("rationale", "")).strip() for d in diff_instructions if d.get("rationale")
             ]
-            assistant = (
-                "Apliquei as alterações pedidas no preview (modo patch)."
-                + (f" {rationales[0][:200]}" if rationales else "")
+            assistant = "Apliquei as alterações pedidas no preview (modo patch)." + (
+                f" {rationales[0][:200]}" if rationales else ""
             )
             valid, verr = validate_polvo_code_operations(prebuilt)
             meta = build_polvo_code_ops_metadata(
@@ -345,20 +575,18 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
                 valid,
                 verr,
                 create_project=False,
-                npm_install=any(
-                    str(o.get("path", "")).endswith("package.json") for o in valid
-                ),
+                npm_install=any(str(o.get("path", "")).endswith("package.json") for o in valid),
             )
             meta["dev_workflow"] = {
                 "stack": (state.get("compact_context_map") or {}).get("stack"),
                 "route": state.get("route"),
+                "request_kind": str(state.get("request_kind") or "") or None,
                 "compile_attempt": state.get("compile_attempt") or 0,
                 "edit_mode": "diff_patch",
             }
             return {
                 "pending_writes": [
-                    {"op": o["op"], "path": o["path"], "content": o.get("content")}
-                    for o in valid
+                    {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
                 ],
                 "polvo_code_ops": valid,
                 "assistant_text": assistant[:600],
@@ -377,7 +605,8 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         err_block = ""
         if errors:
             err_block = "\n\n## Erros de compilação (corrigir)\n" + json.dumps(
-                errors[:8], ensure_ascii=False,
+                errors[:8],
+                ensure_ascii=False,
             )
         tokens = plan.get("design_tokens") if isinstance(plan, dict) else {}
         tokens_block = ""
@@ -387,54 +616,114 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
                 + json.dumps(tokens, ensure_ascii=False, indent=2)
                 + "\n"
             )
+        build_tasks = state.get("build_tasks") or []
+        tasks_block = ""
+        if build_tasks:
+            tasks_block = (
+                f"\n\n## Tarefas ordenadas\n{json.dumps(build_tasks, ensure_ascii=False)[:4000]}\n"
+            )
+        kind_block = _request_kind_codegen_directive(str(state.get("request_kind") or ""))
+        style_guide_block = build_style_guide_block(state.get("style_guide") or {})
+        style_block = f"{style_sys}\n\n{style_guide_block}" if style_guide_block else style_sys
+
+        # Code RAG por-tarefa: contexto extra focado nos ficheiros a modificar.
+        codegen_rag_block = ""
+        modify_targets = [str(p) for p in (plan.get("files_to_modify") or []) if p][:2]
+        if modify_targets and not state.get("rag_context_block"):
+            project_id = stable_project_id(dict(state))
+            for target in modify_targets:
+                block, _ = await retrieve_for_codegen_task(
+                    settings,
+                    project_id,
+                    target,
+                    feature_summary=str(state.get("feature_summary") or ""),
+                )
+                if block:
+                    codegen_rag_block += f"\n\n{block}"
+
         human = (
             _prompt_bundle(state)
+            + kind_block
+            + (f"\n\n{style_block}" if style_block else "")
             + f"\n\n## Plano (Architect — só estes ficheiros)\n"
             f"criar: {json.dumps(plan.get('files_to_create') or [], ensure_ascii=False)}\n"
             f"modificar: {json.dumps(plan.get('files_to_modify') or [], ensure_ascii=False)}\n"
             f"rotas backend: {json.dumps(plan.get('backend_routes') or [], ensure_ascii=False)[:2000]}\n"
             + tokens_block
-            + f"\n\n## Excertos numerados (ancorar old_text)\n"
+            + tasks_block
+            + "\n\n## Excertos numerados (ancorar old_text)\n"
             + build_codegen_file_excerpts(plan, project_files)
+            + (state.get("rag_context_block") or "")
+            + codegen_rag_block
             + err_block
         )
-        resp = await chat.ainvoke(
-            [SystemMessage(content=codegen_sys), HumanMessage(content=human)],
-        )
-        data = _parse_json_object(str(resp.content))
-        ops_raw = data.get("operations")
-        if not isinstance(ops_raw, list):
-            ops_raw = []
-        plan_dict = plan if isinstance(plan, dict) else {}
-        resolved, resolve_errs = resolve_codegen_operations(
-            ops_raw,
-            project_files,
-            plan_dict,
-        )
-        if not resolved and plan_dict.get("files_to_modify"):
-            resolved_loose, loose_errs = resolve_codegen_operations(
+
+        team_traces = dict(state.get("team_traces") or {})
+        team_out: dict[str, Any] = {}
+        if team_mode:
+            team_out = await run_fullstack_codegen_team(
+                settings,
+                dict(state),
+                codegen_sys=codegen_sys,
+                code_reviewer_sys=code_reviewer_sys,
+                human_base=human,
+                project_files=project_files,
+                plan=plan if isinstance(plan, dict) else {},
+                max_rounds=max_review_rounds,
+            )
+            result = team_out["result"]
+            data = result.get("data") or {}
+            valid = result.get("polvo_code_ops") or []
+            verr = result.get("validation_errors") or []
+            team_traces["code"] = team_out["trace"]
+        else:
+            resp = await chat.ainvoke(
+                [SystemMessage(content=codegen_sys), HumanMessage(content=human)],
+            )
+            data = _parse_json_object(str(resp.content))
+            ops_raw = data.get("operations")
+            if not isinstance(ops_raw, list):
+                ops_raw = []
+            plan_dict = plan if isinstance(plan, dict) else {}
+            resolved, resolve_errs = resolve_codegen_operations(
                 ops_raw,
                 project_files,
-                {},
+                plan_dict,
             )
-            if len(resolved_loose) > len(resolved):
-                resolved = resolved_loose
-                resolve_errs = resolve_errs + loose_errs
-        valid, verr = validate_polvo_code_operations(resolved)
-        verr = verr + resolve_errs
+            if not resolved and plan_dict.get("files_to_modify"):
+                resolved_loose, loose_errs = resolve_codegen_operations(
+                    ops_raw,
+                    project_files,
+                    {},
+                )
+                if len(resolved_loose) > len(resolved):
+                    resolved = resolved_loose
+                    resolve_errs = resolve_errs + loose_errs
+            valid, verr = validate_polvo_code_operations(resolved)
+            verr = verr + resolve_errs
+
         pending: list[dict[str, Any]] = [
-            {"op": o["op"], "path": o["path"], "content": o.get("content")}
-            for o in valid
+            {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
         ]
         assistant = str(data.get("assistant_reply") or "").strip()
         if not assistant:
             assistant = "Estou a actualizar o preview com as alterações pedidas."
 
+        request_kind = str(state.get("request_kind") or "")
+        has_workspace = bool(str(state.get("workspace_id") or "").strip())
+        # create_project só quando é mesmo nova app (sem workspace) — não basta o LLM dizer.
+        create_project_flag = (
+            create_project_for_kind(request_kind, has_workspace=has_workspace)
+            if request_kind
+            else bool(data.get("create_project"))
+        )
+        if not request_kind and not has_workspace and bool(data.get("create_project")):
+            create_project_flag = True
         meta = build_polvo_code_ops_metadata(
             bool(valid),
             valid,
             verr,
-            create_project=bool(data.get("create_project")),
+            create_project=create_project_flag,
             project_title=str(data.get("project_title") or "").strip() or None,
             npm_install=bool(data.get("npm_install")),
         )
@@ -461,9 +750,11 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             derived_mode = "create"
         elif modified:
             derived_mode = "modify"
+        style_guide = state.get("style_guide") or {}
         meta["dev_workflow"] = {
             "stack": plan.get("stack") if isinstance(plan, dict) else None,
             "route": state.get("route"),
+            "request_kind": request_kind or None,
             "compile_attempt": state.get("compile_attempt") or 0,
             "edit_mode": derived_mode,
             "design_tokens": (
@@ -471,15 +762,49 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
                 if isinstance(plan, dict) and plan.get("design_tokens")
                 else None
             ),
+            "style_guide": style_guide or None,
+            "team_mode": team_mode,
         }
 
-        return {
+        trace_suffix = "code_generator:team" if team_mode else "code_generator"
+        out: dict[str, Any] = {
             "pending_writes": pending,
             "polvo_code_ops": valid,
             "assistant_text": assistant,
             "metadata": meta,
-            "trace": trace + ["code_generator"],
+            "code_review": team_out.get("review") if team_mode else {},
+            "code_approved": bool((team_out.get("review") or {}).get("approved"))
+            if team_mode
+            else True,
+            "team_traces": team_traces,
+            "trace": trace + [trace_suffix],
         }
+        updated_files = dict(project_files)
+        for w in pending:
+            if w.get("op") == "write" and w.get("path"):
+                updated_files[str(w["path"])] = str(w.get("content") or "")
+        if team_mode:
+            out["project_files"] = updated_files
+        # Re-indexa o snapshot gerado para o retrieval ver a versão mais recente.
+        if settings.code_rag_auto_index and pending:
+            await reindex_project_files(settings, stable_project_id(dict(state)), updated_files)
+        return out
+
+    async def node_static_verify(state: DevWorkflowState) -> dict[str, Any]:
+        """Virtual build determinístico antes do compiler_checker."""
+        trace = truncate_trace(list(state.get("trace") or []))
+        project_files = dict(state.get("project_files") or {})
+        pending = list(state.get("pending_writes") or [])
+        sv = run_static_verify(project_files, pending_writes=pending)
+
+        result: dict[str, Any] = {
+            "static_verify": sv,
+            "trace": trace + [f"static_verify:{'ok' if sv.get('ok') else 'fail'}"],
+        }
+        if not sv.get("ok"):
+            result["error_digest"] = sv.get("error_digest") or []
+            result["compile_attempt"] = int(state.get("compile_attempt") or 0) + 1
+        return result
 
     async def node_compiler_checker(state: DevWorkflowState) -> dict[str, Any]:
         """Valida ops + digest de erros externos (WebContainer / preview)."""
@@ -535,6 +860,37 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
 
         return result
 
+    async def node_build_sandbox(state: DevWorkflowState) -> dict[str, Any]:
+        """Build real (tsc/vite) num sandbox — portão anti-bug. Degrade graciosamente."""
+        trace = truncate_trace(list(state.get("trace") or []))
+        project_files = dict(state.get("project_files") or {})
+        for w in state.get("pending_writes") or []:
+            if isinstance(w, dict) and w.get("op") == "write" and w.get("path"):
+                key = str(w["path"]).replace("\\", "/").lstrip("/")
+                project_files[key] = str(w.get("content") or "")
+
+        result = await run_build_sandbox(settings, project_files)
+
+        meta = dict(state.get("metadata") or {})
+        dw = dict(meta.get("dev_workflow") or {})
+        dw["build_result"] = result
+        meta["dev_workflow"] = dw
+
+        suffix = (
+            f"build_sandbox:{'ok' if result.get('ok') else 'fail'}:"
+            f"{'ran' if result.get('ran') else 'skip'}"
+        )
+        out: dict[str, Any] = {
+            "build_result": result,
+            "metadata": meta,
+            "trace": trace + [suffix],
+        }
+        if not result.get("ok"):
+            out["compile_ok"] = False
+            out["error_digest"] = build_errors_to_digest(result.get("errors") or [])
+            out["compile_attempt"] = int(state.get("compile_attempt") or 0) + 1
+        return out
+
     async def node_self_healer(state: DevWorkflowState) -> dict[str, Any]:
         """Self-Healing: patches mínimos a partir do log de compilação."""
         trace = truncate_trace(list(state.get("trace") or []))
@@ -547,8 +903,19 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         project_files = dict(state.get("project_files") or {})
         plan = state.get("plan") if isinstance(state.get("plan"), dict) else {}
 
-        if not merged_log.strip() or not error_digest:
-            return {"trace": trace + ["self_healer:skip"]}
+        if not merged_log.strip() and not error_digest:
+            static_sv = state.get("static_verify") or {}
+            if isinstance(static_sv, dict) and static_sv.get("error_digest"):
+                error_digest = list(static_sv.get("error_digest") or [])
+            else:
+                return {"trace": trace + ["self_healer:skip"]}
+
+        if not merged_log.strip() and error_digest:
+            merged_log = json.dumps(error_digest, ensure_ascii=False)
+
+        project_id = stable_project_id(dict(state))
+        recalled = await recall_similar_errors(settings, project_id, list(error_digest))
+        error_memory_block = build_error_memory_block(recalled)
 
         heal = await run_self_heal(
             settings,
@@ -558,10 +925,26 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             error_digest=list(error_digest),
             project_files=project_files,
             plan=plan,
+            error_memory_block=error_memory_block,
         )
         valid = heal.get("polvo_code_ops") or []
         pending = heal.get("pending_writes") or []
         updated_files = apply_heal_to_project_files(project_files, valid)
+
+        # Memoriza o par erro→fix e re-indexa o snapshot corrigido.
+        heal_summary = str(heal.get("heal_summary") or "").strip()
+        if valid and heal_summary:
+            await index_error_fix(
+                settings,
+                project_id,
+                error_digest=list(error_digest),
+                fix_summary=heal_summary,
+                root_cause=str(
+                    (heal.get("metadata") or {}).get("dev_workflow", {}).get("root_cause") or ""
+                ),
+            )
+        if settings.code_rag_auto_index and valid:
+            await reindex_project_files(settings, project_id, updated_files)
 
         meta = dict(state.get("metadata") or {})
         meta.update(heal.get("metadata") or {})
@@ -613,8 +996,7 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         mp = effective_provider(state.get("model_provider"))
         return {
             "assistant_text": (
-                "Não consigo avançar com esse pedido no estúdio de desenvolvimento. "
-                f"{reason}"
+                f"Não consigo avançar com esse pedido no estúdio de desenvolvimento. {reason}"
             )[:600],
             "metadata": {
                 "model_provider": mp,
@@ -641,8 +1023,11 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
     g.add_node("context_manager", node_context_manager)
     g.add_node("router", node_router)
     g.add_node("architect", node_architect)
+    g.add_node("orchestrator", node_orchestrator)
     g.add_node("code_generator", node_code_generator)
+    g.add_node("static_verify", node_static_verify)
     g.add_node("compiler_checker", node_compiler_checker)
+    g.add_node("build_sandbox", node_build_sandbox)
     g.add_node("self_healer", node_self_healer)
     g.add_node("explain", node_explain)
     g.add_node("abort", node_abort)
@@ -661,17 +1046,39 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             "abort_end": "abort",
         },
     )
-    g.add_edge("architect", "code_generator")
-    g.add_edge("code_generator", "compiler_checker")
+    if team_mode:
+        g.add_edge("architect", "orchestrator")
+        g.add_edge("orchestrator", "code_generator")
+        g.add_edge("code_generator", "static_verify")
+        g.add_conditional_edges(
+            "static_verify",
+            route_after_static_verify,
+            {
+                "compiler_checker": "compiler_checker",
+                "retry_self_heal": "self_healer",
+            },
+        )
+    else:
+        g.add_edge("architect", "code_generator")
+        g.add_edge("code_generator", "compiler_checker")
     g.add_conditional_edges(
         "compiler_checker",
         route_after_compiler,
+        {
+            "build_sandbox": "build_sandbox",
+            "context_finalize": "context_finalize",
+            "retry_self_heal": "self_healer",
+        },
+    )
+    g.add_conditional_edges(
+        "build_sandbox",
+        route_after_build_sandbox,
         {
             "context_finalize": "context_finalize",
             "retry_self_heal": "self_healer",
         },
     )
-    g.add_edge("self_healer", "compiler_checker")
+    g.add_edge("self_healer", "compiler_checker" if not team_mode else "static_verify")
     g.add_edge("explain", END)
     g.add_edge("abort", END)
     g.add_edge("context_finalize", END)
@@ -680,18 +1087,37 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
 
 
 _compiled: Any = None
+_compiled_settings_key: tuple[bool, int] | None = None
 
 
 def get_dev_workflow_graph(settings: Settings) -> Any:
-    global _compiled
-    if _compiled is None:
+    global _compiled, _compiled_settings_key
+    key = (
+        bool(getattr(settings, "dev_workflow_team_mode", True)),
+        int(getattr(settings, "dev_workflow_max_review_rounds", 3) or 3),
+    )
+    if _compiled is None or _compiled_settings_key != key:
         _compiled = build_dev_workflow_graph(settings)
+        _compiled_settings_key = key
     return _compiled
 
 
 def reset_dev_workflow_graph_cache() -> None:
-    global _compiled
+    global _compiled, _compiled_settings_key
     _compiled = None
+    _compiled_settings_key = None
+
+
+def _stable_project_id_for_pipeline(
+    conversation_id: str | None,
+    workspace_id: str | None,
+    prev_ctx: dict[str, Any],
+) -> str:
+    """ID estável de projecto: conversation_id → workspace_id → contexto anterior."""
+    for cand in (conversation_id, workspace_id, prev_ctx.get("project_id")):
+        if cand and str(cand).strip():
+            return str(cand).strip()
+    return "default-dev-studio-project"
 
 
 async def run_dev_workflow_pipeline(
@@ -700,6 +1126,7 @@ async def run_dev_workflow_pipeline(
     model_provider: str | None,
     *,
     workspace_id: str | None = None,
+    conversation_id: str | None = None,
     file_manifest: list[dict[str, Any]] | None = None,
     project_digest: str | None = None,
     preview_console_logs: list[dict[str, Any]] | None = None,
@@ -719,11 +1146,16 @@ async def run_dev_workflow_pipeline(
     if not isinstance(compact_prev, dict):
         compact_prev = None
 
+    stable_pid = _stable_project_id_for_pipeline(conversation_id, workspace_id, prev_ctx)
+
     out = await graph.ainvoke(
         {
             "messages": messages,
             "model_provider": model_provider,
             "workspace_id": workspace_id,
+            "conversation_id": conversation_id,
+            # project_id estável = chave do RAG (conversation_id quando houver).
+            "project_id": stable_pid,
             "file_manifest": file_manifest or prev_ctx.get("file_manifest") or [],
             "project_digest": project_digest or str(prev_ctx.get("project_digest") or ""),
             "compact_context_map": compact_prev or {},
@@ -752,6 +1184,28 @@ async def run_dev_workflow_pipeline(
         dw_meta.setdefault("enriched_brief", out.get("enriched_brief"))
     if "enrichment_skipped" in out:
         dw_meta.setdefault("prompt_enrichment_skipped", bool(out.get("enrichment_skipped")))
+    if out.get("team_traces"):
+        dw_meta["team_traces"] = out.get("team_traces")
+    if out.get("static_verify"):
+        dw_meta["static_verify"] = out.get("static_verify")
+    if out.get("build_tasks"):
+        dw_meta["build_tasks"] = out.get("build_tasks")
+    if out.get("orchestration"):
+        dw_meta["orchestration"] = out.get("orchestration")
+    # Resultado do build sandbox real (portão anti-bug).
+    build_result = out.get("build_result")
+    if isinstance(build_result, dict) and build_result:
+        dw_meta["build_result"] = build_result
+    else:
+        dw_meta.setdefault(
+            "build_result",
+            {"ok": True, "ran": False, "tool": "tsc", "errors": []},
+        )
+    # Guia de estilo profissional (Style RAG).
+    style_guide = out.get("style_guide")
+    if isinstance(style_guide, dict) and style_guide:
+        dw_meta["style_guide"] = style_guide
+    dw_meta.setdefault("team_mode", bool(getattr(settings, "dev_workflow_team_mode", True)))
     if dw_meta:
         meta["dev_workflow"] = dw_meta
 
@@ -767,8 +1221,16 @@ async def run_dev_workflow_pipeline(
         "project_file_tree": out.get("project_file_tree") or project_file_tree or [],
         "project_files": merged_project_files,
         "rag_relevant_paths": out.get("rag_relevant_paths") or [],
-        "project_id": workspace_id or prev_ctx.get("project_id"),
+        # project_id estável (baseado no conversation_id quando houver).
+        "project_id": out.get("project_id") or stable_pid,
     }
+    out_request_kind = str(out.get("request_kind") or "")
+    has_workspace = bool((workspace_id or "").strip())
+    fallback_create_project = (
+        create_project_for_kind(out_request_kind, has_workspace=has_workspace)
+        if out_request_kind
+        else not has_workspace
+    )
     if not meta.get("polvo_code_ops_pending"):
         pending = out.get("pending_writes") or out.get("polvo_code_ops") or []
         if isinstance(pending, list) and pending:
@@ -779,7 +1241,7 @@ async def run_dev_workflow_pipeline(
                         True,
                         valid,
                         verr,
-                        create_project=not bool((workspace_id or "").strip()),
+                        create_project=fallback_create_project,
                         project_title=str(meta.get("polvo_code_project_title") or "").strip()
                         or None,
                         npm_install=True,
@@ -827,7 +1289,7 @@ async def run_dev_workflow_pipeline(
                         True,
                         valid,
                         verr,
-                        create_project=not bool((workspace_id or "").strip()),
+                        create_project=fallback_create_project,
                         npm_install=True,
                     ),
                 )

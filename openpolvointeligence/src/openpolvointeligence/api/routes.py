@@ -129,6 +129,7 @@ async def post_dev_studio_self_heal(
             preview_console_logs=prev_logs,
             project_files=pf,
             plan=plan if isinstance(plan, dict) else None,
+            conversation_id=body.conversation_id,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e

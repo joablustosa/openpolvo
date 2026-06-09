@@ -44,4 +44,3 @@ def test_normalize_enriched_prompt_fallbacks_and_limits():
     assert out["full_prompt"]
     assert len(out["full_prompt"]) <= 4000
     assert out["sections"] == ["Hero", "Features", "FAQ", "Footer"]
-

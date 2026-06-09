@@ -48,7 +48,9 @@ def build_codegen_file_excerpts(
             continue
         body = project_files.get(path) or project_files.get(raw)
         if not body:
-            blocks.append(f"### {path}\n(conteúdo não enviado — use patch com old_text do mapa compacto)\n")
+            blocks.append(
+                f"### {path}\n(conteúdo não enviado — use patch com old_text do mapa compacto)\n"
+            )
             continue
         line_count = body.count("\n") + 1
         blocks.append(
@@ -86,7 +88,9 @@ def apply_structured_patch(content: str, patch: dict[str, Any]) -> tuple[str | N
     return content.replace(old_s, new_s, 1), None
 
 
-def apply_patches_to_file(content: str, patches: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
+def apply_patches_to_file(
+    content: str, patches: list[dict[str, Any]]
+) -> tuple[str | None, list[str]]:
     """Aplica hunks ordenados de baixo para cima (start_line desc)."""
     errors: list[str] = []
     sorted_patches = sorted(
@@ -123,9 +127,7 @@ def _allow_full_write(
     line_count = content.count("\n") + 1 if content else 0
     if line_count <= MAX_FULL_WRITE_LINES:
         return True, None
-    return False, (
-        f"write completo rejeitado em {path} ({line_count} linhas) — use op patch"
-    )
+    return False, (f"write completo rejeitado em {path} ({line_count} linhas) — use op patch")
 
 
 def resolve_codegen_operations(

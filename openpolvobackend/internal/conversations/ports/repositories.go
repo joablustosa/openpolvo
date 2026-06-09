@@ -29,3 +29,10 @@ type AgentMemoryRepository interface {
 	Get(ctx context.Context, conversationID uuid.UUID) (domain.AgentMemory, error)
 	Upsert(ctx context.Context, conversationID uuid.UUID, mem domain.AgentMemory) error
 }
+
+// DevProjectRecorder persiste uma versão de projeto de dev a partir da mensagem
+// do assistant, quando o metadata indica trabalho de dev. É um no-op caso contrário.
+// Implementado pelo módulo projects (tipagem estrutural; sem dependência inversa).
+type DevProjectRecorder interface {
+	RecordFromAssistantMessage(ctx context.Context, userID, conversationID uuid.UUID, assistantText string, metadata map[string]any) error
+}

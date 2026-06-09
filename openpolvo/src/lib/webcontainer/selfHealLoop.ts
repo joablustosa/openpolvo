@@ -7,6 +7,11 @@ import { previewConsoleLogsFromCompileLog } from "@/lib/devStudio/compileLogBuff
 import type { DevStudioOp } from "@/lib/devStudioMetadata";
 import { requestDevStudioSelfHeal } from "@/lib/devStudioSelfHealApi";
 import { getWebContainerPreviewService } from "@/lib/webcontainer";
+import {
+  mergeProjectWithOps,
+  mergedFilesToWriteOps,
+} from "@/lib/webcontainer/opsToFileTree";
+import type { DesignTokens } from "@/lib/webcontainer/shadcnScaffold";
 
 const MAX_SELF_HEAL_ATTEMPTS = 3;
 
@@ -14,6 +19,7 @@ export type SelfHealLoopOptions = {
   ops: DevStudioOp[];
   npmInstall: boolean;
   userPrompt?: string;
+  designTokens?: Partial<DesignTokens>;
 };
 
 export type SelfHealLoopResult = {
@@ -26,7 +32,9 @@ export async function applyOpsInWebContainerWithSelfHeal(
   options: SelfHealLoopOptions,
 ): Promise<SelfHealLoopResult> {
   const svc = getWebContainerPreviewService();
-  let pendingOps = [...options.ops];
+  const base = svc.getVirtualFiles();
+  const merged = mergeProjectWithOps(base, options.ops, options.designTokens);
+  let pendingOps = mergedFilesToWriteOps(base, merged);
   let healAttempts = 0;
   let lastHealSummary: string | undefined;
 
@@ -35,6 +43,7 @@ export async function applyOpsInWebContainerWithSelfHeal(
       const url = await svc.runProject({
         ops: pendingOps,
         npmInstall: options.npmInstall && attempt === 0,
+        designTokens: options.designTokens,
       });
 
       if (svc.hasCompileErrors()) {
@@ -63,6 +72,7 @@ export async function applyOpsInWebContainerWithSelfHeal(
         preview_console_logs: previewConsoleLogsFromCompileLog(compileLog),
         project_files: projectFiles,
         user_prompt: options.userPrompt,
+        conversation_id: svc.getConversationId() || undefined,
       });
 
       if (!heal.heal_ops.length) {
@@ -72,7 +82,13 @@ export async function applyOpsInWebContainerWithSelfHeal(
         );
       }
 
-      pendingOps = heal.heal_ops;
+      const healBase = svc.getVirtualFiles();
+      const healMerged = mergeProjectWithOps(
+        healBase,
+        heal.heal_ops,
+        options.designTokens,
+      );
+      pendingOps = mergedFilesToWriteOps(healBase, healMerged);
       lastHealSummary = heal.assistant_text || undefined;
       healAttempts += 1;
     }

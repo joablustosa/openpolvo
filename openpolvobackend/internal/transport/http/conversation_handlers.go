@@ -1,6 +1,7 @@
 package httptransport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	convports "github.com/open-polvo/open-polvo/internal/conversations/ports"
 	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
+	projdomain "github.com/open-polvo/open-polvo/internal/projects/domain"
+	projports "github.com/open-polvo/open-polvo/internal/projects/ports"
 )
 
 func truncateForClientErr(s string, maxRunes int) string {
@@ -41,6 +44,8 @@ type ConversationHandlers struct {
 	PinConversation    *application.PinConversation
 	RenameConversation *application.RenameConversation
 	AgentMemoryRepo    convports.AgentMemoryRepository
+	// Opcional: usado para enriquecer o DTO da conversa com o projeto de dev associado.
+	DevProjects projports.ProjectRepository
 }
 
 func formatTimeUTC(t time.Time) string {
@@ -52,6 +57,8 @@ type conversationDTO struct {
 	Title                *string `json:"title,omitempty"`
 	DefaultModelProvider string  `json:"default_model_provider"`
 	PinnedAt             *string `json:"pinned_at,omitempty"`
+	ProjectID            *string `json:"project_id"`
+	ProjectKind          *string `json:"project_kind"`
 	CreatedAt            string  `json:"created_at"`
 	UpdatedAt            string  `json:"updated_at"`
 }
@@ -64,7 +71,7 @@ type messageDTO struct {
 	CreatedAt string          `json:"created_at"`
 }
 
-func toConversationDTO(c domain.Conversation) conversationDTO {
+func toConversationDTO(c domain.Conversation, p *projdomain.Project) conversationDTO {
 	dto := conversationDTO{
 		ID:                   c.ID.String(),
 		Title:                c.Title,
@@ -76,7 +83,25 @@ func toConversationDTO(c domain.Conversation) conversationDTO {
 		s := formatTimeUTC(*c.PinnedAt)
 		dto.PinnedAt = &s
 	}
+	if p != nil {
+		id := p.ID.String()
+		kind := p.Kind
+		dto.ProjectID = &id
+		dto.ProjectKind = &kind
+	}
 	return dto
+}
+
+// projectForConv devolve o projeto de dev da conversa (ou nil) para enriquecer o DTO.
+func (h *ConversationHandlers) projectForConv(ctx context.Context, conversationID, userID uuid.UUID) *projdomain.Project {
+	if h.DevProjects == nil {
+		return nil
+	}
+	p, err := h.DevProjects.GetProjectByConversation(ctx, conversationID, userID)
+	if err != nil {
+		return nil
+	}
+	return p
 }
 
 type createConversationRequest struct {
@@ -93,15 +118,15 @@ type pinConversationRequest struct {
 }
 
 type postMessageRequest struct {
-	Text               string           `json:"text"`
-	ModelProvider      string           `json:"model_provider,omitempty"`
-	LLMProfileID       string           `json:"llm_profile_id,omitempty"`
-	SandboxProjectID   string           `json:"sandbox_project_id,omitempty"`
-	ProjectFileTree    []string         `json:"project_file_tree,omitempty"`
+	Text               string            `json:"text"`
+	ModelProvider      string            `json:"model_provider,omitempty"`
+	LLMProfileID       string            `json:"llm_profile_id,omitempty"`
+	SandboxProjectID   string            `json:"sandbox_project_id,omitempty"`
+	ProjectFileTree    []string          `json:"project_file_tree,omitempty"`
 	ProjectFiles       map[string]string `json:"project_files,omitempty"`
-	PreviewConsoleLogs []map[string]any `json:"preview_console_logs,omitempty"`
-	DevStudioContext   map[string]any   `json:"dev_studio_context,omitempty"`
-	CompileLog         string           `json:"compile_log,omitempty"`
+	PreviewConsoleLogs []map[string]any  `json:"preview_console_logs,omitempty"`
+	DevStudioContext   map[string]any    `json:"dev_studio_context,omitempty"`
+	CompileLog         string            `json:"compile_log,omitempty"`
 }
 
 func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.Request) {
@@ -120,11 +145,29 @@ func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
 		return
 	}
+	projByConv := h.projectsByConversation(r.Context(), uid)
 	out := make([]conversationDTO, 0, len(list))
 	for _, c := range list {
-		out = append(out, toConversationDTO(c))
+		out = append(out, toConversationDTO(c, projByConv[c.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// projectsByConversation pré-carrega os projetos do utilizador indexados por conversa,
+// evitando uma query por conversa na listagem.
+func (h *ConversationHandlers) projectsByConversation(ctx context.Context, userID uuid.UUID) map[uuid.UUID]*projdomain.Project {
+	if h.DevProjects == nil {
+		return nil
+	}
+	projects, err := h.DevProjects.ListProjectsByUser(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[uuid.UUID]*projdomain.Project, len(projects))
+	for i := range projects {
+		out[projects[i].ConversationID] = &projects[i]
+	}
+	return out
 }
 
 func (h *ConversationHandlers) PostConversation(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +209,7 @@ func (h *ConversationHandlers) PostConversation(w http.ResponseWriter, r *http.R
 		)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toConversationDTO(*c))
+	writeJSON(w, http.StatusCreated, toConversationDTO(*c, nil))
 }
 
 func (h *ConversationHandlers) GetConversation(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +237,7 @@ func (h *ConversationHandlers) GetConversation(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "failed to load conversation")
 		return
 	}
-	writeJSON(w, http.StatusOK, toConversationDTO(*c))
+	writeJSON(w, http.StatusOK, toConversationDTO(*c, h.projectForConv(r.Context(), cid, uid)))
 }
 
 func (h *ConversationHandlers) GetMessages(w http.ResponseWriter, r *http.Request) {
@@ -401,7 +444,7 @@ func (h *ConversationHandlers) PatchConversationHandler(w http.ResponseWriter, r
 		writeError(w, http.StatusInternalServerError, "failed to fetch updated conversation")
 		return
 	}
-	writeJSON(w, http.StatusOK, toConversationDTO(*c))
+	writeJSON(w, http.StatusOK, toConversationDTO(*c, h.projectForConv(r.Context(), cid, uid)))
 }
 
 // StreamMessage aceita POST /v1/conversations/{id}/messages/stream e responde
@@ -601,7 +644,7 @@ func (h *ConversationHandlers) PinConversationHandler(w http.ResponseWriter, r *
 		writeError(w, http.StatusInternalServerError, "failed to fetch updated conversation")
 		return
 	}
-	writeJSON(w, http.StatusOK, toConversationDTO(*c))
+	writeJSON(w, http.StatusOK, toConversationDTO(*c, h.projectForConv(r.Context(), cid, uid)))
 }
 
 type agentMemoryDTO struct {

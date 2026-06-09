@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openpolvointeligence.code_rag.chunker import chunk_file, chunk_project_files, should_index_path
+from openpolvointeligence.code_rag.chunker import chunk_file, should_index_path
 from openpolvointeligence.code_rag.indexer import index_project_files
 from openpolvointeligence.code_rag.retriever import (
     build_rag_context_block,

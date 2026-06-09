@@ -9,7 +9,7 @@ import {
 import { getDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
 import { DEV_STUDIO_NATIVE_APP_ID } from "@/config/apps";
 import type { AppId } from "@/config/apps";
-import { DEV_STUDIO_PREVIEW_PORT } from "@/modules/dev-studio/config";
+import type { DesignTokens } from "@/lib/webcontainer/shadcnScaffold";
 
 export type DevStudioOpKind = "write" | "mkdir";
 
@@ -342,20 +342,110 @@ export function devStudioApplyFailureMessage(metadata: unknown): string | null {
   return null;
 }
 
+function getDevWorkflow(metadata: unknown): Record<string, unknown> | null {
+  const m = parseMetadataRaw(metadata);
+  if (!m) return null;
+  const dw = m.dev_workflow;
+  if (!dw || typeof dw !== "object" || Array.isArray(dw)) return null;
+  return dw as Record<string, unknown>;
+}
+
+const DESIGN_TOKEN_KEYS = [
+  "palette_base",
+  "border_radius",
+  "accent",
+  "mode",
+  "layout_shell",
+] as const;
+
 function extractDesignTokensFromMetadata(
   metadata: unknown,
-): Record<string, string> | undefined {
-  const m = parseMetadataRaw(metadata);
-  if (!m) return undefined;
-  const dw = m.dev_workflow;
-  if (!dw || typeof dw !== "object" || Array.isArray(dw)) return undefined;
-  const raw = (dw as Record<string, unknown>).design_tokens;
+): Partial<DesignTokens> | undefined {
+  const dw = getDevWorkflow(metadata);
+  if (!dw) return undefined;
+  const raw = dw.design_tokens;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  const rawObj = raw as Record<string, unknown>;
+  const out: Partial<DesignTokens> = {};
+  for (const key of DESIGN_TOKEN_KEYS) {
+    const v = rawObj[key];
+    if (typeof v === "string" && v.trim()) out[key] = v.trim();
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+export type StyleGuide = {
+  domain: string;
+  palette: string;
+  tone: string;
+  layout_shell: string;
+  references: string[];
+  tokens: Record<string, string>;
+};
+
+/** Lê `dev_workflow.style_guide` (guia de estilo por solicitação) da metadata. */
+export function extractStyleGuideFromMetadata(
+  metadata: unknown,
+): StyleGuide | undefined {
+  const dw = getDevWorkflow(metadata);
+  if (!dw) return undefined;
+  const raw = dw.style_guide;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const sg = raw as Record<string, unknown>;
+  const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const references = Array.isArray(sg.references)
+    ? sg.references.map((r) => String(r ?? "").trim()).filter(Boolean).slice(0, 8)
+    : [];
+  const tokens: Record<string, string> = {};
+  if (sg.tokens && typeof sg.tokens === "object" && !Array.isArray(sg.tokens)) {
+    for (const [k, v] of Object.entries(sg.tokens as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim()) tokens[k] = v.trim();
+    }
+  }
+  const guide: StyleGuide = {
+    domain: str(sg.domain),
+    palette: str(sg.palette),
+    tone: str(sg.tone),
+    layout_shell: str(sg.layout_shell),
+    references,
+    tokens,
+  };
+  const hasAny =
+    guide.domain ||
+    guide.palette ||
+    guide.tone ||
+    guide.layout_shell ||
+    guide.references.length ||
+    Object.keys(guide.tokens).length;
+  return hasAny ? guide : undefined;
+}
+
+function designTokensFromStyleGuide(
+  guide: StyleGuide | undefined,
+): Partial<DesignTokens> {
+  if (!guide) return {};
+  const out: Partial<DesignTokens> = {};
+  // `palette` pode designar accent (blue/violet…) ou base neutra (zinc/slate…).
+  // normalizeTokens valida cada campo de forma independente (fallback seguro).
+  if (guide.palette) {
+    out.accent = guide.palette;
+    out.palette_base = guide.palette;
+  }
+  if (guide.layout_shell) out.layout_shell = guide.layout_shell;
+  if (Object.keys(guide.tokens).length) out.css_vars = guide.tokens;
+  return out;
+}
+
+/** Tokens de design combinados: `design_tokens` enriquecidos pelo `style_guide`. */
+export function buildDesignTokensFromMetadata(
+  metadata: unknown,
+): Partial<DesignTokens> | undefined {
+  const base = extractDesignTokensFromMetadata(metadata) ?? {};
+  const fromGuide = designTokensFromStyleGuide(
+    extractStyleGuideFromMetadata(metadata),
+  );
+  const merged: Partial<DesignTokens> = { ...base, ...fromGuide };
+  return Object.keys(merged).length ? merged : undefined;
 }
 
 function touchesPackageJson(ops: DevStudioOp[]): boolean {
@@ -373,6 +463,8 @@ export type ApplyDevStudioOpsContext = {
   openPlugin: (id: AppId) => void;
   /** Pedido original do utilizador (contexto para self-healing). */
   userPrompt?: string;
+  /** Conversa ativa: chaveia o RAG de memória de erros por projeto no Intelligence. */
+  conversationId?: string;
 };
 
 export type ApplyDevStudioOpsResult = {
@@ -403,11 +495,11 @@ export async function applyDevStudioOpsFromMeta(
     title: meta?.polvo_code_project_title,
     routed: meta?.routed_intent,
   });
-  if (meta?.polvo_code_ops_blocked) {
+  if (!meta || meta.polvo_code_ops_blocked) {
     devLog("apply: blocked by metadata");
     return { applied: false };
   }
-  let ops = meta?.polvo_code_ops ?? [];
+  let ops = meta.polvo_code_ops ?? [];
   if (ops.length) {
     const { sanitizeDevStudioOps } = await import("@/lib/devStudio/sanitizePreviewSource");
     ops = sanitizeDevStudioOps(ops);
@@ -417,7 +509,7 @@ export async function applyDevStudioOpsFromMeta(
     return { applied: false };
   }
 
-  const { desktopPolvoCode, isElectron } = await import("@/lib/desktopApi");
+  const { isElectron } = await import("@/lib/desktopApi");
   const useNewProject =
     Boolean(meta.polvo_code_create_project) || !ctx.workspacePath?.trim();
   devLog("apply: routing", {
@@ -449,10 +541,12 @@ export async function applyDevStudioOpsFromMeta(
     dispatchDevStudioApplyStart();
     let finishedOk = false;
     try {
+      const designTokens = buildDesignTokensFromMetadata(normalized);
       const healResult = await applyOpsInWebContainerWithSelfHeal({
         ops,
         npmInstall: runInstall,
         userPrompt: ctx.userPrompt,
+        designTokens,
       });
       ctx.setDevStudioProject(WEBCONTAINER_WORKSPACE_ID, title);
       ctx.openPlugin(DEV_STUDIO_NATIVE_APP_ID);
@@ -479,17 +573,24 @@ export async function applyDevStudioOpsFromMeta(
   dispatchDevStudioApplyStart();
   let finishedOk = false;
   try {
-    const designTokens = extractDesignTokensFromMetadata(normalized);
+    const designTokens = buildDesignTokensFromMetadata(normalized);
     const { applyOpsInElectronWithSelfHeal } = await import(
       "@/lib/devStudio/electronSelfHealLoop",
     );
-    const { devStudioWriteFilesFromOps } = await import(
-      "@/lib/webcontainer/opsToFileTree",
+    const {
+      devStudioWriteFilesFromOps,
+      mergeProjectWithOps,
+      mergedFilesToWriteOps,
+    } = await import("@/lib/webcontainer/opsToFileTree");
+    const { collectElectronProjectFilesForApply } = await import(
+      "@/lib/devStudio/collectElectronProjectFilesForApply",
     );
 
     let bootstrap:
       | { title: string; files: { path: string; content: string }[] }
       | undefined;
+    let electronOps: DevStudioOp[] = [];
+
     if (useNewProject) {
       const files = devStudioWriteFilesFromOps(ops, designTokens);
       devLog("apply: bootstrap files", { title, fileCount: files.length });
@@ -499,14 +600,28 @@ export async function applyDevStudioOpsFromMeta(
       bootstrap = { title, files };
     } else if (!ctx.workspacePath?.trim()) {
       return { applied: false, error: "Sem projecto activo no Estúdio." };
+    } else {
+      const currentFiles = await collectElectronProjectFilesForApply(
+        ctx.workspacePath.trim(),
+      );
+      const merged = mergeProjectWithOps(currentFiles, ops, designTokens);
+      electronOps = mergedFilesToWriteOps(currentFiles, merged);
+      devLog("apply: merged update", {
+        currentCount: Object.keys(currentFiles).length,
+        mergedOps: electronOps.length,
+      });
+      if (!electronOps.length) {
+        return { applied: false, error: "Nenhuma alteração para aplicar no projecto." };
+      }
     }
 
     const healResult = await applyOpsInElectronWithSelfHeal({
       workspacePath: ctx.workspacePath?.trim() ?? "",
-      ops: useNewProject ? [] : ops,
+      ops: electronOps,
       runInstall,
       userPrompt: ctx.userPrompt,
       designTokens,
+      conversationId: ctx.conversationId,
       bootstrapNewProject: bootstrap,
     });
 

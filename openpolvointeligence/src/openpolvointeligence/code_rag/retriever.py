@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Sequence
 
 from openpolvointeligence.code_rag.embedder import embed_query
@@ -113,10 +112,10 @@ async def retrieve_for_router(
     use_mock: bool = False,
 ) -> tuple[list[RetrievedChunk], list[str]]:
     """
-    Busca semântica orientada ao Router.
+      Busca semântica orientada ao Router.
 
-    Prioriza config + rotas; devolve paths únicos para injectar no contexto
-  (ignorando o resto do app).
+      Prioriza config + rotas; devolve paths únicos para injectar no contexto
+    (ignorando o resto do app).
     """
     if not project_id or not (user_prompt or "").strip():
         return [], []

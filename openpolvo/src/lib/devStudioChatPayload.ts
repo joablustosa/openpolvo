@@ -6,6 +6,7 @@
 import { collectElectronProjectFiles } from "@/lib/devStudio/collectElectronProjectFiles";
 import {
   devStudioHasCompileErrors,
+  devStudioHasPreviewErrors,
   getDevStudioCompileLog,
   previewConsoleLogsFromCompileLog,
 } from "@/lib/devStudio/compileLogBuffer";
@@ -176,11 +177,19 @@ export async function collectDevStudioChatPayload(
       payload.project_file_tree = snap.tree;
       payload.project_files = snap.files;
     }
-    if (snap.previewLogs?.length) {
+    // O runtime espelha os logs do dev server no buffer global e a ponte injecta
+    // os erros de runtime da consola da iframe — logo o buffer global é superset.
+    // Usa-o quando existe (preview montado); caso contrário, o snapshot do svc.
+    const globalLog = getDevStudioCompileLog().trim();
+    const combinedLog = globalLog || snap.compileLog.trim();
+    const hasErrors =
+      getWebContainerPreviewService().hasCompileErrors?.() === true ||
+      devStudioHasPreviewErrors();
+    if (combinedLog && hasErrors) {
+      payload.compile_log = combinedLog.slice(-8000);
+      payload.preview_console_logs = previewConsoleLogsFromCompileLog(combinedLog);
+    } else if (snap.previewLogs?.length) {
       payload.preview_console_logs = snap.previewLogs;
-    }
-    if (snap.compileLog.trim() && getWebContainerPreviewService().hasCompileErrors?.()) {
-      payload.compile_log = snap.compileLog.slice(-8000);
     }
     return payload;
   }

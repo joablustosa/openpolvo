@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { LoginDialog } from "./components/auth/LoginDialog";
 import { AnonymousChatProvider, useAnonymousChat } from "./core/AnonymousChatContext";

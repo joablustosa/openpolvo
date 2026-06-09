@@ -1,5 +1,5 @@
 /**
- * Remove react-router JSX do preview (scaffold não inclui react-router-dom).
+ * Helpers para JSX react-router — scaffold inclui react-router-dom.
  */
 
 const ROUTER_JSX_RE = /<\/(?:Router|Routes|Route|BrowserRouter|Navigate)\b/i;
@@ -9,17 +9,7 @@ export function usesRouterJsx(content: string): boolean {
 }
 
 export function stripReactRouterJsx(content: string): string {
-  if (!usesRouterJsx(content)) return content;
-
-  let out = content;
-  out = out.replace(/<Route\b[^>]*\belement=\{([^}]+)\}[^>]*\/>/gis, "$1\n");
-  out = out.replace(/<Route\b[^>]*>([^<]*)<\/Route>/gi, "$1");
-  for (const tag of ["BrowserRouter", "Router", "Routes"]) {
-    out = out.replace(new RegExp(`<${tag}\\b[^>]*>\\s*`, "gi"), "");
-    out = out.replace(new RegExp(`\\s*</${tag}>`, "gi"), "");
-  }
-  out = out.replace(/<Navigate\b[^>]*\/>\s*/gi, "");
-  return out;
+  return content;
 }
 
 function inferMainPage(
@@ -95,19 +85,32 @@ export function rebuildAppTsxWithoutRouter(
 ): string {
   const { importLine, component, showSidebar } = inferMainPage(appContent, projectFiles);
   const sidebarAttr = showSidebar ? " showSidebar" : "";
-  const lines = ['import AppShell from "@/components/layout/AppShell"'];
+  const lines = [
+    'import { Navigate, Route, Routes } from "react-router-dom";',
+    'import AppShell from "@/components/layout/AppShell";',
+  ];
   if (importLine) lines.push(importLine);
-  lines.push("", "export default function App() {", "  return (", `    <AppShell${sidebarAttr}>`);
+  lines.push(
+    "",
+    "export default function App() {",
+    "  return (",
+    `    <AppShell${sidebarAttr}>`,
+    "      <Routes>",
+  );
   if (component) {
-    lines.push(`      <${component} />`);
+    lines.push(`        <Route path="/" element={<${component} />} />`);
   } else {
     lines.push(
-      '      <section className="flex flex-1 flex-col items-center justify-center px-6 py-24">',
-      '        <p className="text-muted-foreground">Preview</p>',
-      "      </section>",
+      '        <Route path="/" element={<section className="flex flex-1 flex-col items-center justify-center px-6 py-24"><p className="text-muted-foreground">Preview</p></section>} />',
     );
   }
-  lines.push("    </AppShell>", "  );", "}");
+  lines.push(
+    '        <Route path="*" element={<Navigate to="/" replace />} />',
+    "      </Routes>",
+    "    </AppShell>",
+    "  );",
+    "}",
+  );
   return `${lines.join("\n")}\n`;
 }
 
@@ -115,17 +118,13 @@ export function fixAppTsxIfRouterBroken(
   content: string,
   projectFiles?: Record<string, string>,
 ): string {
-  const stripped = stripReactRouterJsx(content);
-  if (usesRouterJsx(stripped)) {
+  if (usesRouterJsx(content) && !content.includes("react-router-dom")) {
     return rebuildAppTsxWithoutRouter(content, projectFiles);
   }
-  if (/\bRouter\b/.test(stripped) && !content.includes("react-router")) {
+  if (/\bRouter\b/.test(content) && !content.includes("react-router")) {
     return rebuildAppTsxWithoutRouter(content, projectFiles);
   }
-  if (stripped.includes("export default function App") && !stripped.includes("AppShell")) {
-    return rebuildAppTsxWithoutRouter(content, projectFiles);
-  }
-  return stripped;
+  return content;
 }
 
 const REFERENCE_ROUTER_RE = /ReferenceError:\s*Router\s+is not defined/i;

@@ -14,23 +14,24 @@ import (
 )
 
 type Deps struct {
-	Config         platformcfg.Config
-	Auth           *AuthHandlers
-	Agent          *AgentHandlers
-	LLM            *LLMHandlers
-	Conversations  *ConversationHandlers
-	PolvoCode      *PolvoCodeHandlers
-	Workflows      *WorkflowHandlers
-	TaskLists      *TaskListHandlers
-	Mail           *MailHandlers
-	Contacts       *ContactHandlers
-	Finance        *FinanceHandlers
-	Audio          *AudioHandlers
-	Meta           *MetaHandlers
-	Social         *SocialHandlers
-	Schedule       *ScheduleHandlers
-	TokenParser    TokenParser
-	ReadyCheck     func(context.Context) error
+	Config        platformcfg.Config
+	Auth          *AuthHandlers
+	Agent         *AgentHandlers
+	LLM           *LLMHandlers
+	Conversations *ConversationHandlers
+	Projects      *ProjectHandlers
+	PolvoCode     *PolvoCodeHandlers
+	Workflows     *WorkflowHandlers
+	TaskLists     *TaskListHandlers
+	Mail          *MailHandlers
+	Contacts      *ContactHandlers
+	Finance       *FinanceHandlers
+	Audio         *AudioHandlers
+	Meta          *MetaHandlers
+	Social        *SocialHandlers
+	Schedule      *ScheduleHandlers
+	TokenParser   TokenParser
+	ReadyCheck    func(context.Context) error
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -133,6 +134,12 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/conversations/{id}/messages", d.Conversations.PostMessage)
 				r.Get("/conversations/{id}/agent-memory", d.Conversations.GetAgentMemory)
 				r.Patch("/conversations/{id}/agent-memory", d.Conversations.PatchAgentMemory)
+			}
+			if d.Projects != nil {
+				r.Get("/conversations/{id}/project", d.Projects.GetForConversationHandler)
+				r.Get("/projects/{id}", d.Projects.GetProjectHandler)
+				r.Get("/projects/{id}/versions", d.Projects.ListVersionsHandler)
+				r.Post("/projects/{id}/rollback", d.Projects.RollbackHandler)
 			}
 			if d.Workflows != nil {
 				r.Get("/workflows", d.Workflows.GetWorkflows)

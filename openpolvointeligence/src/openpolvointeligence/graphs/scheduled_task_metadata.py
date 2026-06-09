@@ -29,7 +29,11 @@ def _strip_fence(s: str) -> str:
     if s.startswith("```"):
         parts = s.split("\n")
         if len(parts) >= 2:
-            inner = "\n".join(parts[1:-1]) if parts[-1].strip().startswith("```") else "\n".join(parts[1:])
+            inner = (
+                "\n".join(parts[1:-1])
+                if parts[-1].strip().startswith("```")
+                else "\n".join(parts[1:])
+            )
             return inner.strip()
     return s
 
@@ -104,7 +108,6 @@ async def extract_sched_ops(
     messages: list[dict[str, Any]],
     sched_raw: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    known = _known_ids(sched_raw)
     ctx_json = json.dumps(sched_raw or [], ensure_ascii=False)
     summary = conversation_summary(tail_messages(messages))
     clip = (assistant_text or "")[:10000]

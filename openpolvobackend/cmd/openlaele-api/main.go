@@ -16,38 +16,40 @@ import (
 	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	agapp "github.com/open-polvo/open-polvo/internal/agent/application"
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
+	contactssqlite "github.com/open-polvo/open-polvo/internal/contacts/adapters/sqlite"
+	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
 	convsqlite "github.com/open-polvo/open-polvo/internal/conversations/adapters/sqlite"
 	convapp "github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
-	contactssqlite "github.com/open-polvo/open-polvo/internal/contacts/adapters/sqlite"
-	contactsapp "github.com/open-polvo/open-polvo/internal/contacts/application"
+	financesqlite "github.com/open-polvo/open-polvo/internal/finance/adapters/sqlite"
+	financeapp "github.com/open-polvo/open-polvo/internal/finance/application"
 	bcryptadapter "github.com/open-polvo/open-polvo/internal/identity/adapters/bcrypt"
 	jwtissuer "github.com/open-polvo/open-polvo/internal/identity/adapters/jwtissuer"
 	idsqlite "github.com/open-polvo/open-polvo/internal/identity/adapters/sqlite"
 	idapp "github.com/open-polvo/open-polvo/internal/identity/application"
-	platformcfg "github.com/open-polvo/open-polvo/internal/platform/config"
-	platformdb "github.com/open-polvo/open-polvo/internal/platform/db"
-	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
+	llmstore "github.com/open-polvo/open-polvo/internal/llmprofiles/adapters/sqliterepo"
+	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
 	mailsqlite "github.com/open-polvo/open-polvo/internal/mail/adapters/sqlite"
 	mailapp "github.com/open-polvo/open-polvo/internal/mail/application"
 	metasqlite "github.com/open-polvo/open-polvo/internal/meta/adapters/sqlite"
 	metaapp "github.com/open-polvo/open-polvo/internal/meta/application"
 	"github.com/open-polvo/open-polvo/internal/meta/metaapi"
+	platformcfg "github.com/open-polvo/open-polvo/internal/platform/config"
+	platformdb "github.com/open-polvo/open-polvo/internal/platform/db"
+	platformmigrate "github.com/open-polvo/open-polvo/internal/platform/migrate"
+	projsqlite "github.com/open-polvo/open-polvo/internal/projects/adapters/sqlite"
+	projapp "github.com/open-polvo/open-polvo/internal/projects/application"
+	"github.com/open-polvo/open-polvo/internal/schedule"
 	sqsqlite "github.com/open-polvo/open-polvo/internal/schedulequeue/adapters/sqlite"
 	sqapp "github.com/open-polvo/open-polvo/internal/schedulequeue/application"
 	sqports "github.com/open-polvo/open-polvo/internal/schedulequeue/ports"
 	socialsqlite "github.com/open-polvo/open-polvo/internal/social/adapters/sqlite"
 	socialapp "github.com/open-polvo/open-polvo/internal/social/application"
 	"github.com/open-polvo/open-polvo/internal/social/scheduler"
-	financesqlite "github.com/open-polvo/open-polvo/internal/finance/adapters/sqlite"
-	financeapp "github.com/open-polvo/open-polvo/internal/finance/application"
-	llmapp "github.com/open-polvo/open-polvo/internal/llmprofiles/application"
-	llmstore "github.com/open-polvo/open-polvo/internal/llmprofiles/adapters/sqliterepo"
-	tasklistssqlite "github.com/open-polvo/open-polvo/internal/tasklists/adapters/sqlite"
 	tasklistsintel "github.com/open-polvo/open-polvo/internal/tasklists/adapters/polvointel"
+	tasklistssqlite "github.com/open-polvo/open-polvo/internal/tasklists/adapters/sqlite"
 	taskapp "github.com/open-polvo/open-polvo/internal/tasklists/application"
 	tasklistsports "github.com/open-polvo/open-polvo/internal/tasklists/ports"
-	"github.com/open-polvo/open-polvo/internal/schedule"
 	httptransport "github.com/open-polvo/open-polvo/internal/transport/http"
 	wfsqlite "github.com/open-polvo/open-polvo/internal/workflows/adapters/sqlite"
 	wfapp "github.com/open-polvo/open-polvo/internal/workflows/application"
@@ -163,6 +165,16 @@ func main() {
 	convRepo := convsqlite.ConversationRepository{DB: db}
 	msgRepo := convsqlite.MessageRepository{DB: db}
 	agentMemRepo := convsqlite.AgentMemoryRepository{DB: db}
+
+	// Projetos de dev vinculados à conversa (persistência de versões/ficheiros).
+	projRepo := projsqlite.ProjectRepository{DB: db}
+	ensureProjectUC := &projapp.EnsureProjectForConversation{Repo: projRepo}
+	saveProjectVersionUC := &projapp.SaveProjectVersion{Repo: projRepo}
+	devProjectRecorder := &projapp.Recorder{
+		Ensure: ensureProjectUC,
+		Save:   saveProjectVersionUC,
+		Repo:   projRepo,
+	}
 	llmResolver := &llmapp.Resolver{Repo: llmRepo}
 	llmHTTP := &httptransport.LLMHandlers{Repo: llmRepo}
 	createConvUC := &convapp.CreateConversation{
@@ -204,6 +216,7 @@ func main() {
 		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
 			return metaContextLoader.ForReply(ctx, userID)
 		},
+		DevProjects: devProjectRecorder,
 	}
 	sendMailUC := &mailapp.SendUserEmail{Repo: smtpRepo, Cfg: cfg}
 	mailHandlers := &httptransport.MailHandlers{
@@ -243,13 +256,13 @@ func main() {
 		SendWhatsApp: sendMetaUC,
 	}
 	wfHandlers = &httptransport.WorkflowHandlers{
-		Create: createWF,
-		Update: &wfapp.UpdateWorkflow{Workflows: wfRepo},
-		Get:    &wfapp.GetWorkflow{Workflows: wfRepo},
-		List:   &wfapp.ListWorkflows{Workflows: wfRepo},
-		Delete: &wfapp.DeleteWorkflow{Workflows: wfRepo},
-		Pin:    &wfapp.PinWorkflow{Workflows: wfRepo},
-		Run:    runWfUC,
+		Create:   createWF,
+		Update:   &wfapp.UpdateWorkflow{Workflows: wfRepo},
+		Get:      &wfapp.GetWorkflow{Workflows: wfRepo},
+		List:     &wfapp.ListWorkflows{Workflows: wfRepo},
+		Delete:   &wfapp.DeleteWorkflow{Workflows: wfRepo},
+		Pin:      &wfapp.PinWorkflow{Workflows: wfRepo},
+		Run:      runWfUC,
 		Generate: &wfapp.GenerateWorkflow{LLM: wfLLM},
 		SaveGenerated: &wfapp.SaveGeneratedWorkflow{
 			Create: createWF,
@@ -315,6 +328,7 @@ func main() {
 		MetaForReply: func(ctx context.Context, userID uuid.UUID) *agentports.MetaContext {
 			return metaContextLoader.ForReply(ctx, userID)
 		},
+		DevProjects: devProjectRecorder,
 	}
 	convHandlers := &httptransport.ConversationHandlers{
 		CreateConversation: createConvUC,
@@ -332,6 +346,13 @@ func main() {
 		PinConversation:    &convapp.PinConversation{Conversations: convRepo},
 		RenameConversation: &convapp.RenameConversation{Conversations: convRepo},
 		AgentMemoryRepo:    agentMemRepo,
+		DevProjects:        projRepo,
+	}
+	projectHandlers := &httptransport.ProjectHandlers{
+		GetForConversation: &projapp.GetProjectForConversation{Repo: projRepo},
+		GetWithFiles:       &projapp.GetProjectWithLatestFiles{Repo: projRepo},
+		ListVersionsUC:     &projapp.ListVersions{Repo: projRepo},
+		Rollback:           &projapp.RollbackToVersion{Repo: projRepo},
 	}
 
 	readyCheck := func(ctx context.Context) error {
@@ -387,9 +408,9 @@ func main() {
 		PostContent:         postMetaUC,
 		SendMessage:         sendMetaUC,
 		WebhookVerifyToken:  cfg.MetaWebhookVerifyToken,
-		AppSecretForWebhook:  cfg.MetaCredentialsKey,
-		SocialReplyHandler:   socialReplyHandler,
-		SocialConfigRepo:     socialConfigRepo,
+		AppSecretForWebhook: cfg.MetaCredentialsKey,
+		SocialReplyHandler:  socialReplyHandler,
+		SocialConfigRepo:    socialConfigRepo,
 	}
 	financeHandlers := &httptransport.FinanceHandlers{
 		Repo:      financeStore,
@@ -402,6 +423,7 @@ func main() {
 		Agent:         agentH,
 		LLM:           llmHTTP,
 		Conversations: convHandlers,
+		Projects:      projectHandlers,
 		PolvoCode:     &httptransport.PolvoCodeHandlers{Intel: intel},
 		Workflows:     wfHandlers,
 		TaskLists:     taskHandlers,

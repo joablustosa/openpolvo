@@ -80,7 +80,11 @@ def parse_plan_json(raw: str) -> dict[str, Any]:
     if s.startswith("```"):
         lines = s.split("\n")
         if len(lines) >= 2:
-            inner = "\n".join(lines[1:-1]) if lines[-1].strip().startswith("```") else "\n".join(lines[1:])
+            inner = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip().startswith("```")
+                else "\n".join(lines[1:])
+            )
             s = inner.strip()
     try:
         return json.loads(s)

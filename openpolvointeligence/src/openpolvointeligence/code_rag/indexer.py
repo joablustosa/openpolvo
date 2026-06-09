@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from openpolvointeligence.code_rag.chunker import chunk_project_files, iter_files_from_root
 from openpolvointeligence.code_rag.embedder import embed_texts, embedding_model_name

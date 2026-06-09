@@ -430,7 +430,7 @@ export function FinancasPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] text-muted-foreground">Cadência</label>
-                <Select value={subCadence} onValueChange={setSubCadence}>
+                <Select value={subCadence} onValueChange={(v) => setSubCadence(v ?? "")}>
                   <SelectTrigger className="min-h-10">
                     <SelectValue />
                   </SelectTrigger>

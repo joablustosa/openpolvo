@@ -1,4 +1,5 @@
 import type { DevStudioOp } from "@/lib/devStudioMetadata";
+import type { DesignTokens } from "./shadcnScaffold";
 
 /** Identificador virtual quando o projecto corre no browser (WebContainer). */
 export const WEBCONTAINER_WORKSPACE_ID = "webcontainer://preview";
@@ -23,6 +24,7 @@ export type MountProjectOptions = {
   npmInstall?: boolean;
   devCommand?: string[];
   installCommand?: string[];
+  designTokens?: Partial<DesignTokens>;
 };
 
 export function isWebContainerSupported(): boolean {

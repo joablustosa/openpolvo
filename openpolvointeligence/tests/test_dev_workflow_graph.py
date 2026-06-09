@@ -47,9 +47,53 @@ def test_route_after_router_patch():
 
 def test_route_after_compiler_retry():
     fn = route_after_compiler
-    assert fn({"compile_ok": True, "compile_attempt": 1}) == "context_finalize"
-    assert fn({"compile_ok": False, "compile_attempt": 1, "max_compile_retries": 2}) == "retry_self_heal"
-    assert fn({"compile_ok": False, "compile_attempt": 2, "max_compile_retries": 2}) == "context_finalize"
+    # Compile ok → portão build_sandbox (anti-bug) antes de finalizar.
+    assert fn({"compile_ok": True, "compile_attempt": 1}) == "build_sandbox"
+    assert (
+        fn({"compile_ok": False, "compile_attempt": 1, "max_compile_retries": 2})
+        == "retry_self_heal"
+    )
+    assert (
+        fn({"compile_ok": False, "compile_attempt": 2, "max_compile_retries": 2})
+        == "context_finalize"
+    )
+
+
+def test_route_after_build_sandbox():
+    from openpolvointeligence.graphs.dev_workflow_graph import route_after_build_sandbox
+
+    assert (
+        route_after_build_sandbox({"build_result": {"ok": True, "ran": True}}) == "context_finalize"
+    )
+    # Degrade graciosamente (não executado) → segue para finalizar.
+    assert (
+        route_after_build_sandbox({"build_result": {"ok": True, "ran": False}})
+        == "context_finalize"
+    )
+    assert (
+        route_after_build_sandbox(
+            {"build_result": {"ok": False}, "compile_attempt": 0, "max_compile_retries": 2},
+        )
+        == "retry_self_heal"
+    )
+    assert (
+        route_after_build_sandbox(
+            {"build_result": {"ok": False}, "compile_attempt": 2, "max_compile_retries": 2},
+        )
+        == "context_finalize"
+    )
+
+
+def test_route_after_static_verify():
+    from openpolvointeligence.graphs.dev_workflow_graph import route_after_static_verify
+
+    assert route_after_static_verify({"static_verify": {"ok": True}}) == "compiler_checker"
+    assert (
+        route_after_static_verify(
+            {"static_verify": {"ok": False}, "compile_attempt": 0, "max_compile_retries": 2},
+        )
+        == "retry_self_heal"
+    )
 
 
 def test_manifest_merge():

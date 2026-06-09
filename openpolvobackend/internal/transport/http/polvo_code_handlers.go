@@ -83,12 +83,13 @@ func (PolvoCodeHandlers) PostValidateOps(w http.ResponseWriter, r *http.Request)
 }
 
 type devStudioSelfHealReq struct {
-	ModelProvider      string              `json:"model_provider"`
-	UserPrompt         string              `json:"user_prompt,omitempty"`
-	CompileLog         string              `json:"compile_log,omitempty"`
-	PreviewConsoleLogs []map[string]any    `json:"preview_console_logs,omitempty"`
-	ProjectFiles       map[string]string   `json:"project_files,omitempty"`
-	DevStudioContext   map[string]any      `json:"dev_studio_context,omitempty"`
+	ModelProvider      string            `json:"model_provider"`
+	ConversationID     string            `json:"conversation_id,omitempty"`
+	UserPrompt         string            `json:"user_prompt,omitempty"`
+	CompileLog         string            `json:"compile_log,omitempty"`
+	PreviewConsoleLogs []map[string]any  `json:"preview_console_logs,omitempty"`
+	ProjectFiles       map[string]string `json:"project_files,omitempty"`
+	DevStudioContext   map[string]any    `json:"dev_studio_context,omitempty"`
 }
 
 type devStudioSelfHealResp struct {
@@ -113,6 +114,7 @@ func (h *PolvoCodeHandlers) PostDevStudioSelfHeal(w http.ResponseWriter, r *http
 	}
 	text, meta, err := h.Intel.DevStudioSelfHeal(r.Context(), polvointel.DevStudioSelfHealInput{
 		ModelProvider:      req.ModelProvider,
+		ConversationID:     req.ConversationID,
 		UserPrompt:         req.UserPrompt,
 		CompileLog:         req.CompileLog,
 		PreviewConsoleLogs: req.PreviewConsoleLogs,
