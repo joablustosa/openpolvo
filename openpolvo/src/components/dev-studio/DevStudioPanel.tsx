@@ -14,10 +14,14 @@ import { cn } from "@/lib/utils";
 type DevStudioViewMode = "preview" | "code";
 
 type Props = {
-  onClose: () => void;
+  /** Legacy SitePanel passa callback de fecho; Desk Code Mode omite. */
+  onClose?: () => void;
+  /** `desk` — enxuto para Code Mode MVP (sem fechar nem editor externo). */
+  variant?: "legacy" | "desk";
 };
 
-export function DevStudioPanel({ onClose }: Props) {
+export function DevStudioPanel({ onClose, variant = "legacy" }: Props) {
+  const isDesk = variant === "desk";
   const conversationWorkspace = useConversationWorkspaceOptional();
   const {
     devStudioWorkspacePath,
@@ -72,7 +76,7 @@ export function DevStudioPanel({ onClose }: Props) {
       void desktopPolvoCode.devStop();
     }
     clearDevStudio();
-    onClose();
+    onClose?.();
   };
 
   const handleOpenExternal = () => {
@@ -80,14 +84,10 @@ export function DevStudioPanel({ onClose }: Props) {
     else if (devUrl) window.open(devUrl, "_blank", "noopener,noreferrer");
   };
 
-  const handlePolvoCode = async () => {
+  const handleToggleCodeView = () => {
     if (showingCode) {
       setViewMode("preview");
       return;
-    }
-    if (inElectron && hasProject) {
-      const r = await desktopPolvoCode.tryOpenExternalEditor(workspacePath);
-      if (r.ok) return;
     }
     if (hasProject) {
       setViewMode("code");
@@ -103,9 +103,11 @@ export function DevStudioPanel({ onClose }: Props) {
           <code className="rounded bg-muted px-1">npm run dev:web</code> e recarregue a página,
           ou use a app desktop (Electron).
         </p>
-        <Button type="button" variant="outline" size="sm" onClick={onClose}>
-          Fechar
-        </Button>
+        {!isDesk ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => void handleClose()}>
+            Fechar
+          </Button>
+        ) : null}
       </section>
     );
   }
@@ -113,7 +115,7 @@ export function DevStudioPanel({ onClose }: Props) {
   return (
     <section
       className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
-      aria-label="Estúdio de desenvolvimento"
+      aria-label={isDesk ? "Code Mode" : "Estúdio de desenvolvimento"}
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-3 backdrop-blur">
         <div className="min-w-0 flex-1">
@@ -157,20 +159,14 @@ export function DevStudioPanel({ onClose }: Props) {
           type="button"
           variant={showingCode ? "secondary" : "ghost"}
           size="icon-sm"
-          title={
-            showingCode
-              ? "Ver preview"
-              : inElectron
-                ? "Abrir Polvo Code (Cursor / VS Code)"
-                : "Ver código do projecto"
-          }
-          aria-label={showingCode ? "Ver preview" : "Abrir Polvo Code"}
+          title={showingCode ? "Ver preview" : "Ver código do projecto"}
+          aria-label={showingCode ? "Ver preview" : "Ver código do projecto"}
           disabled={!hasProject}
-          onClick={() => void handlePolvoCode()}
+          onClick={handleToggleCodeView}
         >
           {showingCode ? <Eye className="size-4" /> : <Code2 className="size-4" />}
         </Button>
-        {devUrl ? (
+        {!isDesk && devUrl ? (
           <Button
             type="button"
             variant="ghost"
@@ -181,9 +177,17 @@ export function DevStudioPanel({ onClose }: Props) {
             <ExternalLink className="size-4" />
           </Button>
         ) : null}
-        <Button type="button" variant="ghost" size="icon-sm" title="Fechar" onClick={() => void handleClose()}>
-          <X className="size-4" />
-        </Button>
+        {!isDesk ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            title="Fechar"
+            onClick={() => void handleClose()}
+          >
+            <X className="size-4" />
+          </Button>
+        ) : null}
       </header>
 
       <div

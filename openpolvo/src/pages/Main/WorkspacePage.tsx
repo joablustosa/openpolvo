@@ -5,6 +5,9 @@ import {
   useWorkspaceLayout,
   WorkspaceLayoutProvider,
 } from "@/core/WorkspaceLayoutContext";
+import { DeskModeProvider } from "@/desk/DeskModeContext";
+import { DeskShell } from "@/desk/DeskShell";
+import { isDeskMvpMode } from "@/lib/deskMvpMode";
 import { ChatPanel } from "./ChatPanel";
 import { SitePanel } from "./SitePanel";
 
@@ -44,6 +47,16 @@ function WorkspaceLayoutSync() {
 }
 
 export function WorkspacePage() {
+  if (isDeskMvpMode()) {
+    return (
+      <DeskModeProvider>
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+          <DeskShell />
+        </div>
+      </DeskModeProvider>
+    );
+  }
+
   return (
     <WorkspaceLayoutProvider>
       <WorkspaceLayoutSync />
