@@ -1,13 +1,17 @@
-import { ExternalLink, FolderOpen, Loader2, RefreshCw, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Code2, ExternalLink, Eye, FolderOpen, Loader2, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { desktopPolvoCode, isElectron } from "@/lib/desktopApi";
 import { isWebContainerSupported } from "@/lib/webcontainer/types";
 import { useConversationWorkspaceOptional } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { saveDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
+import { DevStudioCodePane } from "./DevStudioCodePane";
 import { DevStudioPreviewPane } from "./DevStudioPreviewPane";
 import { useDevStudioRuntime } from "./useDevStudioRuntime";
 import { cn } from "@/lib/utils";
+
+type DevStudioViewMode = "preview" | "code";
 
 type Props = {
   onClose: () => void;
@@ -35,10 +39,17 @@ export function DevStudioPanel({ onClose }: Props) {
     useWebContainer,
   } = useDevStudioRuntime(workspacePath, devStudioPreviewGeneration);
 
+  const [viewMode, setViewMode] = useState<DevStudioViewMode>("preview");
+
+  useEffect(() => {
+    setViewMode("preview");
+  }, [workspacePath, devStudioPreviewGeneration]);
   const busy = phase === "applying" || phase === "installing" || phase === "starting";
   const inElectron = isElectron();
   const webContainerReady = isWebContainerSupported();
   const previewSurface = useWebContainer || !inElectron ? "iframe" : "webview";
+  const hasProject = Boolean(workspacePath.trim());
+  const showingCode = viewMode === "code";
 
   const handleChooseFolder = async () => {
     if (!inElectron) return;
@@ -69,6 +80,20 @@ export function DevStudioPanel({ onClose }: Props) {
     else if (devUrl) window.open(devUrl, "_blank", "noopener,noreferrer");
   };
 
+  const handlePolvoCode = async () => {
+    if (showingCode) {
+      setViewMode("preview");
+      return;
+    }
+    if (inElectron && hasProject) {
+      const r = await desktopPolvoCode.tryOpenExternalEditor(workspacePath);
+      if (r.ok) return;
+    }
+    if (hasProject) {
+      setViewMode("code");
+    }
+  };
+
   if (!inElectron && !webContainerReady) {
     return (
       <section className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
@@ -93,7 +118,9 @@ export function DevStudioPanel({ onClose }: Props) {
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-3 backdrop-blur">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">
-            {devStudioProjectTitle?.trim() || "Preview do projecto"}
+            {showingCode
+              ? "Código do projecto"
+              : devStudioProjectTitle?.trim() || "Preview do projecto"}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
             {statusLine}
@@ -111,18 +138,37 @@ export function DevStudioPanel({ onClose }: Props) {
             <FolderOpen className="size-4" />
           </Button>
         ) : null}
+        {!showingCode ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            title="Recarregar preview"
+            disabled={!devUrl || busy}
+            onClick={() => {
+              bumpPreview();
+              void startPreview();
+            }}
+          >
+            <RefreshCw className={cn("size-4", busy && "animate-spin")} />
+          </Button>
+        ) : null}
         <Button
           type="button"
-          variant="ghost"
+          variant={showingCode ? "secondary" : "ghost"}
           size="icon-sm"
-          title="Recarregar preview"
-          disabled={!devUrl || busy}
-          onClick={() => {
-            bumpPreview();
-            void startPreview();
-          }}
+          title={
+            showingCode
+              ? "Ver preview"
+              : inElectron
+                ? "Abrir Polvo Code (Cursor / VS Code)"
+                : "Ver código do projecto"
+          }
+          aria-label={showingCode ? "Ver preview" : "Abrir Polvo Code"}
+          disabled={!hasProject}
+          onClick={() => void handlePolvoCode()}
         >
-          <RefreshCw className={cn("size-4", busy && "animate-spin")} />
+          {showingCode ? <Eye className="size-4" /> : <Code2 className="size-4" />}
         </Button>
         {devUrl ? (
           <Button
@@ -144,13 +190,21 @@ export function DevStudioPanel({ onClose }: Props) {
         data-dev-studio-preview
         className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
       >
-        <DevStudioPreviewPane
-          devUrl={devUrl}
-          running={busy}
-          reloadKey={previewReloadKey}
-          surface={previewSurface}
-        />
-        {busy ? (
+        {showingCode ? (
+          <DevStudioCodePane
+            workspacePath={workspacePath}
+            reloadKey={previewReloadKey}
+            className="absolute inset-0"
+          />
+        ) : (
+          <DevStudioPreviewPane
+            devUrl={devUrl}
+            running={busy}
+            reloadKey={previewReloadKey}
+            surface={previewSurface}
+          />
+        )}
+        {!showingCode && busy ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
             <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/90 px-4 py-2 shadow-sm">
               <Loader2 className="size-4 animate-spin text-primary" />
