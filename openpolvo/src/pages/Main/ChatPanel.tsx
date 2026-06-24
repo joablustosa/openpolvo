@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Mic, MicOff, Radio, SendHorizontal, Sparkles } from "lucide-react";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
@@ -73,9 +73,18 @@ export function ChatPanel({ variant = "legacy" }: Props) {
     writeVoiceWakePreference(voiceWakeEnabled);
   }, [voiceWakeEnabled]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
+  useLayoutEffect(() => {
+    if (!bottomRef.current) return;
+    // Mantém a conversa sempre no fim (stream + mensagens persistidas).
+    bottomRef.current.scrollIntoView({ behavior: sending ? "auto" : "smooth", block: "end" });
+  }, [
+    messages,
+    sending,
+    error,
+    emailSendNotice,
+    taskListNotice,
+    devStudioNotice,
+  ]);
 
   /** Pré-preenche o input vindo da página Finanças (`navigate("/", { state: { chatDraft } })`). */
   useEffect(() => {
@@ -282,10 +291,10 @@ export function ChatPanel({ variant = "legacy" }: Props) {
               className={cn(
                 "max-w-[min(92%,560px)] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
                 m.role === "assistant"
-                  ? "self-start border border-border bg-card text-card-foreground"
+                  ? "self-center border border-border bg-card text-card-foreground"
                   : m.role === "system"
                     ? "self-center border border-dashed border-border/80 bg-muted/30 text-muted-foreground"
-                    : "self-end border border-primary/25 bg-primary/10 text-foreground",
+                    : "self-center border border-primary/25 bg-primary/10 text-foreground",
               )}
             >
               <FormattedMessageContent

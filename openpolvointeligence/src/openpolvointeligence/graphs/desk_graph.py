@@ -113,7 +113,9 @@ def make_agent_node(settings: Settings):
                     },
                 )
         return {
-            "messages": [resp],
+            # Mantém histórico completo; se sobrescrever com [resp], o próximo
+            # passo pode começar em ToolMessage e quebrar o contrato OpenAI.
+            "messages": [*msgs, resp],
             "iteration": iteration,
             "trace": trace,
             "pending_tool_calls": pending,
@@ -131,6 +133,7 @@ def make_tools_node(
 ):
     async def tools(state: DeskAgentState) -> dict[str, Any]:
         pending = list(state.get("pending_tool_calls") or [])
+        cur_msgs = list(state.get("messages") or [])
         wp = str(state.get("workspace_path") or "")
         cid = str(state.get("desk_context", {}).get("conversation_id") or "")
 
@@ -155,7 +158,8 @@ def make_tools_node(
         ]
         trace = truncate_trace(list(state.get("trace") or []) + ["tools"])
         return {
-            "messages": tool_msgs,
+            # Preserva o AIMessage com tool_calls imediatamente antes de ToolMessage.
+            "messages": [*cur_msgs, *tool_msgs],
             "trace": trace,
             "pending_tool_calls": [],
         }
