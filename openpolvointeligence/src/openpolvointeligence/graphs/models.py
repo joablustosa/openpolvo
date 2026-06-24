@@ -39,6 +39,37 @@ def desk_effective_provider(p: str | None, settings: Settings) -> str:
     return str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
 
 
+def resolve_desk_reply_provider(
+    model_provider: str | None,
+    desk_context: dict[str, Any] | None,
+    settings: Settings,
+) -> str:
+    """Provider do grafo Desk após Go resolver perfis/chaves no body."""
+    mp = str(model_provider or "").strip().lower()
+    if mp == "ollama":
+        return "ollama"
+    if mp == "openai" and settings.openai_api_key:
+        return "openai"
+    if mp == "google" and settings.google_api_key:
+        return "google"
+    if mp in ("", "auto"):
+        if settings.openai_api_key and not settings.google_api_key:
+            return "openai"
+        if settings.google_api_key and not settings.openai_api_key:
+            return "google"
+        if settings.openai_api_key:
+            return "openai"
+        if settings.google_api_key:
+            return "google"
+        dc_mp = ""
+        if isinstance(desk_context, dict):
+            dc_mp = str(desk_context.get("model_provider") or "").strip().lower()
+        if dc_mp == "ollama":
+            return "ollama"
+        return desk_effective_provider(dc_mp or "auto", settings)
+    return desk_effective_provider(model_provider, settings)
+
+
 def get_chat_model(
     settings: Settings,
     provider: str | None,

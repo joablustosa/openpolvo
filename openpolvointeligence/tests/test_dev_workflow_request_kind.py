@@ -18,6 +18,14 @@ def test_no_project_create_keywords_is_new_app():
     assert kind == "new_app"
 
 
+def test_no_project_web_page_keywords_is_new_app():
+    kind = classify_request_kind(
+        "cria uma página web fullstack para uma imobiliária",
+        has_project=False,
+    )
+    assert kind == "new_app"
+
+
 def test_existing_project_bug_keywords_is_bug_fix():
     kind = classify_request_kind(
         "corrige o erro, o botão não funciona e dá tela branca",

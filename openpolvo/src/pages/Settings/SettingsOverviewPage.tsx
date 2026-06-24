@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Cpu, Loader2, Mail, Monitor, Power, Save, Settings2, Share2, Users, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Cpu, Loader2, Mail, Monitor, Power, Save, Settings2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useAuth } from "@/auth/AuthContext";
 import { cn } from "@/lib/utils";
-import * as finance from "@/lib/financeApi";
 import * as mail from "@/lib/mailApi";
 import { isElectron, serviceStatusColor, serviceStatusLabel } from "@/lib/desktopApi";
 import { useDesktopServices } from "@/hooks/useDesktopServices";
@@ -19,12 +17,6 @@ export function SettingsOverviewPage() {
   const [ok, setOk] = useState<string | null>(null);
   const [emailChatSkipConfirmation, setEmailChatSkipConfirmation] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
-  const [digestTz, setDigestTz] = useState("Europe/Lisbon");
-  const [digestHour, setDigestHour] = useState(8);
-  const [digestEnabled, setDigestEnabled] = useState(false);
-  const [digestIncFin, setDigestIncFin] = useState(true);
-  const [digestIncTasks, setDigestIncTasks] = useState(true);
-  const [digestLast, setDigestLast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -34,13 +26,6 @@ export function SettingsOverviewPage() {
       const s = await mail.getSmtpSettings(token);
       setEmailChatSkipConfirmation(Boolean(s.email_chat_skip_confirmation));
       setSmtpConfigured(Boolean(s.host?.trim() && s.password_set));
-      const d = await finance.getDigestSettings(token);
-      setDigestTz(d.timezone || "Europe/Lisbon");
-      setDigestHour(d.digest_hour ?? 8);
-      setDigestEnabled(Boolean(d.digest_enabled));
-      setDigestIncFin(d.include_finance_summary !== false);
-      setDigestIncTasks(d.include_tasks !== false);
-      setDigestLast(d.last_digest_sent_on ?? null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erro ao carregar");
     } finally {
@@ -51,28 +36,6 @@ export function SettingsOverviewPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const saveDigest = async () => {
-    if (!token) return;
-    setSaving(true);
-    setErr(null);
-    setOk(null);
-    try {
-      await finance.putDigestSettings(token, {
-        timezone: digestTz.trim() || "Europe/Lisbon",
-        digest_hour: digestHour,
-        digest_enabled: digestEnabled,
-        include_finance_summary: digestIncFin,
-        include_tasks: digestIncTasks,
-      });
-      setOk("Definições do digest guardadas.");
-      await load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Erro ao guardar digest");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const saveChatBehavior = async () => {
     if (!token) return;
@@ -134,6 +97,7 @@ export function SettingsOverviewPage() {
             </p>
 
             <div className="grid gap-2">
+              {/* Integrações — oculto no Desk MVP
               <Link
                 to="/settings/plugins"
                 className={cn(
@@ -146,6 +110,7 @@ export function SettingsOverviewPage() {
                   <p className="text-xs text-muted-foreground">E-mail, WhatsApp, Facebook e Instagram — tudo num só lugar</p>
                 </div>
               </Link>
+              */}
               <Link
                 to="/settings/llm"
                 className={cn(
@@ -172,6 +137,7 @@ export function SettingsOverviewPage() {
                   <p className="text-xs text-muted-foreground">Servidor, remetente e testes</p>
                 </div>
               </Link>
+              {/* Meta — oculto no Desk MVP
               <Link
                 to="/settings/meta"
                 className={cn(
@@ -184,6 +150,8 @@ export function SettingsOverviewPage() {
                   <p className="text-xs text-muted-foreground">Publicar e responder nas redes sociais Meta</p>
                 </div>
               </Link>
+              */}
+              {/* Contactos — oculto no Desk MVP
               <Link
                 to="/settings/contacts"
                 className={cn(
@@ -196,6 +164,7 @@ export function SettingsOverviewPage() {
                   <p className="text-xs text-muted-foreground">Agenda usada pelo Zé Polvinho nos e-mails</p>
                 </div>
               </Link>
+              */}
             </div>
 
             {/* ── Secção App & Serviços (apenas no Electron) ───────────────────── */}
@@ -277,80 +246,14 @@ export function SettingsOverviewPage() {
               </div>
             ) : null}
 
+            {/* Digest diário — oculto no Desk MVP
             <div className="space-y-3 rounded-lg border border-border bg-muted/15 p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Digest diário (agenda e finanças)
               </h2>
-              <p className="text-xs text-muted-foreground">
-                O envio usa o teu SMTP e corre no servidor da API quando{" "}
-                <code className="rounded bg-muted px-1">DIGEST_SCHEDULER_ENABLED=true</code> está definido.
-                {!smtpConfigured ? (
-                  <>
-                    {" "}
-                    <Link to="/settings/email" className="text-primary underline">
-                      Configura o SMTP
-                    </Link>{" "}
-                    para o digest poder ser enviado.
-                  </>
-                ) : null}
-              </p>
-              {digestLast ? (
-                <p className="text-[11px] text-muted-foreground">Último digest enviado: {digestLast}</p>
-              ) : null}
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  className="size-3.5 rounded border-input"
-                  checked={digestEnabled}
-                  onChange={(e) => setDigestEnabled(e.target.checked)}
-                />
-                <span>Activar digest diário</span>
-              </label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <span className="text-[11px] text-muted-foreground">Fuso horário (IANA)</span>
-                  <Input
-                    className="h-8 text-xs"
-                    value={digestTz}
-                    onChange={(e) => setDigestTz(e.target.value)}
-                    placeholder="Europe/Lisbon"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[11px] text-muted-foreground">Hora local (0–23)</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={23}
-                    className="h-8 text-xs"
-                    value={digestHour}
-                    onChange={(e) => setDigestHour(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  className="size-3.5 rounded border-input"
-                  checked={digestIncFin}
-                  onChange={(e) => setDigestIncFin(e.target.checked)}
-                />
-                <span>Incluir resumo de finanças</span>
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  className="size-3.5 rounded border-input"
-                  checked={digestIncTasks}
-                  onChange={(e) => setDigestIncTasks(e.target.checked)}
-                />
-                <span>Incluir tarefas com prazo</span>
-              </label>
-              <Button size="sm" className="gap-2" disabled={saving} onClick={() => void saveDigest()}>
-                {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-                Guardar digest
-              </Button>
+              ...
             </div>
+            */}
 
             <div className="space-y-3 rounded-lg border border-border bg-muted/15 p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

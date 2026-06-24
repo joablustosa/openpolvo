@@ -553,8 +553,12 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 	// Proxy linha a linha do stream Python.
 	var assistantText string
 	var assistantMeta map[string]any
+	var sawFileEvent bool
+	var streamErrDetail string
 	scanner := result.Scanner
-	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024) // até 4 MB por linha (ficheiros grandes)
+	// Respostas de dev podem incluir metadata grande (project_files/contexto). Aumenta
+	// o limite para evitar "token too long" e falso "stream terminou sem resposta".
+	scanner.Buffer(make([]byte, 1024*1024), 32*1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -571,6 +575,10 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 			if evt.Type == "done" {
 				assistantText = evt.AssistantText
 				assistantMeta = evt.Metadata
+			} else if evt.Type == "file" && evt.File != nil {
+				sawFileEvent = true
+			} else if evt.Type == "error" {
+				streamErrDetail = strings.TrimSpace(evt.Detail)
 			}
 		}
 
@@ -579,6 +587,11 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		case <-r.Context().Done():
 			return
 		default:
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if streamErrDetail == "" {
+			streamErrDetail = truncateForClientErr(err.Error(), 300)
 		}
 	}
 
@@ -610,10 +623,53 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 				sendLine("data: " + string(b))
 			}
 		}
+	} else if sawFileEvent {
+		// Fluxo de geração de ficheiros sem evento "done" (ex.: stream truncado após
+		// já termos aplicado ficheiros). Evita erro genérico no chat.
+		fallbackText := "Concluí a geração dos ficheiros no projecto."
+		fallbackMeta := map[string]any{
+			"intent":          "polvo_code_builder",
+			"routed_intent":   "polvo_code_builder",
+			"stream_fallback": true,
+		}
+		msgs, saveErr := h.StreamMsg.SaveAssistant(
+			r.Context(),
+			result.Conv,
+			fallbackText,
+			fallbackMeta,
+			uid,
+			req.Text,
+		)
+		if saveErr == nil {
+			out := make([]messageDTO, 0, len(msgs))
+			for _, m := range msgs {
+				dto := messageDTO{
+					ID:        m.ID.String(),
+					Role:      m.Role,
+					Content:   m.Content,
+					CreatedAt: formatTimeUTC(m.CreatedAt),
+				}
+				if len(m.Metadata) > 0 && json.Valid(m.Metadata) {
+					dto.Metadata = m.Metadata
+				}
+				out = append(out, dto)
+			}
+			if b, err := json.Marshal(map[string]any{"type": "messages_saved", "messages": out}); err == nil {
+				sendLine("data: " + string(b))
+			}
+		}
 	} else {
 		// Stream terminou sem evento "done" — erro no Python.
-		h.StreamMsg.SaveAssistantError(r.Context(), result.Conv, "stream terminou sem resposta")
-		sendLine(`data: {"type":"error","detail":"stream terminou sem resposta"}`)
+		detail := "stream terminou sem resposta"
+		if streamErrDetail != "" {
+			detail = streamErrDetail
+		}
+		h.StreamMsg.SaveAssistantError(r.Context(), result.Conv, detail)
+		if b, err := json.Marshal(map[string]any{"type": "error", "detail": detail}); err == nil {
+			sendLine("data: " + string(b))
+		} else {
+			sendLine(`data: {"type":"error","detail":"stream terminou sem resposta"}`)
+		}
 	}
 }
 

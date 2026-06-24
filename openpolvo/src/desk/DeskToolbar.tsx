@@ -1,26 +1,27 @@
 import { FolderOpen } from "lucide-react";
 import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { ChatLlmRoutingSelect } from "@/components/chat/ChatLlmRoutingSelect";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
 import { saveDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
 import { desktopPolvoCode, isElectron } from "@/lib/desktopApi";
-import type { DeskModelProvider } from "@/lib/deskContext";
-import {
-  saveDeskConversationPrefs,
-} from "@/lib/deskConversationPrefs";
+import { saveDeskConversationPrefs } from "@/lib/deskConversationPrefs";
 import { cn } from "@/lib/utils";
-import { DeskModelSelect } from "./DeskModelSelect";
 
 type Props = {
-  modelProvider: DeskModelProvider;
-  onModelProviderChange: (v: DeskModelProvider) => void;
   className?: string;
 };
 
-/** Selector workspace + modelo (DESK-14). */
-export function DeskToolbar({ modelProvider, onModelProviderChange, className }: Props) {
-  const { activeConversationId, sending } = useConversationWorkspace();
+/** Selector workspace + modelo LLM (perfis SQLite + Ollama). */
+export function DeskToolbar({ className }: Props) {
+  const {
+    activeConversationId,
+    sending,
+    llmSelectValue,
+    setLlmSelectValue,
+    llmProfiles,
+  } = useConversationWorkspace();
   const { devStudioWorkspacePath, setDevStudioProject, openDevStudioPreview } = useWorkspace();
   const inElectron = isElectron();
 
@@ -64,9 +65,12 @@ export function DeskToolbar({ modelProvider, onModelProviderChange, className }:
           </span>
         )}
       </div>
-      <DeskModelSelect
-        value={modelProvider}
-        onValueChange={onModelProviderChange}
+      <ChatLlmRoutingSelect
+        value={llmSelectValue}
+        onValueChange={setLlmSelectValue}
+        profiles={llmProfiles}
+        showOllama
+        compact
         disabled={sending}
       />
     </div>

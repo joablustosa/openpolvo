@@ -66,8 +66,8 @@ func marshalReplyBody(in agentports.ReplyInput) ([]byte, error) {
 		ConversationID: strings.TrimSpace(in.ConversationID),
 		DeskContext:    in.DeskContext,
 	}
+	body.SMTPContext = in.SMTP
 	if !deskMode {
-		body.SMTPContext = in.SMTP
 		body.ContactsContext = in.Contacts
 		body.TaskListsContext = in.TaskLists
 		body.FinanceContext = in.Finance

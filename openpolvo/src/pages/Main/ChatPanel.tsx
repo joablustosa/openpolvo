@@ -349,6 +349,18 @@ export function ChatPanel({ variant = "legacy" }: Props) {
             {[micError, wakeSpeechError, wakeError].filter(Boolean).join(" · ")}
           </p>
         ) : null}
+        {token && isDesk ? (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <ChatLlmRoutingSelect
+              value={llmSelectValue}
+              onValueChange={setLlmSelectValue}
+              profiles={llmProfiles}
+              showOllama
+              disabled={sending}
+              compact
+            />
+          </div>
+        ) : null}
         <div className="flex gap-2">
           <Textarea
             rows={2}

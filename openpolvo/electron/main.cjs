@@ -566,8 +566,10 @@ function createWindow() {
   });
 
   mainWindow = win;
+  let canRevealWindow = !isDev;
 
-  win.once("ready-to-show", () => {
+  const revealWindow = () => {
+    if (!canRevealWindow) return;
     // Assistente de primeira execução: sempre mostrar para o utilizador configurar chaves/SMTP.
     if (desktopNeedsFirstRunSetup()) {
       win.maximize();
@@ -580,9 +582,13 @@ function createWindow() {
       // Permanece oculto — a tray é o único ponto de entrada
       return;
     }
-    win.maximize();
-    win.show();
-  });
+    if (!win.isVisible()) {
+      win.maximize();
+      win.show();
+    }
+  };
+
+  win.once("ready-to-show", revealWindow);
 
   // Fechar janela → esconde para tray (não sai da app)
   win.on("close", (e) => {
@@ -611,6 +617,8 @@ function createWindow() {
         try {
           await win.loadURL(devUrl);
           logger.log("electron", `dev shell loaded ${devUrl}`);
+          canRevealWindow = true;
+          revealWindow();
           return;
         } catch (err) {
           lastErr = err;
@@ -618,6 +626,14 @@ function createWindow() {
         }
       }
       logger.log("electron", `dev shell: todas as URLs falharam: ${String(lastErr?.message ?? lastErr)}`);
+      try {
+        const html = `<!doctype html><html><head><meta charset="utf-8"><title>Open Polvo</title></head><body style="margin:0;background:#111;color:#eee;font-family:Segoe UI,Arial,sans-serif"><main style="max-width:760px;margin:64px auto;padding:24px"><h2 style="margin:0 0 12px">Falha ao abrir a interface</h2><p style="opacity:.9">Não foi possível carregar o frontend Vite em <code>http://127.0.0.1:5174</code>.</p><p style="opacity:.8">Confirme se o servidor está ativo e recarregue com <b>Ctrl+R</b>.</p></main></body></html>`;
+        await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      } catch {
+        // ignora: em último caso mantém só o log
+      }
+      canRevealWindow = true;
+      revealWindow();
     })();
     /*
      * Não abrir DevTools por defeito: com `openDevTools`, o Chromium corre o UI do

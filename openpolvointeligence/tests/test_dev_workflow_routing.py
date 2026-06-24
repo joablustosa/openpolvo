@@ -17,6 +17,10 @@ def test_should_use_dev_workflow_create_without_project():
     assert should_use_dev_workflow("Cria uma landing page para cafeteria")
 
 
+def test_should_use_dev_workflow_for_web_system_keywords():
+    assert should_use_dev_workflow("Cria uma página web fullstack para reservas")
+
+
 def test_should_not_route_app_support_to_dev():
     assert not should_use_dev_workflow(
         "A app Open Polvo não abre no login",

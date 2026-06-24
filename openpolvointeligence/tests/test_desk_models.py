@@ -1,7 +1,11 @@
 """Testes models Ollama (M1 MODEL-1/2)."""
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.models import desk_effective_provider, effective_provider
+from openpolvointeligence.graphs.models import (
+    desk_effective_provider,
+    effective_provider,
+    resolve_desk_reply_provider,
+)
 
 
 def test_effective_provider_ollama():
@@ -17,3 +21,16 @@ def test_desk_effective_provider_default_ollama():
 def test_desk_effective_provider_blocks_cloud():
     s = Settings(desk_default_provider="ollama", desk_allow_cloud_providers=False)
     assert desk_effective_provider("openai", s) == "ollama"
+
+
+def test_resolve_desk_reply_provider_uses_profile_keys():
+    base = Settings(desk_default_provider="ollama", desk_allow_cloud_providers=False)
+    s = base.model_copy(update={"openai_api_key": "sk-test", "openai_model": "gpt-4.1-mini"})
+    assert resolve_desk_reply_provider("openai", {"mode": "agent"}, s) == "openai"
+    assert resolve_desk_reply_provider("auto", {"mode": "agent"}, s) == "openai"
+
+
+def test_resolve_desk_reply_provider_ollama_without_keys():
+    s = Settings(desk_default_provider="ollama", desk_allow_cloud_providers=False)
+    assert resolve_desk_reply_provider("ollama", {"mode": "agent"}, s) == "ollama"
+    assert resolve_desk_reply_provider("auto", {"model_provider": "ollama"}, s) == "ollama"

@@ -7,7 +7,7 @@ func StripLegacyContextsForDesk(in *agentports.ReplyInput) {
 	if in == nil || len(in.DeskContext) == 0 {
 		return
 	}
-	in.SMTP = nil
+	// SMTP mantém-se activo no Desk MVP (cadastro + envio pelo chat).
 	in.Contacts = nil
 	in.TaskLists = nil
 	in.Finance = nil

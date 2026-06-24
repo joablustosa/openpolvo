@@ -3,10 +3,8 @@ import { Bot, Code2, GitBranch } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConversationWorkspace } from "@/core/ConversationWorkspaceContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
-import type { DeskModelProvider } from "@/lib/deskContext";
 import {
   getDeskConversationPrefs,
-  saveDeskConversationPrefs,
 } from "@/lib/deskConversationPrefs";
 import { getDevStudioConversationProject } from "@/lib/devStudio/conversationProjectLink";
 import { AgentModeShell } from "./AgentModeShell";
@@ -22,9 +20,9 @@ function isDeskMode(value: string): value is DeskMode {
 
 /** Shell Desk MVP — tabs Agent / Code / Flow + toolbar workspace/modelo. */
 export function DeskShell() {
-  const { mode, setMode, modelProvider, setModelProvider } = useDeskMode();
+  const { mode, setMode } = useDeskMode();
   const { devStudioPreviewOpen, devStudioWorkspacePath, setDevStudioProject } = useWorkspace();
-  const { activeConversationId } = useConversationWorkspace();
+  const { activeConversationId, setLlmSelectValue } = useConversationWorkspace();
 
   useEffect(() => {
     if (devStudioPreviewOpen || devStudioWorkspacePath) {
@@ -36,22 +34,15 @@ export function DeskShell() {
     const cid = activeConversationId;
     if (!cid) return;
     const prefs = getDeskConversationPrefs(cid);
-    if (prefs?.modelProvider) {
-      setModelProvider(prefs.modelProvider);
+    if (prefs?.llmRoutingSelect) {
+      setLlmSelectValue(prefs.llmRoutingSelect);
     }
     const linked = getDevStudioConversationProject(cid);
     const wp = prefs?.workspacePath ?? linked?.workspacePath ?? null;
     if (wp) {
       setDevStudioProject(wp, linked?.title ?? null);
     }
-  }, [activeConversationId, setModelProvider, setDevStudioProject]);
-
-  const handleModelChange = (next: DeskModelProvider) => {
-    setModelProvider(next);
-    if (activeConversationId) {
-      saveDeskConversationPrefs(activeConversationId, { modelProvider: next });
-    }
-  };
+  }, [activeConversationId, setLlmSelectValue, setDevStudioProject]);
 
   return (
     <Tabs
@@ -81,7 +72,7 @@ export function DeskShell() {
             Flow
           </TabsTrigger>
           </TabsList>
-          <DeskToolbar modelProvider={modelProvider} onModelProviderChange={handleModelChange} />
+          <DeskToolbar />
         </header>
 
         <TabsContent

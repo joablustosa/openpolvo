@@ -26,6 +26,7 @@ class DeskAgentState(TypedDict, total=False):
     pending_tool_calls: list[dict[str, Any]]
     agent_memory: dict[str, Any]
     _raw_messages: list[dict[str, Any]]
+    smtp_context: dict[str, Any]
 
 
 def initial_desk_state(
@@ -36,6 +37,7 @@ def initial_desk_state(
     model_provider: str,
     agent_memory: dict[str, Any] | None = None,
     raw_messages: list[dict[str, Any]] | None = None,
+    smtp_context: dict[str, Any] | None = None,
     max_iterations: int = 8,
 ) -> DeskAgentState:
     return {
@@ -51,4 +53,5 @@ def initial_desk_state(
         "pending_tool_calls": [],
         "agent_memory": agent_memory or {},
         "_raw_messages": raw_messages or [],
+        "smtp_context": smtp_context or {},
     }

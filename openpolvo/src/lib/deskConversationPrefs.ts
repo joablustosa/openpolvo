@@ -2,7 +2,10 @@ import type { DeskModelProvider } from "@/lib/deskContext";
 
 export type DeskConversationPrefs = {
   workspacePath: string | null;
-  modelProvider: DeskModelProvider;
+  /** Valor do select LLM (`auto`, `ollama`, `p:<uuid>`, …) */
+  llmRoutingSelect: string;
+  /** @deprecated usar llmRoutingSelect */
+  modelProvider?: DeskModelProvider;
   updatedAt: string;
 };
 
@@ -30,32 +33,43 @@ function writeMap(map: Record<string, DeskConversationPrefs>): void {
   }
 }
 
+function normalizePrefs(row: DeskConversationPrefs): DeskConversationPrefs {
+  const llm =
+    row.llmRoutingSelect?.trim() ||
+    (row.modelProvider === "ollama"
+      ? "ollama"
+      : row.modelProvider === "openai" || row.modelProvider === "google"
+        ? row.modelProvider
+        : "ollama");
+  return {
+    workspacePath: row.workspacePath?.trim() || null,
+    llmRoutingSelect: llm,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export function getDeskConversationPrefs(conversationId: string): DeskConversationPrefs | null {
   const id = conversationId.trim();
   if (!id) return null;
   const row = readMap()[id];
   if (!row) return null;
-  return {
-    workspacePath: row.workspacePath?.trim() || null,
-    modelProvider: row.modelProvider ?? "ollama",
-    updatedAt: row.updatedAt,
-  };
+  return normalizePrefs(row);
 }
 
 export function saveDeskConversationPrefs(
   conversationId: string,
-  patch: Partial<Pick<DeskConversationPrefs, "workspacePath" | "modelProvider">>,
+  patch: Partial<Pick<DeskConversationPrefs, "workspacePath" | "llmRoutingSelect">>,
 ): void {
   const id = conversationId.trim();
   if (!id) return;
   const map = readMap();
-  const prev = map[id];
+  const prev = map[id] ? normalizePrefs(map[id]) : null;
   map[id] = {
     workspacePath:
       patch.workspacePath !== undefined
         ? patch.workspacePath?.trim() || null
         : (prev?.workspacePath ?? null),
-    modelProvider: patch.modelProvider ?? prev?.modelProvider ?? "ollama",
+    llmRoutingSelect: patch.llmRoutingSelect ?? prev?.llmRoutingSelect ?? "ollama",
     updatedAt: new Date().toISOString(),
   };
   writeMap(map);

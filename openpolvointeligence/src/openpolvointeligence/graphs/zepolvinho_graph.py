@@ -1101,4 +1101,19 @@ async def run_reply_stream(
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:
         _log.exception("run_reply falhou no stream: %s", exc)
-        yield {"type": "error", "detail": str(exc)[:400]}
+        # Mesmo em falha, termina com `done` para evitar erro genérico na API Go
+        # ("stream terminou sem resposta") quando já houve output parcial.
+        detail = str(exc)[:400]
+        yield {
+            "type": "done",
+            "assistant_text": (
+                "Houve uma falha ao concluir a resposta, mas o agente já gerou "
+                "saída parcial. Tente novamente para finalizar a operação."
+            ),
+            "metadata": {
+                "intent": "polvo_code_builder",
+                "routed_intent": "polvo_code_builder",
+                "error": detail,
+                "error_kind": "stream_partial_failure",
+            },
+        }

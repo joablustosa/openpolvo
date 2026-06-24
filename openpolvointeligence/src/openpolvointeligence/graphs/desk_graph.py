@@ -17,7 +17,8 @@ from openpolvointeligence.graphs.agent_memory_utils import (
 from openpolvointeligence.graphs.desk_state import DeskAgentState, truncate_trace
 from openpolvointeligence.graphs.desk_tool_logic import desk_langchain_tools, dispatch_tool_calls
 from openpolvointeligence.graphs.message_utils import tail_messages
-from openpolvointeligence.graphs.models import desk_effective_provider, get_chat_model
+from openpolvointeligence.graphs.email_send_reply import format_smtp_block_for_prompt
+from openpolvointeligence.graphs.models import effective_provider, get_chat_model
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -75,6 +76,9 @@ def make_load_context_node(settings: Settings):
             sys += f"\n\n{mem_block}"
         if wp:
             sys += f"\n\n## Workspace\nCaminho absoluto: `{wp}`"
+        smtp_block = format_smtp_block_for_prompt(state.get("smtp_context"))
+        if smtp_block:
+            sys += smtp_block
         return {
             "messages": [SystemMessage(content=sys), *lc],
             "trace": trace,
@@ -88,7 +92,10 @@ def make_agent_node(settings: Settings):
     tools = desk_langchain_tools()
 
     async def agent(state: DeskAgentState) -> dict[str, Any]:
-        mp = desk_effective_provider(str(state.get("model_provider") or ""), settings)
+        # O provider já vem resolvido em run_desk_reply (perfil/chave ou Ollama).
+        # Usar effective_provider (não desk_effective_provider) para não voltar a
+        # bloquear cloud quando o utilizador escolheu um perfil com chave.
+        mp = effective_provider(str(state.get("model_provider") or ""))
         chat = get_chat_model(settings, mp)
         bound = chat.bind_tools(tools)
         msgs = list(state.get("messages") or [])

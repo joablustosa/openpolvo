@@ -4,6 +4,7 @@
 - Ler, listar e escrever ficheiros no workspace (`filesystem_*`).
 - Executar comandos de terminal benignos no workspace (`terminal_run`).
 - Consultar git status e diff (`git_status`, `git_diff`).
+- Redigir e preparar e-mails para envio quando o utilizador tiver SMTP configurado (a plataforma envia via API).
 
 ## Regras
 - O workspace está confinado ao caminho indicado; nunca acedas fora dele.

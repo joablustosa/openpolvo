@@ -36,6 +36,9 @@ type WorkspaceContextValue = {
   openDevStudioPreview: () => void;
   closeDevStudioPreview: () => void;
   setDevStudioPreviewOpen: (open: boolean) => void;
+  /** Preferência de abertura do Estúdio: mostra código em vez do preview. */
+  devStudioPreferCodeView: boolean;
+  setDevStudioPreferCodeView: (prefer: boolean) => void;
   /** Projecto Vite/React no disco (preview do estúdio). */
   devStudioWorkspacePath: string | null;
   devStudioProjectTitle: string | null;
@@ -63,6 +66,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const [devStudioPreviewGeneration, setDevStudioPreviewGeneration] = useState(0);
   const [devStudioPreviewOpen, setDevStudioPreviewOpen] = useState(false);
+  const [devStudioPreferCodeView, setDevStudioPreferCodeViewState] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem(SIDEBAR_KEY) === "1";
@@ -81,6 +85,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setDevStudioProjectTitleState(null);
       setDevStudioPreviewGeneration(0);
       setDevStudioPreviewOpen(false);
+      setDevStudioPreferCodeViewState(false);
     }
   }, [token]);
 
@@ -117,6 +122,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setDevStudioPreviewOpen(open);
   }, []);
 
+  const setDevStudioPreferCodeView = useCallback((prefer: boolean) => {
+    setDevStudioPreferCodeViewState(prefer);
+  }, []);
+
   const resetShellLayout = useCallback(() => {
     setActiveAppState(null);
     setDashboardDataState(null);
@@ -126,6 +135,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setDevStudioProjectTitleState(null);
     setDevStudioPreviewGeneration(0);
     setDevStudioPreviewOpen(false);
+    setDevStudioPreferCodeViewState(false);
   }, []);
 
   const setDevStudioProject = useCallback(
@@ -152,6 +162,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setDevStudioProjectTitleState(null);
     setDevStudioPreviewGeneration(0);
     setDevStudioPreviewOpen(false);
+    setDevStudioPreferCodeViewState(false);
   }, []);
 
   const setSidebarCollapsed = useCallback((v: boolean) => {
@@ -188,6 +199,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       openDevStudioPreview,
       closeDevStudioPreview,
       setDevStudioPreviewOpen: setDevStudioPreviewOpenCb,
+      devStudioPreferCodeView,
+      setDevStudioPreferCodeView,
       devStudioWorkspacePath,
       devStudioProjectTitle,
       setDevStudioProject,
@@ -213,6 +226,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       openDevStudioPreview,
       closeDevStudioPreview,
       setDevStudioPreviewOpenCb,
+      devStudioPreferCodeView,
+      setDevStudioPreferCodeView,
       devStudioWorkspacePath,
       devStudioProjectTitle,
       setDevStudioProject,

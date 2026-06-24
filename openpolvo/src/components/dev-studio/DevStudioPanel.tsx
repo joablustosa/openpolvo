@@ -27,6 +27,8 @@ export function DevStudioPanel({ onClose, variant = "legacy" }: Props) {
     devStudioWorkspacePath,
     devStudioProjectTitle,
     devStudioPreviewGeneration,
+    devStudioPreferCodeView,
+    setDevStudioPreferCodeView,
     setDevStudioProject,
     clearDevStudio,
     openDevStudioPreview,
@@ -46,8 +48,8 @@ export function DevStudioPanel({ onClose, variant = "legacy" }: Props) {
   const [viewMode, setViewMode] = useState<DevStudioViewMode>("preview");
 
   useEffect(() => {
-    setViewMode("preview");
-  }, [workspacePath, devStudioPreviewGeneration]);
+    setViewMode(devStudioPreferCodeView ? "code" : "preview");
+  }, [workspacePath, devStudioPreviewGeneration, devStudioPreferCodeView]);
   const busy = phase === "applying" || phase === "installing" || phase === "starting";
   const inElectron = isElectron();
   const webContainerReady = isWebContainerSupported();
@@ -86,10 +88,12 @@ export function DevStudioPanel({ onClose, variant = "legacy" }: Props) {
 
   const handleToggleCodeView = () => {
     if (showingCode) {
+      setDevStudioPreferCodeView(false);
       setViewMode("preview");
       return;
     }
     if (hasProject) {
+      setDevStudioPreferCodeView(true);
       setViewMode("code");
     }
   };

@@ -20,7 +20,7 @@ async function ensureOk(res: Response, fallbackLabel: string): Promise<void> {
   throw new ApiError(res.status, msg);
 }
 
-export type ModelProvider = "openai" | "google" | "auto";
+export type ModelProvider = "openai" | "google" | "ollama" | "auto";
 
 export type ConversationDTO = {
   id: string;

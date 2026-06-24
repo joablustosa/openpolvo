@@ -18,6 +18,22 @@ type LLMHandlers struct {
 	Repo ports.Repository
 }
 
+// sanitizeAPIKey valida que a chave só contém ASCII visível (sem espaços, controlo
+// ou acentos). Chaves OpenAI/Gemini são sempre ASCII; um caractere inválido (ex.: copy
+// /paste com acento ou espaço invisível) quebra o header HTTP enviado ao fornecedor.
+func sanitizeAPIKey(raw string) (string, bool) {
+	k := strings.TrimSpace(raw)
+	if k == "" {
+		return "", false
+	}
+	for _, r := range k {
+		if r < 0x21 || r > 0x7e {
+			return "", false
+		}
+	}
+	return k, true
+}
+
 type llmProfileDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
@@ -45,9 +61,9 @@ type patchLLMProfileRequest struct {
 }
 
 type llmAgentPrefsDTO struct {
-	AgentMode         string  `json:"agent_mode"`
-	DefaultProfileID  *string `json:"default_profile_id,omitempty"`
-	UpdatedAt         string  `json:"updated_at"`
+	AgentMode        string  `json:"agent_mode"`
+	DefaultProfileID *string `json:"default_profile_id,omitempty"`
+	UpdatedAt        string  `json:"updated_at"`
 }
 
 type putLLMAgentPrefsRequest struct {
@@ -101,11 +117,16 @@ func (h *LLMHandlers) PostProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "display_name, model_id and api_key are required")
 		return
 	}
+	apiKey, keyOK := sanitizeAPIKey(req.APIKey)
+	if !keyOK {
+		writeError(w, http.StatusBadRequest, "api_key inválida: use apenas caracteres ASCII visíveis (sem espaços, acentos ou caracteres invisíveis)")
+		return
+	}
 	sort := 0
 	if req.SortOrder != nil {
 		sort = *req.SortOrder
 	}
-	id, err := h.Repo.CreateProfile(r.Context(), req.DisplayName, req.Provider, req.ModelID, sort, req.APIKey)
+	id, err := h.Repo.CreateProfile(r.Context(), req.DisplayName, req.Provider, req.ModelID, sort, apiKey)
 	if err != nil {
 		slog.Error("llm create profile", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create profile")
@@ -136,6 +157,14 @@ func (h *LLMHandlers) PatchProfile(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
+	}
+	if req.APIKey != nil && strings.TrimSpace(*req.APIKey) != "" {
+		apiKey, keyOK := sanitizeAPIKey(*req.APIKey)
+		if !keyOK {
+			writeError(w, http.StatusBadRequest, "api_key inválida: use apenas caracteres ASCII visíveis (sem espaços, acentos ou caracteres invisíveis)")
+			return
+		}
+		req.APIKey = &apiKey
 	}
 	if err := h.Repo.UpdateProfile(r.Context(), id, req.DisplayName, req.ModelID, req.SortOrder, req.APIKey); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

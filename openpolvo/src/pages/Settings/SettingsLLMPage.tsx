@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Cpu, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Cpu, KeyRound, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -93,7 +93,7 @@ export function SettingsLLMPage() {
       });
       setNewName("");
       setNewKey("");
-      setOk("Perfil criado.");
+      setOk("Perfil criado com chave guardada. Confirme o estado “Chave guardada” na lista abaixo.");
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Erro ao criar");
@@ -307,12 +307,22 @@ export function SettingsLLMPage() {
                   className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-3 text-sm"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1">
                       <p className="font-medium">{p.display_name}</p>
                       <p className="text-xs text-muted-foreground">
                         {p.provider} · {p.model_id}
-                        {p.has_api_key ? "" : " · sem chave"}
                       </p>
+                      {p.has_api_key ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="size-3" />
+                          Chave guardada
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          <KeyRound className="size-3" />
+                          Sem chave
+                        </span>
+                      )}
                     </div>
                     <Button
                       type="button"
@@ -354,18 +364,22 @@ function ProfileInlineEditor({
   const [order, setOrder] = useState(String(profile.sort_order));
   const [busy, setBusy] = useState(false);
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const [localOk, setLocalOk] = useState<string | null>(null);
 
   const save = async () => {
     setBusy(true);
     setLocalErr(null);
+    setLocalOk(null);
+    const keyChanged = key.trim().length > 0;
     try {
       await llm.patchLlmProfile(token, profile.id, {
         display_name: name.trim() || undefined,
         model_id: modelId.trim() || undefined,
         sort_order: parseInt(order, 10) || 0,
-        ...(key.trim() ? { api_key: key.trim() } : {}),
+        ...(keyChanged ? { api_key: key.trim() } : {}),
       });
       setKey("");
+      setLocalOk(keyChanged ? "Perfil actualizado — nova chave guardada." : "Perfil actualizado.");
       await onSaved();
     } catch (e) {
       setLocalErr(e instanceof Error ? e.message : "Erro");
@@ -377,17 +391,30 @@ function ProfileInlineEditor({
   return (
     <div className="space-y-2 border-t border-border/60 pt-2">
       {localErr ? <p className="text-xs text-destructive">{localErr}</p> : null}
+      {localOk ? (
+        <p className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="size-3" />
+          {localOk}
+        </p>
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-2">
         <Input className="h-8 text-xs" value={name} onChange={(e) => setName(e.target.value)} />
         <Input className="h-8 text-xs" value={modelId} onChange={(e) => setModelId(e.target.value)} />
-        <Input
-          className="h-8 text-xs sm:col-span-2"
-          type="password"
-          placeholder={profile.has_api_key ? "Nova API key (opcional)" : "API key"}
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          autoComplete="off"
-        />
+        <div className="space-y-1 sm:col-span-2">
+          <Input
+            className="h-8 text-xs"
+            type="password"
+            placeholder={profile.has_api_key ? "Nova API key (deixe vazio para manter a actual)" : "API key"}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            autoComplete="off"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Por segurança a chave nunca é mostrada. O estado{" "}
+            <strong>{profile.has_api_key ? "“Chave guardada”" : "“Sem chave”"}</strong> acima confirma
+            se há uma chave gravada.
+          </p>
+        </div>
         <Input className="h-8 text-xs" value={order} onChange={(e) => setOrder(e.target.value)} />
       </div>
       <Button type="button" size="sm" variant="secondary" disabled={disabled || busy} onClick={() => void save()}>

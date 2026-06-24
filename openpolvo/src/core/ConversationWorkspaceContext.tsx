@@ -28,9 +28,12 @@ import {
 } from "@/lib/llmProfilesApi";
 import {
   defaultModelForNewConversation,
+  llmSelectFromStored,
+  llmSelectToDeskModelProvider,
   parseLlmRoutingSelect,
   transcribeModelProvider,
 } from "@/lib/llmRouting";
+import { getDeskConversationPrefs, saveDeskConversationPrefs } from "@/lib/deskConversationPrefs";
 import { forceReloginRedirect } from "@/lib/api";
 import {
   errorMessageIndicatesPolvointelUnauthorized,
@@ -120,6 +123,33 @@ type ConversationWorkspaceValue = {
 const ConversationWorkspaceContext =
   createContext<ConversationWorkspaceValue | null>(null);
 
+const DEV_REQUEST_HINTS = [
+  "cria uma landing",
+  "landing page",
+  "landingpage",
+  "pagina web",
+  "página web",
+  "sistema web",
+  "sistema completo",
+  "fullstack",
+  "site institucional",
+  "cria um site",
+  "crie um site",
+  "criar um site",
+  "cria uma app",
+  "crie uma app",
+  "criar uma app",
+  "cria um sistema",
+  "desenvolve um sistema",
+  "desenvolva um sistema",
+];
+
+function looksLikeDevBuildRequest(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  return DEV_REQUEST_HINTS.some((k) => t.includes(k));
+}
+
 export function ConversationWorkspaceProvider({
   children,
 }: {
@@ -136,6 +166,7 @@ export function ConversationWorkspaceProvider({
     devStudioProjectTitle,
     setDevStudioProject,
     setDevStudioPreviewOpen,
+    setDevStudioPreferCodeView,
     restartDevStudioPreview,
   } = useWorkspace();
 
@@ -144,7 +175,19 @@ export function ConversationWorkspaceProvider({
     string | null
   >(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
-  const [llmSelectValue, setLlmSelectValue] = useState<string>("auto");
+  const [llmSelectValue, setLlmSelectValueState] = useState<string>(
+    isDeskMvpMode() ? "ollama" : "auto",
+  );
+
+  const setLlmSelectValue = useCallback(
+    (v: string) => {
+      setLlmSelectValueState(v);
+      if (isDeskMvpMode() && activeConversationId) {
+        saveDeskConversationPrefs(activeConversationId, { llmRoutingSelect: v });
+      }
+    },
+    [activeConversationId],
+  );
   const [llmProfiles, setLlmProfiles] = useState<LlmProfileDTO[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -244,7 +287,7 @@ export function ConversationWorkspaceProvider({
     const { profileId } = parseLlmRoutingSelect(llmSelectValue);
     if (!profileId || llmProfiles.length === 0) return;
     const ok = llmProfiles.some((p) => p.id === profileId && p.has_api_key);
-    if (!ok) setLlmSelectValue("auto");
+    if (!ok) setLlmSelectValueState(isDeskMvpMode() ? "ollama" : "auto");
   }, [llmProfiles, llmSelectValue]);
 
   /**
@@ -299,7 +342,7 @@ export function ConversationWorkspaceProvider({
       setActiveConversationId(id);
       setMessages([]);
       if (defaultModel) {
-        setLlmSelectValue(defaultModel);
+        setLlmSelectValueState(defaultModel);
       }
       if (!token || !id) return;
       setLoadingMessages(true);
@@ -309,8 +352,13 @@ export function ConversationWorkspaceProvider({
         setMessages(msgs);
         if (!defaultModel) {
           const conv = conversations.find((c) => c.id === id);
-          if (conv?.default_model_provider) {
-            setLlmSelectValue(conv.default_model_provider);
+          if (isDeskMvpMode()) {
+            const prefs = getDeskConversationPrefs(id);
+            setLlmSelectValueState(
+              llmSelectFromStored(prefs?.llmRoutingSelect, conv?.default_model_provider),
+            );
+          } else if (conv?.default_model_provider) {
+            setLlmSelectValueState(conv.default_model_provider);
           }
         }
         // Liga conversa ↔ projecto (disco no Electron; WebContainer no browser).
@@ -417,7 +465,11 @@ export function ConversationWorkspaceProvider({
       await refreshConversations();
       setActiveConversationId(c.id);
       setMessages([]);
-      setLlmSelectValue(c.default_model_provider ?? dm);
+      if (isDeskMvpMode()) {
+        saveDeskConversationPrefs(c.id, { llmRoutingSelect: llmSelectValue });
+      } else {
+        setLlmSelectValueState(c.default_model_provider ?? dm);
+      }
       try {
         const { resetPreviewAutoHealSession } = await import(
           "@/lib/devStudio/previewAutoHeal"
@@ -441,6 +493,7 @@ export function ConversationWorkspaceProvider({
       }
       setDevStudioProject(null, null);
       setDevStudioPreviewOpen(false);
+      setDevStudioPreferCodeView(false);
       return c.id;
     } catch (e) {
       if (e instanceof SessionReloginRedirected) {
@@ -462,6 +515,7 @@ export function ConversationWorkspaceProvider({
     onSessionUnauthorized,
     setDevStudioProject,
     setDevStudioPreviewOpen,
+    setDevStudioPreferCodeView,
   ]);
 
   const sendAuthenticatedMessage = useCallback(
@@ -483,6 +537,25 @@ export function ConversationWorkspaceProvider({
         }
         const cidFinal = cid;
         let finalMessages: MessageDTO[] | null = null;
+        let appliedIncrementalDevStudio = false;
+        const wantsDevBuilder = looksLikeDevBuildRequest(text);
+
+        if (wantsDevBuilder) {
+          setDevStudioPreviewOpen(true);
+          setDevStudioPreferCodeView(true);
+          if (deskMode && deskMode.mode !== "code") {
+            deskMode.setMode("code");
+          }
+          try {
+            const { isElectron } = await import("@/lib/desktopApi");
+            if (!isElectron() && !devStudioWorkspacePath?.trim()) {
+              const { WEBCONTAINER_WORKSPACE_ID } = await import("@/lib/webcontainer");
+              setDevStudioProject(WEBCONTAINER_WORKSPACE_ID, devStudioProjectTitle ?? "Novo projeto");
+            }
+          } catch {
+            /* best-effort */
+          }
+        }
 
         const { model, profileId } = parseLlmRoutingSelect(llmSelectValue);
         const devPayload =
@@ -504,7 +577,7 @@ export function ConversationWorkspaceProvider({
             deskMode: deskMode.mode,
             workspacePath: devStudioWorkspacePath,
             conversationId: cidFinal,
-            modelProvider: deskMode.modelProvider,
+            modelProvider: llmSelectToDeskModelProvider(llmSelectValue),
           });
         }
 
@@ -522,8 +595,13 @@ export function ConversationWorkspaceProvider({
                 workspacePath: devStudioWorkspacePath,
               }).then((ok) => {
                 if (ok && event.file.path?.trim()) {
+                  appliedIncrementalDevStudio = true;
                   setDevStudioNotice(`A escrever ${event.file.path}…`);
                   setDevStudioPreviewOpen(true);
+                  setDevStudioPreferCodeView(true);
+                  if (deskMode && deskMode.mode !== "code") {
+                    deskMode.setMode("code");
+                  }
                 }
               });
             } else if (event.type === "messages_saved") {
@@ -624,7 +702,10 @@ export function ConversationWorkspaceProvider({
           }
         }
 
-        if (shouldApplyDevStudioFromMetadata(lastAssistant?.metadata)) {
+        if (
+          shouldApplyDevStudioFromMetadata(lastAssistant?.metadata) &&
+          !appliedIncrementalDevStudio
+        ) {
           try {
             setDashboardData(null);
             setDevStudioPreviewOpen(true);
@@ -662,6 +743,14 @@ export function ConversationWorkspaceProvider({
           } catch (e) {
             setError(e instanceof Error ? e.message : "Falha ao actualizar o preview");
           }
+        } else if (
+          shouldApplyDevStudioFromMetadata(lastAssistant?.metadata) &&
+          appliedIncrementalDevStudio
+        ) {
+          // Evita dupla aplicação de operações (SSE incremental + metadata final).
+          // O incremental já aplicou os ficheiros deste turno.
+          const failMsg = devStudioApplyFailureMessage(lastAssistant?.metadata);
+          if (failMsg) setDevStudioNotice(failMsg);
         } else if (messageIndicatesDevStudioInteraction(lastAssistant?.metadata)) {
           const failMsg = devStudioApplyFailureMessage(lastAssistant?.metadata);
           if (failMsg) setDevStudioNotice(failMsg);
@@ -695,6 +784,7 @@ export function ConversationWorkspaceProvider({
       devStudioProjectTitle,
       setDevStudioProject,
       setDevStudioPreviewOpen,
+      setDevStudioPreferCodeView,
       restartDevStudioPreview,
       messages,
       deskMode,
@@ -808,15 +898,16 @@ export function ConversationWorkspaceProvider({
   const clearWorkspace = useCallback(() => {
     setActiveConversationId(null);
     setMessages([]);
-    setLlmSelectValue("auto");
+    setLlmSelectValueState(isDeskMvpMode() ? "ollama" : "auto");
     setError(null);
     setEmailSendNotice(null);
     setTaskListNotice(null);
     setDevStudioNotice(null);
     closeTaskListsPreview();
     setDevStudioPreviewOpen(false);
+    setDevStudioPreferCodeView(false);
     setDevStudioProject(null, null);
-  }, [closeTaskListsPreview, setDevStudioPreviewOpen, setDevStudioProject]);
+  }, [closeTaskListsPreview, setDevStudioPreviewOpen, setDevStudioPreferCodeView, setDevStudioProject]);
 
   const value = useMemo(
     () => ({

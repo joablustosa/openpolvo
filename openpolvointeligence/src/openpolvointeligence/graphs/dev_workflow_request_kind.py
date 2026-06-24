@@ -118,7 +118,13 @@ _NEW_APP_KEYWORDS = (
     "cria um site",
     "criar um site",
     "cria uma landing",
+    "cria uma landing page",
     "landing page",
+    "landingpage",
+    "cria uma página web",
+    "cria uma pagina web",
+    "criar uma página web",
+    "criar uma pagina web",
     "do zero",
     "novo projeto",
     "novo projecto",
@@ -133,6 +139,9 @@ _NEW_APP_KEYWORDS = (
     "app para",
     "dashboard para",
     "sistema para",
+    "website",
+    "fullstack",
+    "frontend e backend",
 )
 
 _EXPLAIN_KEYWORDS = (

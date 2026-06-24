@@ -79,6 +79,12 @@ async def post_reply(
         desk_ctx = body.desk_context
         if desk_ctx is not None and not isinstance(desk_ctx, dict):
             desk_ctx = None
+        smtp_ctx = body.smtp_context
+        if smtp_ctx is not None and not isinstance(smtp_ctx, dict):
+            smtp_ctx = None
+        contacts_ctx = body.contacts_context
+        if contacts_ctx is not None and not isinstance(contacts_ctx, list):
+            contacts_ctx = None
         if should_use_desk_graph(desk_ctx):
             text, meta = await run_desk_reply(
                 eff,
@@ -86,6 +92,8 @@ async def post_reply(
                 body.model_provider,
                 desk_ctx,
                 agent_memory=body.agent_memory,
+                smtp_context=smtp_ctx,
+                contacts_context=contacts_ctx,
             )
             return ReplyResponse(assistant_text=text, metadata=meta)
         text, meta = await run_reply(
@@ -253,6 +261,12 @@ async def post_reply_stream(
     desk_ctx = body.desk_context
     if desk_ctx is not None and not isinstance(desk_ctx, dict):
         desk_ctx = None
+    smtp_ctx = body.smtp_context
+    if smtp_ctx is not None and not isinstance(smtp_ctx, dict):
+        smtp_ctx = None
+    contacts_ctx = body.contacts_context
+    if contacts_ctx is not None and not isinstance(contacts_ctx, list):
+        contacts_ctx = None
 
     async def event_gen():
         try:
@@ -263,6 +277,8 @@ async def post_reply_stream(
                     body.model_provider,
                     desk_ctx,
                     agent_memory=body.agent_memory,
+                    smtp_context=smtp_ctx,
+                    contacts_context=contacts_ctx,
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return

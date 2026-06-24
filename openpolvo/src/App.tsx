@@ -29,7 +29,7 @@ function AppShell() {
           <Route path="/" element={<Shell />}>
             <Route index element={<MainPage />} />
             <Route path="settings" element={<SettingsOverviewPage />} />
-            <Route path="settings/email" element={<DeskMvpRouteGuard><SettingsEmailPage /></DeskMvpRouteGuard>} />
+            <Route path="settings/email" element={<SettingsEmailPage />} />
             <Route path="settings/meta" element={<DeskMvpRouteGuard><SettingsMetaPage /></DeskMvpRouteGuard>} />
             <Route path="settings/plugins" element={<DeskMvpRouteGuard><SettingsPluginsPage /></DeskMvpRouteGuard>} />
             <Route path="settings/llm" element={<SettingsLLMPage />} />

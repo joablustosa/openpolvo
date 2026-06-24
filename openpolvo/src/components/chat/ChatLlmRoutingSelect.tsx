@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { LlmProfileDTO } from "@/lib/llmProfilesApi";
+import { formatLlmSelectLabel } from "@/lib/llmRouting";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -16,7 +17,9 @@ type Props = {
   onValueChange: (v: string) => void;
   profiles: LlmProfileDTO[];
   disabled?: boolean;
-  /** Estilo compacto para a barra do chat */
+  /** Inclui Ollama (local) — activo no Desk MVP */
+  showOllama?: boolean;
+  /** Estilo compacto para a barra do chat / toolbar Desk */
   compact?: boolean;
   className?: string;
 };
@@ -26,10 +29,12 @@ export function ChatLlmRoutingSelect({
   onValueChange,
   profiles,
   disabled,
+  showOllama = false,
   compact,
   className,
 }: Props) {
   const withKeys = profiles.filter((p) => p.has_api_key);
+  const label = formatLlmSelectLabel(value, profiles);
 
   return (
     <Select value={value} onValueChange={(v) => onValueChange(v ?? "")}>
@@ -38,17 +43,20 @@ export function ChatLlmRoutingSelect({
         disabled={disabled}
         className={cn(
           compact
-            ? "h-7 min-w-[140px] max-w-[220px] border-border/60 bg-background/80 text-[11px]"
-            : "h-8 min-w-[160px] max-w-[260px] text-xs",
+            ? "h-7 min-w-[140px] max-w-[240px] border-border/60 bg-background/80 text-[11px]"
+            : "h-8 min-w-[160px] max-w-[280px] text-xs",
           className,
         )}
         aria-label="Modelo e perfil LLM"
       >
-        <SelectValue />
+        <SelectValue>{label}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start" className="min-w-[var(--anchor-width)]">
         <SelectGroup>
           <SelectLabel className="text-[10px]">Modo</SelectLabel>
+          {showOllama ? (
+            <SelectItem value="ollama">Ollama (local)</SelectItem>
+          ) : null}
           <SelectItem value="auto">Automático</SelectItem>
           <SelectItem value="openai">OpenAI (sem perfil)</SelectItem>
           <SelectItem value="google">Gemini (sem perfil)</SelectItem>
@@ -60,7 +68,8 @@ export function ChatLlmRoutingSelect({
               <SelectLabel className="text-[10px]">Perfis com chave</SelectLabel>
               {withKeys.map((p) => (
                 <SelectItem key={p.id} value={`p:${p.id}`}>
-                  {p.display_name} ({p.provider === "google" ? "Gemini" : "OpenAI"})
+                  {p.display_name} · {p.model_id} (
+                  {p.provider === "google" ? "Gemini" : "OpenAI"})
                 </SelectItem>
               ))}
             </SelectGroup>
