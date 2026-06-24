@@ -99,11 +99,26 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEV_WORKFLOW_ERROR_MEMORY_ENABLED",
     )
+    # Desk MVP — Ollama local + tools
+    ollama_base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias="OLLAMA_BASE_URL",
+    )
+    ollama_model: str = Field(default="llama3.2", validation_alias="OLLAMA_MODEL")
+    desk_default_provider: str = Field(default="ollama", validation_alias="DESK_DEFAULT_PROVIDER")
+    desk_allow_cloud_providers: bool = Field(
+        default=False,
+        validation_alias="DESK_ALLOW_CLOUD_PROVIDERS",
+    )
+    desk_tools_local: bool = Field(default=False, validation_alias="DESK_TOOLS_LOCAL")
+    desk_git_allow_commit: bool = Field(default=False, validation_alias="DESK_GIT_ALLOW_COMMIT")
 
     @property
     def has_any_llm_key(self) -> bool:
-        return bool((self.openai_api_key or "").strip()) or bool(
-            (self.google_api_key or "").strip()
+        return (
+            bool((self.openai_api_key or "").strip())
+            or bool((self.google_api_key or "").strip())
+            or bool((self.ollama_base_url or "").strip())
         )
 
 

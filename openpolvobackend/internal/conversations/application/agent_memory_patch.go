@@ -33,6 +33,8 @@ func ApplyAgentMemoryPatch(ctx context.Context, repo convports.AgentMemoryReposi
 	}
 	if v, ok := raw["builder"]; ok && v != nil {
 		next.Builder = truncateRunes(strings.TrimSpace(fmt.Sprint(v)), agentMemoryMaxRunes)
+	} else if v, ok := raw["workspace"]; ok && v != nil {
+		next.Builder = truncateRunes(strings.TrimSpace(fmt.Sprint(v)), agentMemoryMaxRunes)
 	}
 	_ = repo.Upsert(ctx, conversationID, next)
 }

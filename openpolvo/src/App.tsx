@@ -15,6 +15,7 @@ import { AgendaPage } from "./pages/Agenda/AgendaPage";
 import { FinancasPage } from "./pages/Financas/FinancasPage";
 import { SocialAutomationPage } from "./pages/Social/SocialAutomationPage";
 import { AutomacaoPage } from "./pages/Automacao/AutomacaoPage";
+import { DeskMvpRouteGuard } from "./components/routing/DeskMvpRouteGuard";
 
 function AppShell() {
   const { loginModalOpen, setLoginModalOpen } = useAnonymousChat();
@@ -28,17 +29,17 @@ function AppShell() {
           <Route path="/" element={<Shell />}>
             <Route index element={<MainPage />} />
             <Route path="settings" element={<SettingsOverviewPage />} />
-            <Route path="settings/email" element={<SettingsEmailPage />} />
-            <Route path="settings/meta" element={<SettingsMetaPage />} />
-            <Route path="settings/plugins" element={<SettingsPluginsPage />} />
+            <Route path="settings/email" element={<DeskMvpRouteGuard><SettingsEmailPage /></DeskMvpRouteGuard>} />
+            <Route path="settings/meta" element={<DeskMvpRouteGuard><SettingsMetaPage /></DeskMvpRouteGuard>} />
+            <Route path="settings/plugins" element={<DeskMvpRouteGuard><SettingsPluginsPage /></DeskMvpRouteGuard>} />
             <Route path="settings/llm" element={<SettingsLLMPage />} />
-            <Route path="settings/contacts" element={<ContactsPage />} />
-            <Route path="agente-tarefas" element={<AgenteTarefasPage />} />
-            <Route path="agenda" element={<AgendaPage />} />
-            <Route path="financas" element={<FinancasPage />} />
-            <Route path="social" element={<SocialAutomationPage />} />
+            <Route path="settings/contacts" element={<DeskMvpRouteGuard><ContactsPage /></DeskMvpRouteGuard>} />
+            <Route path="agente-tarefas" element={<DeskMvpRouteGuard><AgenteTarefasPage /></DeskMvpRouteGuard>} />
+            <Route path="agenda" element={<DeskMvpRouteGuard><AgendaPage /></DeskMvpRouteGuard>} />
+            <Route path="financas" element={<DeskMvpRouteGuard><FinancasPage /></DeskMvpRouteGuard>} />
+            <Route path="social" element={<DeskMvpRouteGuard><SocialAutomationPage /></DeskMvpRouteGuard>} />
             {/* Página unificada de automação (une Automações + Pulo do Gato) */}
-            <Route path="automacao" element={<AutomacaoPage />} />
+            <Route path="automacao" element={<DeskMvpRouteGuard><AutomacaoPage /></DeskMvpRouteGuard>} />
             {/* Rota legada — redireciona para a nova página unificada */}
             <Route path="automacoes" element={<Navigate to="/automacao" replace />} />
           </Route>

@@ -1,6 +1,12 @@
 # Compila artefactos Windows para o instalador Electron (API Go + migrações + Intelligence PyInstaller).
-# Executar: powershell -File openpolvo/build-desktop-artifacts.ps1 (a partir da raiz do repo ou de openpolvo)
+# Executar: powershell -File openpolvo/build-desktop-artifacts.ps1 -DeskMvpMode (a partir da raiz do repo ou de openpolvo)
 # Requisitos: Go 1.25+, Python 3.11+ com pip.
+#
+# Desk MVP release: use -DeskMvpMode e depois `npm run dist:win:desk` em openpolvo.
+
+param(
+    [switch]$DeskMvpMode
+)
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -63,3 +69,14 @@ if (Test-Path $IconSrc) {
 }
 
 Write-Host "Done. Next: npm run dist:win (from openpolvo folder)"
+if ($DeskMvpMode) {
+    $deskEnv = Join-Path $PSScriptRoot ".env.production.local"
+    @(
+        "# Gerado por build-desktop-artifacts.ps1 -DeskMvpMode",
+        "VITE_DESK_MVP_MODE=true"
+    ) | Set-Content -Path $deskEnv -Encoding utf8
+    Write-Host "Desk MVP: wrote $deskEnv — next: npm run dist:win:desk"
+}
+else {
+    Write-Host "Desk MVP: passe -DeskMvpMode para activar VITE_DESK_MVP_MODE no build Vite."
+}

@@ -9,6 +9,19 @@ npm run dev
 
 Requer backend Go e serviço Python a correr (ex.: `scripts/restart-local.ps1` na raiz do repositório).
 
+## Open Polvo Desk MVP v0.1
+
+Com `VITE_DESK_MVP_MODE=true` no `.env`, a app arranca no shell Desk (Agent / Code / Flow). Ver [docs/desk-mvp-quickstart.md](../docs/desk-mvp-quickstart.md) e [docs/desk-api-contract.md](../docs/desk-api-contract.md).
+
+### Instalador Desk (release)
+
+```powershell
+powershell -File build-desktop-artifacts.ps1 -DeskMvpMode
+npm run dist:win:desk
+```
+
+Smoke: `powershell -File ../scripts/desk-mvp-smoke.ps1` (a partir da raiz do repo).
+
 ## Instalador Windows (`Setup.exe`)
 
 1. Instale [Go](https://go.dev/dl/), [Python 3.11+](https://www.python.org/downloads/) e Node 20+.

@@ -33,8 +33,35 @@ def normalize_agent_memory(raw: dict[str, Any] | None) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {"global": "", "builder": ""}
     g = str(raw.get("global") or raw.get("global_memory") or "").strip()
-    b = str(raw.get("builder") or raw.get("builder_memory") or "").strip()
+    b = str(
+        raw.get("builder")
+        or raw.get("workspace")
+        or raw.get("builder_memory")
+        or "",
+    ).strip()
     return {"global": g[:_MAX_GLOBAL], "builder": b[:_MAX_BUILDER]}
+
+
+_DESK_MEMORY_MAX_CHARS = 4000
+
+
+def truncate_memory_for_desk(mem: dict[str, str] | None, max_chars: int = _DESK_MEMORY_MAX_CHARS) -> dict[str, str]:
+    """Limita o bloco combinado de memória injectado no prompt Desk (~4k chars)."""
+    m = normalize_agent_memory(mem)
+    combined = (m.get("global") or "") + "\n" + (m.get("builder") or "")
+    combined = combined.strip()
+    if len(combined) <= max_chars:
+        return m
+    g = m.get("global") or ""
+    b = m.get("builder") or ""
+    if len(g) >= max_chars:
+        return {"global": g[: max_chars - 1] + "…", "builder": ""}
+    room = max_chars - len(g) - (1 if g and b else 0)
+    if room <= 0:
+        return {"global": g[: max_chars - 1] + "…", "builder": ""}
+    if len(b) > room:
+        b = b[: room - 1] + "…"
+    return {"global": g, "builder": b}
 
 
 def format_agent_memory_block(mem: dict[str, str] | None) -> str:

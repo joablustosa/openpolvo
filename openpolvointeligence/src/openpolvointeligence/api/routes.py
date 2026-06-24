@@ -19,6 +19,7 @@ from openpolvointeligence.api.schemas import (
     LLMTextResponse,
     ReplyRequest,
     ReplyResponse,
+    DeskToolResultRequest,
     SocialGenerateRequest,
     SocialGenerateResponse,
     WorkflowGenerateRequest,
@@ -34,6 +35,9 @@ from openpolvointeligence.graphs.dev_workflow_self_heal_logic import run_dev_wor
 from openpolvointeligence.code_rag.indexer import index_project_files
 from openpolvointeligence.code_rag.retriever import build_rag_context_block, retrieve_for_router
 from openpolvointeligence.graphs.zepolvinho_graph import run_reply, run_reply_stream
+from openpolvointeligence.graphs.desk_routing import should_use_desk_graph
+from openpolvointeligence.graphs.desk_reply import run_desk_reply, run_desk_reply_stream
+from openpolvointeligence.graphs.desk_tool_bridge import get_bridge
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -72,6 +76,18 @@ async def post_reply(
         dsc = body.dev_studio_context
         if dsc is not None and not isinstance(dsc, dict):
             dsc = None
+        desk_ctx = body.desk_context
+        if desk_ctx is not None and not isinstance(desk_ctx, dict):
+            desk_ctx = None
+        if should_use_desk_graph(desk_ctx):
+            text, meta = await run_desk_reply(
+                eff,
+                msgs,
+                body.model_provider,
+                desk_ctx,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
         text, meta = await run_reply(
             eff,
             msgs,
@@ -234,9 +250,22 @@ async def post_reply_stream(
     dsc = body.dev_studio_context
     if dsc is not None and not isinstance(dsc, dict):
         dsc = None
+    desk_ctx = body.desk_context
+    if desk_ctx is not None and not isinstance(desk_ctx, dict):
+        desk_ctx = None
 
     async def event_gen():
         try:
+            if should_use_desk_graph(desk_ctx):
+                async for event in run_desk_reply_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    desk_ctx,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
             async for event in run_reply_stream(
                 eff,
                 msgs,
@@ -362,6 +391,23 @@ async def post_social_generate(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"social generate error: {e!s}") from e
     return SocialGenerateResponse(**result)
+
+
+@router.post("/desk/tool-result")
+async def post_desk_tool_result(
+    body: DeskToolResultRequest,
+    _: None = Depends(verify_internal_key),
+) -> dict[str, bool]:
+    """Recebe resultado de tool executada no cliente (Electron) — M2 TOOL-4."""
+    cid = body.conversation_id.strip()
+    call_id = body.call_id.strip()
+    if not cid or not call_id:
+        raise HTTPException(status_code=400, detail="conversation_id and call_id required")
+    bridge = get_bridge(cid)
+    ok = bridge.submit(call_id, body.result if isinstance(body.result, dict) else {})
+    if not ok:
+        raise HTTPException(status_code=404, detail="tool_call not pending")
+    return {"ok": True}
 
 
 @router.get("/capabilities", response_model=CapabilitiesResponse)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	convports "github.com/open-polvo/open-polvo/internal/conversations/ports"
@@ -26,6 +27,7 @@ type SendMessageCommand struct {
 	PreviewConsoleLogs []map[string]any
 	DevStudioContext   map[string]any
 	CompileLog         string
+	DeskContext        map[string]any
 }
 
 type SendMessage struct {
@@ -123,6 +125,8 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	repIn.PreviewConsoleLogs = cmd.PreviewConsoleLogs
 	repIn.DevStudioContext = cmd.DevStudioContext
 	repIn.CompileLog = strings.TrimSpace(cmd.CompileLog)
+	repIn.DeskContext = cmd.DeskContext
+	polvointel.StripLegacyContextsForDesk(&repIn)
 	if s.LLM != nil {
 		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
 			return nil, err

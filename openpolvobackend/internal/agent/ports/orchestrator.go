@@ -37,6 +37,7 @@ type ReplyInput struct {
 	PreviewConsoleLogs []map[string]any
 	DevStudioContext   map[string]any
 	CompileLog         string
+	DeskContext        map[string]any
 }
 
 // ChatOrchestrator implementa o fluxo analisador → router → especialista (Zé Polvinho).

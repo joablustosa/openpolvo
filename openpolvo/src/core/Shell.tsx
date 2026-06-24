@@ -7,7 +7,9 @@ import { AgentSidebar } from "./AgentSidebar";
 import { AppHeader } from "./AppHeader";
 import { AppMenu } from "./AppMenu";
 import { ConversationWorkspaceProvider } from "./ConversationWorkspaceContext";
+import { DeskModeProvider } from "@/desk/DeskModeContext";
 import { HomeChatProvider } from "./HomeChatContext";
+import { isDeskMvpMode } from "@/lib/deskMvpMode";
 import { useWorkspace } from "./WorkspaceContext";
 
 /**
@@ -24,11 +26,9 @@ export function Shell() {
     return installDevStudioPreviewBus();
   }, []);
 
-  return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <HomeChatProvider>
-        <ConversationWorkspaceProvider>
-          {!activeApp ? (
+  const workspaceInner = (
+    <ConversationWorkspaceProvider>
+      {!activeApp ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
               <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
               {!sidebarCollapsed ? <AgentSidebar /> : null}
@@ -56,7 +56,17 @@ export function Shell() {
             </div>
           </div>
         )}
-        </ConversationWorkspaceProvider>
+    </ConversationWorkspaceProvider>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+      <HomeChatProvider>
+        {isDeskMvpMode() ? (
+          <DeskModeProvider>{workspaceInner}</DeskModeProvider>
+        ) : (
+          workspaceInner
+        )}
       </HomeChatProvider>
     </div>
   );

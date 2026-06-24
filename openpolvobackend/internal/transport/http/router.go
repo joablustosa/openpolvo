@@ -134,6 +134,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/conversations/{id}/messages", d.Conversations.PostMessage)
 				r.Get("/conversations/{id}/agent-memory", d.Conversations.GetAgentMemory)
 				r.Patch("/conversations/{id}/agent-memory", d.Conversations.PatchAgentMemory)
+				r.Post("/conversations/{id}/desk-tool-result", d.Conversations.PostDeskToolResult)
 			}
 			if d.Projects != nil {
 				r.Get("/conversations/{id}/project", d.Projects.GetForConversationHandler)

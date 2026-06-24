@@ -27,7 +27,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { APP_LABELS, DEV_STUDIO_NATIVE_APP_ID, PLUGIN_IDS } from "@/config/apps";
+import { DEV_STUDIO_NATIVE_APP_ID } from "@/config/apps";
 import { useAuth } from "@/auth/AuthContext";
 import { useAnonymousChat } from "@/core/AnonymousChatContext";
 import { useConversationWorkspaceOptional } from "@/core/ConversationWorkspaceContext";
@@ -103,6 +103,7 @@ export function AgentAppMenuToolbar({
                   <LayoutTemplate className="size-4 opacity-80" />
                   Estúdio (preview)
                 </DropdownMenuItem>
+                {/* Plugins — oculto no Desk MVP
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Plugins</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="max-h-[min(70vh,400px)] w-56 overflow-y-auto">
@@ -113,6 +114,7 @@ export function AgentAppMenuToolbar({
                     ))}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
+                */}
                 <DropdownMenuSeparator />
                 {token ? (
                   <DropdownMenuItem variant="destructive" onClick={() => logout()}>

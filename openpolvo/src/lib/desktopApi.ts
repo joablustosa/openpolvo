@@ -313,12 +313,51 @@ export const desktopPolvoCode = {
     return (await b.polvoCode.mkdir(payload)) as PolvoCodeSimpleResult;
   },
 
-  onEvent: (callback: (ev: PolvoCodeEvent) => void): (() => void) => {
+    onEvent: (callback: (ev: PolvoCodeEvent) => void): (() => void) => {
     const b = bridge();
     if (!b?.polvoCode?.onEvent) return () => {};
     return b.polvoCode.onEvent((payload: Record<string, unknown>) => {
       callback(payload as PolvoCodeEvent);
     });
+  },
+};
+
+export type DeskToolRunResult = {
+  ok: boolean;
+  output?: string;
+  exit_code?: number;
+  error?: string;
+};
+
+export const desktopDeskTools = {
+  terminalRun: async (payload: {
+    workspacePath: string;
+    command: string;
+  }): Promise<DeskToolRunResult> => {
+    const b = bridge();
+    if (!b?.deskTools?.terminalRun) return { ok: false, error: "Not in Electron" };
+    return (await b.deskTools.terminalRun(payload)) as DeskToolRunResult;
+  },
+  gitStatus: async (payload: { workspacePath: string }): Promise<DeskToolRunResult> => {
+    const b = bridge();
+    if (!b?.deskTools?.gitStatus) return { ok: false, error: "Not in Electron" };
+    return (await b.deskTools.gitStatus(payload)) as DeskToolRunResult;
+  },
+  gitDiff: async (payload: {
+    workspacePath: string;
+    relPath?: string;
+  }): Promise<DeskToolRunResult> => {
+    const b = bridge();
+    if (!b?.deskTools?.gitDiff) return { ok: false, error: "Not in Electron" };
+    return (await b.deskTools.gitDiff(payload)) as DeskToolRunResult;
+  },
+  gitCommit: async (payload: {
+    workspacePath: string;
+    message: string;
+  }): Promise<DeskToolRunResult> => {
+    const b = bridge();
+    if (!b?.deskTools?.gitCommit) return { ok: false, error: "Not in Electron" };
+    return (await b.deskTools.gitCommit(payload)) as DeskToolRunResult;
   },
 };
 

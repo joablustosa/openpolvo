@@ -91,6 +91,12 @@ export type ChatMessageBody = {
   preview_console_logs?: Array<{ level: string; message: string; source?: string }>;
   dev_studio_context?: Record<string, unknown>;
   compile_log?: string;
+  desk_context?: {
+    mode: "agent" | "code";
+    workspace_path: string;
+    conversation_id: string;
+    model_provider?: string;
+  };
 };
 
 export async function postMessage(
@@ -156,12 +162,23 @@ export type StreamEventMessagesSaved = {
   type: "messages_saved";
   messages: MessageDTO[];
 };
+export type StreamEventAgentEvent = {
+  type: "agent_event";
+  event_type: string;
+  payload?: Record<string, unknown>;
+};
+export type StreamEventDelta = {
+  type: "delta";
+  text: string;
+};
 export type StreamEvent =
   | StreamEventProgress
   | StreamEventFile
   | StreamEventDone
   | StreamEventError
-  | StreamEventMessagesSaved;
+  | StreamEventMessagesSaved
+  | StreamEventAgentEvent
+  | StreamEventDelta;
 
 export async function streamMessage(
   token: string,
@@ -214,6 +231,23 @@ export async function streamMessage(
       }
     }
   }
+}
+
+export async function submitDeskToolResult(
+  token: string,
+  conversationId: string,
+  body: {
+    call_id: string;
+    workspace_path?: string;
+    result: Record<string, unknown>;
+  },
+): Promise<void> {
+  const res = await fetchApi(`/v1/conversations/${conversationId}/desk-tool-result`, {
+    method: "POST",
+    headers: headersJson(token),
+    body: JSON.stringify(body),
+  });
+  await ensureOk(res, "desk tool result");
 }
 
 export async function pinConversation(

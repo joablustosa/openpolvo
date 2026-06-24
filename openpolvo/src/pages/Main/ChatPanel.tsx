@@ -30,8 +30,14 @@ import {
   extractEnrichedBriefFromMetadata,
 } from "@/lib/devStudioMetadata";
 import { cn } from "@/lib/utils";
+import { isDeskMvpMode } from "@/lib/deskMvpMode";
 
-export function ChatPanel() {
+type Props = {
+  variant?: "legacy" | "desk";
+};
+
+export function ChatPanel({ variant = "legacy" }: Props) {
+  const isDesk = variant === "desk" || isDeskMvpMode();
   const { token } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -156,8 +162,10 @@ export function ChatPanel() {
 
   const authWelcomeText = useMemo(
     () =>
-      "Conversa com **Zé Polvinho** (motor Go). Escolha **Automático**, **OpenAI**, **Gemini** ou um **perfil** com chave (em Definições → Modelos LLM). A primeira mensagem cria a conversa se ainda não houver uma activa.\n\nAs respostas usam **Markdown** (títulos, listas, código e links).",
-    [],
+      isDesk
+        ? "Modo **Agente** do Open Polvo Desk. Peça tarefas no projecto activo — os logs de tools aparecem no painel à direita.\n\nAs respostas usam **Markdown**."
+        : "Conversa com **Zé Polvinho** (motor Go). Escolha **Automático**, **OpenAI**, **Gemini** ou um **perfil** com chave (em Definições → Modelos LLM). A primeira mensagem cria a conversa se ainda não houver uma activa.\n\nAs respostas usam **Markdown** (títulos, listas, código e links).",
+    [isDesk],
   );
   const greeting = token ? `${displayNameFromToken(token)} está de volta!` : "Bem-vindo!";
   const showWelcome = token && messages.length === 0 && !loadingMessages && !sending;
@@ -165,48 +173,50 @@ export function ChatPanel() {
   return (
     <section
       className="flex h-full min-h-0 flex-1 flex-col bg-background"
-      aria-label="Conversa com Zé Polvinho"
+      aria-label={isDesk ? "Conversa Agent Mode" : "Conversa com Zé Polvinho"}
     >
-      <header className="shrink-0 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold tracking-tight">Zé Polvinho</h2>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          {token ? (
-            <ChatLlmRoutingSelect
-              value={llmSelectValue}
-              onValueChange={setLlmSelectValue}
-              profiles={llmProfiles}
-              disabled={sending}
-              compact
-            />
-          ) : null}
-          <button
-            type="button"
-            disabled={!token || !wakeSupported}
-            title={
-              !wakeSupported
-                ? "Reconhecimento de voz não disponível neste ambiente"
-                : voiceWakeEnabled
-                  ? "Desligar escuta contínua «jow na escuta?»"
-                  : "Ligar escuta contínua «jow na escuta?»"
-            }
-            onClick={() => setVoiceWakeEnabled((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
-              !token || !wakeSupported
-                ? "cursor-not-allowed opacity-50"
-                : voiceWakeEnabled
-                  ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Radio className={cn("size-3", wakeListening && voiceWakeEnabled && "animate-pulse")} />
-            Jow na escuta
-          </button>
-          {wakeListening && voiceWakeEnabled && wakeSupported ? (
-            <span className="text-[10px] text-muted-foreground">a ouvir…</span>
-          ) : null}
-        </div>
-      </header>
+      {!isDesk ? (
+        <header className="shrink-0 border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold tracking-tight">Zé Polvinho</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {token ? (
+              <ChatLlmRoutingSelect
+                value={llmSelectValue}
+                onValueChange={setLlmSelectValue}
+                profiles={llmProfiles}
+                disabled={sending}
+                compact
+              />
+            ) : null}
+            <button
+              type="button"
+              disabled={!token || !wakeSupported}
+              title={
+                !wakeSupported
+                  ? "Reconhecimento de voz não disponível neste ambiente"
+                  : voiceWakeEnabled
+                    ? "Desligar escuta contínua «jow na escuta?»"
+                    : "Ligar escuta contínua «jow na escuta?»"
+              }
+              onClick={() => setVoiceWakeEnabled((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                !token || !wakeSupported
+                  ? "cursor-not-allowed opacity-50"
+                  : voiceWakeEnabled
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Radio className={cn("size-3", wakeListening && voiceWakeEnabled && "animate-pulse")} />
+              Jow na escuta
+            </button>
+            {wakeListening && voiceWakeEnabled && wakeSupported ? (
+              <span className="text-[10px] text-muted-foreground">a ouvir…</span>
+            ) : null}
+          </div>
+        </header>
+      ) : null}
 
       <ScrollArea className="min-h-0 flex-1 px-4">
         <div
@@ -225,8 +235,9 @@ export function ChatPanel() {
                 </h2>
               </div>
               <p className="max-w-md text-sm text-muted-foreground">
-                Zé Polvinho encaminha o pedido para o especialista certo (pedidos,
-                informação ou geral).
+                {isDesk
+                  ? "Agente local com tools no workspace activo."
+                  : "Zé Polvinho encaminha o pedido para o especialista certo (pedidos, informação ou geral)."}
               </p>
               <div className="max-w-[min(92%,560px)] self-start rounded-2xl border border-border bg-card px-3.5 py-2.5 text-sm leading-relaxed text-card-foreground">
                 <FormattedMessageContent content={authWelcomeText} variant="rich" />

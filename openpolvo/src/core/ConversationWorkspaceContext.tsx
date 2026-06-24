@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -65,7 +66,12 @@ import {
 import { collectDevStudioChatPayload } from "@/lib/devStudioChatPayload";
 import { tryOpenNativePluginFromMessages } from "@/lib/nativePluginMetadata";
 import { useAppLaunch } from "@/hooks/useAppLaunch";
+import { useDeskModeOptional } from "@/desk/DeskModeContext";
 import { useWorkspace } from "@/core/WorkspaceContext";
+import { isDeskMvpMode } from "@/lib/deskMvpMode";
+import { buildDeskContextPayload } from "@/lib/deskContext";
+import { executeDeskToolCall } from "@/lib/deskToolExecutor";
+import { type AgentEventRecord, parseAgentEventKind } from "@/lib/agentEventTypes";
 import * as mail from "@/lib/mailApi";
 
 type ConversationWorkspaceValue = {
@@ -104,6 +110,11 @@ type ConversationWorkspaceValue = {
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
   pinConversation: (id: string, pinned: boolean) => Promise<void>;
+  /** Logs SSE do agente (Desk MVP). */
+  agentLogEvents: AgentEventRecord[];
+  clearAgentLog: () => void;
+  agentLogAutoScroll: boolean;
+  setAgentLogAutoScroll: (v: boolean) => void;
 };
 
 const ConversationWorkspaceContext =
@@ -116,6 +127,7 @@ export function ConversationWorkspaceProvider({
 }) {
   const { token, logout } = useAuth();
   const { openPlugin } = useAppLaunch();
+  const deskMode = useDeskModeOptional();
   const {
     setDashboardData,
     openTaskListsPreview,
@@ -141,6 +153,24 @@ export function ConversationWorkspaceProvider({
   const [emailSendNotice, setEmailSendNotice] = useState<string | null>(null);
   const [taskListNotice, setTaskListNotice] = useState<string | null>(null);
   const [devStudioNotice, setDevStudioNotice] = useState<string | null>(null);
+  const [agentLogEvents, setAgentLogEvents] = useState<AgentEventRecord[]>([]);
+  const [agentLogAutoScroll, setAgentLogAutoScroll] = useState(true);
+  const agentLogSeqRef = useRef(0);
+
+  const clearAgentLog = useCallback(() => {
+    setAgentLogEvents([]);
+  }, []);
+
+  const appendAgentLogEvent = useCallback((eventType: string, payload: Record<string, unknown>) => {
+    agentLogSeqRef.current += 1;
+    const record: AgentEventRecord = {
+      id: `ae-${agentLogSeqRef.current}`,
+      kind: parseAgentEventKind(eventType),
+      payload,
+      at: Date.now(),
+    };
+    setAgentLogEvents((prev) => [...prev, record]);
+  }, []);
 
   const clearEmailSendNotice = useCallback(() => {
     setEmailSendNotice(null);
@@ -442,6 +472,9 @@ export function ConversationWorkspaceProvider({
       setEmailSendNotice(null);
       setTaskListNotice(null);
       setDevStudioNotice(null);
+      if (isDeskMvpMode()) {
+        clearAgentLog();
+      }
       try {
         let cid = activeConversationId;
         if (!cid) {
@@ -452,16 +485,28 @@ export function ConversationWorkspaceProvider({
         let finalMessages: MessageDTO[] | null = null;
 
         const { model, profileId } = parseLlmRoutingSelect(llmSelectValue);
-        const devPayload = await collectDevStudioChatPayload({
-          workspacePath: devStudioWorkspacePath,
-          messages,
-        });
+        const devPayload =
+          isDeskMvpMode()
+            ? {}
+            : await collectDevStudioChatPayload({
+                workspacePath: devStudioWorkspacePath,
+                messages,
+              });
         const streamBody: import("@/lib/conversationsApi").ChatMessageBody = {
           text,
           model_provider: model,
           ...devPayload,
         };
         if (profileId) streamBody.llm_profile_id = profileId;
+
+        if (isDeskMvpMode() && deskMode) {
+          streamBody.desk_context = buildDeskContextPayload({
+            deskMode: deskMode.mode,
+            workspacePath: devStudioWorkspacePath,
+            conversationId: cidFinal,
+            modelProvider: deskMode.modelProvider,
+          });
+        }
 
         await apiStreamMessage(
           token,
@@ -493,6 +538,25 @@ export function ConversationWorkspaceProvider({
               }
               if (messageIndicatesDevStudioInteraction(lastAssistant?.metadata)) {
                 setDevStudioPreviewOpen(true);
+              }
+            } else if (event.type === "agent_event") {
+              const payload = event.payload ?? {};
+              appendAgentLogEvent(event.event_type, payload);
+              if (
+                event.event_type === "tool_call" &&
+                payload.requires_client === true &&
+                isDeskMvpMode() &&
+                devStudioWorkspacePath?.trim()
+              ) {
+                void executeDeskToolCall({
+                  token,
+                  conversationId: cidFinal,
+                  workspacePath: devStudioWorkspacePath.trim(),
+                  payload,
+                }).catch((err: unknown) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  setError(msg || "Erro ao executar tool Desk");
+                });
               }
             } else if (event.type === "error") {
               const d = event.detail ?? "";
@@ -633,6 +697,9 @@ export function ConversationWorkspaceProvider({
       setDevStudioPreviewOpen,
       restartDevStudioPreview,
       messages,
+      deskMode,
+      clearAgentLog,
+      appendAgentLogEvent,
     ],
   );
 
@@ -779,6 +846,10 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
+      agentLogEvents,
+      clearAgentLog,
+      agentLogAutoScroll,
+      setAgentLogAutoScroll,
     }),
     [
       conversations,
@@ -806,6 +877,9 @@ export function ConversationWorkspaceProvider({
       deleteConversation,
       renameConversation,
       pinConversation,
+      agentLogEvents,
+      clearAgentLog,
+      agentLogAutoScroll,
     ],
   );
 

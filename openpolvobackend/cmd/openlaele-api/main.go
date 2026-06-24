@@ -347,6 +347,7 @@ func main() {
 		RenameConversation: &convapp.RenameConversation{Conversations: convRepo},
 		AgentMemoryRepo:    agentMemRepo,
 		DevProjects:        projRepo,
+		DeskIntel:          intel,
 	}
 	projectHandlers := &httptransport.ProjectHandlers{
 		GetForConversation: &projapp.GetProjectForConversation{Repo: projRepo},

@@ -98,4 +98,10 @@ contextBridge.exposeInMainWorld("smartagent", {
       return () => ipcRenderer.removeListener("polvoCode:event", handler);
     },
   },
+  deskTools: {
+    terminalRun: (payload) => ipcRenderer.invoke("deskTerminal:run", payload),
+    gitStatus: (payload) => ipcRenderer.invoke("deskGit:status", payload),
+    gitDiff: (payload) => ipcRenderer.invoke("deskGit:diff", payload),
+    gitCommit: (payload) => ipcRenderer.invoke("deskGit:commit", payload),
+  },
 });

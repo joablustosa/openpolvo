@@ -6,16 +6,18 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 
 from openpolvointeligence import __version__
+from openpolvointeligence.api.health import readyz_payload
 from openpolvointeligence.api.routes import router as v1_router
 from openpolvointeligence.core.config import get_settings
+from openpolvointeligence.graphs.desk_graph import get_compiled_desk_graph
 from openpolvointeligence.graphs.zepolvinho_graph import get_compiled_graph
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    # Pré-compila o grafo no arranque (falha cedo se prompts em falta).
     get_compiled_graph(settings)
+    get_compiled_desk_graph(settings)
     yield
 
 
@@ -34,5 +36,4 @@ async def healthz() -> dict[str, str]:
 
 @app.get("/readyz")
 async def readyz() -> dict[str, str]:
-    # Chaves LLM podem vir só no corpo do pedido (SQLite local via API Go).
-    return {"status": "ready"}
+    return await readyz_payload()

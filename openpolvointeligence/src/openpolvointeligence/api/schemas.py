@@ -72,6 +72,28 @@ class ReplyRequest(BaseModel):
         default=None,
         description="Log de build do preview (WebContainer/Vite) para self-healing no grafo.",
     )
+    desk_context: dict[str, Any] | None = Field(
+        default=None,
+        description="Contexto Open Polvo Desk (mode, workspace_path, conversation_id).",
+    )
+
+
+class DeskContext(BaseModel):
+    mode: str = Field(description="agent | code")
+    workspace_path: str = Field(default="")
+    conversation_id: str = Field(default="")
+    model_provider: str | None = Field(default=None)
+
+
+class AgentEventPayload(BaseModel):
+    type: str = Field(description="graph_step | tool_call | tool_result | thought | final")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeskToolResultRequest(BaseModel):
+    call_id: str = Field(description="ID do tool_call emitido no stream")
+    conversation_id: str = Field(description="Conversa Desk activa")
+    result: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReplyResponse(BaseModel):

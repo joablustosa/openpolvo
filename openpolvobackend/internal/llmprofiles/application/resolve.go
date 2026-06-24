@@ -66,6 +66,9 @@ func (z *Resolver) ApplyToReplyInput(
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+	} else if requested == convdomain.ModelOllama {
+		repIn.ModelProvider = convdomain.ModelOllama
+		return nil
 	}
 
 	if prof == nil {

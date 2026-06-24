@@ -408,3 +408,43 @@ func (c *Client) DevStudioSelfHeal(ctx context.Context, in DevStudioSelfHealInpu
 	}
 	return out.AssistantText, meta, nil
 }
+
+// SubmitDeskToolResult envia resultado de tool executada no desktop para o grafo Desk.
+func (c *Client) SubmitDeskToolResult(
+	ctx context.Context,
+	conversationID, callID string,
+	result map[string]any,
+) error {
+	if !c.Configured() {
+		return fmt.Errorf("polvointel: client not configured")
+	}
+	body, err := json.Marshal(map[string]any{
+		"conversation_id": conversationID,
+		"call_id":         callID,
+		"result":          result,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.baseURL+"/v1/desk/tool-result",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Polvo-Internal-Key", c.internalKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("desk tool-result: %d %s", resp.StatusCode, truncate(string(b), 300))
+	}
+	return nil
+}

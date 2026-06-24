@@ -45,6 +45,7 @@ import { displayNameFromToken } from "@/lib/userDisplay";
 import { type ConversationDTO } from "@/lib/conversationsApi";
 import { partitionConversationsForNav } from "@/lib/conversationNavOrder";
 import { cn } from "@/lib/utils";
+import { isDeskMvpMode } from "@/lib/deskMvpMode";
 
 type ConversationItemProps = {
   conv: ConversationDTO;
@@ -170,6 +171,7 @@ function ConversationItem({
 }
 
 export function AgentSidebar() {
+  const deskMvp = isDeskMvpMode();
   const navigate = useNavigate();
   const location = useLocation();
   const { token, logout } = useAuth();
@@ -283,6 +285,21 @@ export function AgentSidebar() {
       </button>
 
       <nav className="flex shrink-0 flex-col gap-0.5 px-2 py-2">
+        {deskMvp ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-9 w-full justify-start gap-2 px-2 font-normal",
+              pathname.startsWith("/settings") && "bg-muted font-medium text-foreground",
+            )}
+            onClick={() => navigate("/settings")}
+          >
+            <Settings2 className="size-3.5 shrink-0 opacity-80" />
+            <span className="min-w-0 flex-1 truncate text-left">Definições</span>
+          </Button>
+        ) : (
         <DropdownMenu>
           <DropdownMenuTrigger
             nativeButton
@@ -369,6 +386,7 @@ export function AgentSidebar() {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </nav>
 
       <Separator className="mx-2 shrink-0 bg-border/60" />

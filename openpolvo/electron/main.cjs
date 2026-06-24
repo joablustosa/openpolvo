@@ -50,6 +50,7 @@ if (wantsDisableGpu) {
 
 const { createTray, destroyTray, getAutoLaunchEnabled, setAutoLaunch, notifyTray } = require("./tray.cjs");
 const { registerPolvoCodeIpc } = require("./polvoCode.cjs");
+const { registerDeskToolsIpc } = require("./deskTools.cjs");
 
 const isDev = !app.isPackaged;
 
@@ -674,6 +675,7 @@ app.whenReady().then(async () => {
   registerLogsIpc();
   registerDesktopIpc();
   registerPolvoCodeIpc(() => mainWindow);
+  registerDeskToolsIpc(ipcMain);
   setupAutoUpdater();
 
   // CSP estrita só nas origens de preview (iframe / portas dedicadas).

@@ -46,6 +46,10 @@ type ConversationHandlers struct {
 	AgentMemoryRepo    convports.AgentMemoryRepository
 	// Opcional: usado para enriquecer o DTO da conversa com o projeto de dev associado.
 	DevProjects projports.ProjectRepository
+	// Opcional: proxy de tool results Desk → intelligence.
+	DeskIntel interface {
+		SubmitDeskToolResult(ctx context.Context, conversationID, callID string, result map[string]any) error
+	}
 }
 
 func formatTimeUTC(t time.Time) string {
@@ -127,6 +131,7 @@ type postMessageRequest struct {
 	PreviewConsoleLogs []map[string]any  `json:"preview_console_logs,omitempty"`
 	DevStudioContext   map[string]any    `json:"dev_studio_context,omitempty"`
 	CompileLog         string            `json:"compile_log,omitempty"`
+	DeskContext        map[string]any    `json:"desk_context,omitempty"`
 }
 
 func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.Request) {
@@ -332,6 +337,7 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 		PreviewConsoleLogs: req.PreviewConsoleLogs,
 		DevStudioContext:   req.DevStudioContext,
 		CompileLog:         req.CompileLog,
+		DeskContext:        req.DeskContext,
 	})
 	if err != nil {
 		switch {
@@ -507,6 +513,7 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		PreviewConsoleLogs: req.PreviewConsoleLogs,
 		DevStudioContext:   req.DevStudioContext,
 		CompileLog:         req.CompileLog,
+		DeskContext:        req.DeskContext,
 	})
 	if err != nil {
 		switch {
@@ -745,4 +752,61 @@ func (h *ConversationHandlers) PatchAgentMemory(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusOK, agentMemoryDTO{Global: next.Global, Builder: next.Builder})
+}
+
+type postDeskToolResultRequest struct {
+	CallID         string         `json:"call_id"`
+	WorkspacePath  string         `json:"workspace_path,omitempty"`
+	Result         map[string]any   `json:"result"`
+}
+
+// PostDeskToolResult POST /v1/conversations/{id}/desk-tool-result
+func (h *ConversationHandlers) PostDeskToolResult(w http.ResponseWriter, r *http.Request) {
+	if h.DeskIntel == nil {
+		writeError(w, http.StatusServiceUnavailable, "desk tools not configured")
+		return
+	}
+	uidStr, _, ok := UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid user")
+		return
+	}
+	cid, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	if _, err := h.GetConversationUC.Execute(r.Context(), cid, uid); err != nil {
+		if errors.Is(err, convports.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to verify conversation")
+		return
+	}
+	var req postDeskToolResultRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	callID := strings.TrimSpace(req.CallID)
+	if callID == "" {
+		writeError(w, http.StatusBadRequest, "call_id required")
+		return
+	}
+	result := req.Result
+	if result == nil {
+		result = map[string]any{}
+	}
+	if err := h.DeskIntel.SubmitDeskToolResult(r.Context(), cid.String(), callID, result); err != nil {
+		slog.Error("desk tool result", "err", err)
+		writeError(w, http.StatusBadGateway, truncateForClientErr(err.Error(), 300))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

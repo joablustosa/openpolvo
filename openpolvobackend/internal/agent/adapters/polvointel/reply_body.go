@@ -28,6 +28,7 @@ type replyHTTPBody struct {
 	PreviewConsoleLogs    []map[string]any                `json:"preview_console_logs,omitempty"`
 	DevStudioContext      map[string]any                  `json:"dev_studio_context,omitempty"`
 	CompileLog            string                          `json:"compile_log,omitempty"`
+	DeskContext           map[string]any                  `json:"desk_context,omitempty"`
 }
 
 type msgPart struct {
@@ -55,25 +56,29 @@ func ApplyDevStudioFields(in *agentports.ReplyInput, ds DevStudioFields) {
 }
 
 func marshalReplyBody(in agentports.ReplyInput) ([]byte, error) {
+	deskMode := len(in.DeskContext) > 0
 	body := replyHTTPBody{
-		ModelProvider:         string(in.ModelProvider),
-		OpenAIAPIKey:          in.OpenAIAPIKey,
-		GoogleAPIKey:          in.GoogleAPIKey,
-		OpenAIModel:           in.OpenAIModel,
-		GoogleModel:           in.GoogleModel,
-		ConversationID:        strings.TrimSpace(in.ConversationID),
-		SMTPContext:           in.SMTP,
-		ContactsContext:       in.Contacts,
-		TaskListsContext:      in.TaskLists,
-		FinanceContext:        in.Finance,
-		MetaContext:           in.Meta,
-		ScheduledTasksContext: in.ScheduledTasks,
-		SandboxProjectID:      in.SandboxProjectID,
-		ProjectFileTree:       in.ProjectFileTree,
-		ProjectFiles:          in.ProjectFiles,
-		PreviewConsoleLogs:    in.PreviewConsoleLogs,
-		DevStudioContext:      in.DevStudioContext,
-		CompileLog:            in.CompileLog,
+		ModelProvider:  string(in.ModelProvider),
+		OpenAIAPIKey:   in.OpenAIAPIKey,
+		GoogleAPIKey:   in.GoogleAPIKey,
+		OpenAIModel:    in.OpenAIModel,
+		GoogleModel:    in.GoogleModel,
+		ConversationID: strings.TrimSpace(in.ConversationID),
+		DeskContext:    in.DeskContext,
+	}
+	if !deskMode {
+		body.SMTPContext = in.SMTP
+		body.ContactsContext = in.Contacts
+		body.TaskListsContext = in.TaskLists
+		body.FinanceContext = in.Finance
+		body.MetaContext = in.Meta
+		body.ScheduledTasksContext = in.ScheduledTasks
+		body.SandboxProjectID = in.SandboxProjectID
+		body.ProjectFileTree = in.ProjectFileTree
+		body.ProjectFiles = in.ProjectFiles
+		body.PreviewConsoleLogs = in.PreviewConsoleLogs
+		body.DevStudioContext = in.DevStudioContext
+		body.CompileLog = in.CompileLog
 	}
 	if in.AgentMemory != nil {
 		body.AgentMemory = map[string]string{
