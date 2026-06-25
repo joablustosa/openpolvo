@@ -5,6 +5,7 @@
 
 import { IAgentHostService } from '../../../../platform/agentHost/common/agentService.js';
 import {
+	isOpenPolvoAuthEnabled,
 	OpenPolvoApiBaseUrlSettingId,
 	OpenPolvoApiTokenSettingId,
 	resolveOpenPolvoProtectedResource,
@@ -12,6 +13,7 @@ import {
 import { OFFICIAL_API_DEFAULT_BASE_URL } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import type { ProtectedResourceMetadata } from '../../../../platform/agentHost/common/state/protocol/state.js';
 
 export function readOpenPolvoApiToken(configurationService: IConfigurationService): string | undefined {
 	const token = configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
@@ -51,4 +53,65 @@ export async function syncOpenPolvoTokenToAgentHost(
 		logService.error(`[OpenPolvo] Failed to sync agent host token: ${err instanceof Error ? err.message : String(err)}`);
 		return false;
 	}
+}
+
+export interface IOpenPolvoInteractiveAuthHandlers {
+	isEnabled(): boolean;
+	signIn(): Promise<boolean>;
+}
+
+function normalizeProtectedResourceUrl(resource: string): string {
+	return resource.replace(/\/$/, '');
+}
+
+function requiresOpenPolvoAuth(
+	protectedResources: readonly ProtectedResourceMetadata[],
+	configurationService: IConfigurationService,
+): boolean {
+	if (!isOpenPolvoAuthEnabled(configurationService)) {
+		return false;
+	}
+	const expected = normalizeProtectedResourceUrl(
+		resolveOpenPolvoProtectedResource(readOpenPolvoApiBaseUrl(configurationService)),
+	);
+	return protectedResources.some(r => {
+		if (r.required === false) {
+			return false;
+		}
+		return normalizeProtectedResourceUrl(r.resource) === expected;
+	});
+}
+
+/**
+ * Autenticação interativa para o recurso protegido OpenPolvo (`/v1/auth/me`).
+ * O Agent Host genérico só conhece `IAuthenticationService` (GitHub/etc.); aqui
+ * usamos o login OpenPolvo e propagamos o JWT ao processo Node.
+ *
+ * @returns `undefined` se nenhum recurso OpenPolvo for exigido; senão `true`/`false`.
+ */
+export async function resolveOpenPolvoAuthenticationInteractively(
+	protectedResources: readonly ProtectedResourceMetadata[],
+	configurationService: IConfigurationService,
+	agentHostService: IAgentHostService,
+	logService: ILogService,
+	handlers: IOpenPolvoInteractiveAuthHandlers,
+): Promise<boolean | undefined> {
+	if (!requiresOpenPolvoAuth(protectedResources, configurationService)) {
+		return undefined;
+	}
+
+	if (readOpenPolvoApiToken(configurationService)) {
+		return syncOpenPolvoTokenToAgentHost(configurationService, agentHostService, logService);
+	}
+
+	if (!handlers.isEnabled()) {
+		logService.warn('[OpenPolvo] Auth required but OpenPolvo agent is disabled');
+		return false;
+	}
+
+	const signedIn = await handlers.signIn();
+	if (!signedIn) {
+		return false;
+	}
+	return syncOpenPolvoTokenToAgentHost(configurationService, agentHostService, logService);
 }

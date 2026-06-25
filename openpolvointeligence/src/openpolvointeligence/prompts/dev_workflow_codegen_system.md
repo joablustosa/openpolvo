@@ -82,7 +82,7 @@ Cada símbolo vem do **seu** módulo. **Proibido** agrupar símbolos de ficheiro
 ❌ **ERRADO:** `import { Input, Label } from "@/components/ui/input"` — `Label` não existe em `input.tsx`.  
 ✅ **CORRECTO:** duas linhas — `input` + `label`.
 
-**Stack full-stack (scaffold):** Vite + React + react-router-dom + Hono + Drizzle + PGlite.
+**Stack full-stack padrão (scaffold):** React (Vite) + Node (Hono) + react-router-dom + Drizzle + PGlite.
 
 **Navegação:** multi-página com `react-router-dom` — páginas em `src/pages/*`; o runtime gera `App.tsx` com `<Routes>` se não enviares `src/App.tsx`.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from openpolvointeligence.graphs.dev_workflow_request_kind import (
     classify_request_kind,
@@ -251,10 +251,118 @@ def stack_hint_from_layers(layer: AffectedLayer, compact_stack: str | None = Non
         if norm:
             return norm
     if layer == "backend":
-        return "go-api"
+        return "node-api"
     if layer == "frontend":
         return "vite-react"
     return "fullstack-mixed"
+
+
+_FRONT_ONLY_HINTS = (
+    "apenas frontend",
+    "somente frontend",
+    "só frontend",
+    "so frontend",
+    "frontend only",
+    "sem backend",
+)
+
+_BACK_ONLY_HINTS = (
+    "apenas backend",
+    "somente backend",
+    "só backend",
+    "so backend",
+    "backend only",
+    "sem frontend",
+)
+
+_STACK_NODE_HINTS = (
+    "node",
+    "node.js",
+    "nodejs",
+    "express",
+    "fastify",
+    "nest",
+    "hono",
+)
+
+_STACK_GO_HINTS = ("golang", "go api", "api go", "backend go", "chi", "gin", "fiber")
+_STACK_ANGULAR_HINTS = ("angular",)
+_STACK_NEXT_HINTS = ("next", "next.js", "nextjs")
+_STACK_REACT_HINTS = ("react", "vite")
+
+
+def _stack_hint_from_user_prompt(user_prompt: str) -> StackId | None:
+    """Detecta stack explicitamente pedida pelo utilizador."""
+    p = (user_prompt or "").lower()
+    if any(k in p for k in _STACK_GO_HINTS):
+        return "go-api"
+    if any(k in p for k in _STACK_ANGULAR_HINTS):
+        return "angular"
+    if any(k in p for k in _STACK_NEXT_HINTS):
+        return "next-react"
+    if any(k in p for k in _STACK_NODE_HINTS):
+        if any(k in p for k in _STACK_REACT_HINTS):
+            return "fullstack-mixed"
+        return "node-api"
+    if any(k in p for k in _STACK_REACT_HINTS):
+        if any(k in p for k in _FRONT_ONLY_HINTS):
+            return "vite-react"
+        return "fullstack-mixed"
+    return None
+
+
+def _stack_hint_from_references(
+    compact_stack: str | None,
+    manifest_paths: Sequence[str] | None,
+) -> StackId | None:
+    """Infere stack a partir do contexto do projecto (paths e mapa compacto)."""
+    norm_compact = normalize_stack(compact_stack)
+    if norm_compact:
+        return norm_compact
+    if not manifest_paths:
+        return None
+    paths = [str(p).strip().replace("\\", "/").lower() for p in manifest_paths if p]
+    has_go = any(p.endswith(".go") or p.endswith("go.mod") for p in paths)
+    has_server = any(p.startswith("server/") for p in paths)
+    has_src = any(p.startswith("src/") for p in paths)
+    has_angular = any(p.endswith("angular.json") for p in paths)
+    has_next = any("/app/" in p or p.endswith("next.config.js") for p in paths)
+    if has_angular:
+        return "angular"
+    if has_next:
+        return "next-react"
+    if has_go and has_src:
+        return "fullstack-mixed"
+    if has_go:
+        return "go-api"
+    if has_server and has_src:
+        return "fullstack-mixed"
+    if has_server:
+        return "node-api"
+    if has_src:
+        return "vite-react"
+    return None
+
+
+def _should_force_default_fullstack(
+    *,
+    user_prompt: str,
+    has_project: bool,
+    request_kind: str,
+    explicit_stack: StackId | None,
+    referenced_stack: StackId | None,
+) -> bool:
+    """Sem stack/referência explícita, default do estúdio = React + Node fullstack."""
+    if has_project:
+        return False
+    if request_kind != "new_app":
+        return False
+    if explicit_stack or referenced_stack:
+        return False
+    p = (user_prompt or "").lower()
+    if any(k in p for k in _FRONT_ONLY_HINTS) or any(k in p for k in _BACK_ONLY_HINTS):
+        return False
+    return True
 
 
 def parse_router_response(
@@ -263,6 +371,8 @@ def parse_router_response(
     user_prompt: str,
     has_project: bool = False,
     has_build_errors: bool = False,
+    compact_stack: str | None = None,
+    manifest_paths: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Normaliza JSON do LLM Router e classifica o tipo de pedido."""
     # Classificação explícita: determinística com prioridade, hint do LLM como apoio.
@@ -293,7 +403,33 @@ def parse_router_response(
         str(data.get("affected_layers") or data.get("layer") or ""),
         user_prompt,
     )
-    stack = normalize_stack(str(data.get("stack_hint"))) or stack_hint_from_layers(layer)
+    explicit_stack = _stack_hint_from_user_prompt(user_prompt)
+    referenced_stack = _stack_hint_from_references(compact_stack, manifest_paths)
+    llm_stack = normalize_stack(str(data.get("stack_hint")))
+    default_fullstack = _should_force_default_fullstack(
+        user_prompt=user_prompt,
+        has_project=has_project,
+        request_kind=request_kind,
+        explicit_stack=explicit_stack,
+        referenced_stack=referenced_stack,
+    )
+    stack_source = "router_llm"
+    if explicit_stack:
+        stack = explicit_stack
+        stack_source = "user_explicit"
+    elif referenced_stack:
+        stack = referenced_stack
+        stack_source = "project_reference"
+    elif llm_stack:
+        stack = llm_stack
+    elif default_fullstack:
+        stack = "fullstack-mixed"
+        stack_source = "default_react_node"
+    else:
+        stack = stack_hint_from_layers(layer, compact_stack)
+        stack_source = "layer_fallback"
+    if default_fullstack and layer == "frontend":
+        layer = "fullstack"
     conf = float(data.get("confidence") or 0.75)
     conf = max(0.0, min(1.0, conf))
     return {
@@ -301,6 +437,8 @@ def parse_router_response(
         "request_kind": request_kind,
         "affected_layers": layer,
         "stack_hint": stack,
+        "stack_source": stack_source,
+        "stack_defaulted": default_fullstack,
         "route_confidence": conf,
         "route_reason": str(data.get("reason") or data.get("feature_summary") or "")[:400],
         "feature_summary": str(data.get("feature_summary") or "")[:300],

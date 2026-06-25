@@ -111,6 +111,8 @@ class DevWorkflowState(TypedDict, total=False):
     request_kind: str
     affected_layers: AffectedLayer
     stack_hint: StackId | None
+    stack_source: str
+    stack_defaulted: bool
     route_confidence: float
     route_reason: str
     feature_summary: str

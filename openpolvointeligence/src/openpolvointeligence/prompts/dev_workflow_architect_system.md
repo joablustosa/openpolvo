@@ -122,11 +122,11 @@ Dependências: lib PDF só se necessário (`gofpdf`, etc.) — **preferir backen
 
 ## Stack
 
-Scaffold do estúdio: **vite-react + Tailwind v4 + shadcn + Hono** (`react-router-dom` no `main.tsx`; backend em `server/*` com Drizzle + PGlite). Usa `vite-react` (frontend) ou `fullstack-mixed` (com backend Hono); `go-api`/`node-api` só para APIs isoladas. Alinha com o Router e o mapa compacto.
+Scaffold do estúdio: **React (Vite) + Node (Hono)** com Tailwind v4 + shadcn (`react-router-dom` no `main.tsx`; backend em `server/*` com Drizzle + PGlite). Usa `fullstack-mixed` como default para app nova sem stack explícita; `vite-react` para frontend-only; `go-api`/`node-api` para APIs isoladas. Alinha com o Router e o mapa compacto.
 
 ## Stack padrão para projecto novo (`create_project: true`)
 
-Quando o pedido cria um **app/site novo** (landing page, dashboard, app web, etc.), usa **`stack: "vite-react"`**:
+Quando o pedido cria um **app/site novo** (landing page, dashboard, app web, etc.) e o utilizador **não** define stack explicitamente, usa **`stack: "fullstack-mixed"`** (React + Node):
 
 - O runtime gera **automaticamente**: Vite + React + TypeScript + Tailwind v4 + shadcn (`src/components/ui/*`, `src/lib/utils.ts`, `src/index.css`, configs). **Não listes** esses ficheiros.
 - **Proibido** `files_to_create` em `src/components/layout/AppShell.tsx`, `Navbar.tsx`, `Sidebar.tsx` (scaffold).

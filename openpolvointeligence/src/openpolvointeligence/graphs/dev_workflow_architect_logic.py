@@ -324,7 +324,7 @@ def normalize_architect_plan(
                 rag_relevant_paths,
             )
 
-    stack = str(data.get("stack") or exec_raw.get("scope") or stack_hint or "vite-react")
+    stack = str(data.get("stack") or exec_raw.get("scope") or stack_hint or "fullstack-mixed")
     if stack not in (
         "next-react",
         "angular",

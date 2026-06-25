@@ -1,7 +1,7 @@
 """Grafo LangGraph para desenvolvimento de apps.
 
-Stack do scaffold: **vite-react + Tailwind v4 + shadcn + Hono** (full-stack TS;
-react-router-dom no main.tsx). Sem Angular/Next/NextAuth/Supabase.
+Stack do scaffold: **React (Vite) + Node (Hono)** com Tailwind v4 + shadcn
+(full-stack TS; react-router-dom no main.tsx). Sem Angular/Next/NextAuth/Supabase.
 
 Fluxo (team mode):
   START → prompt_enricher (time) → context_manager → router
@@ -387,6 +387,8 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
                 "request_kind": "bug_fix",
                 "affected_layers": state.get("affected_layers") or "fullstack",
                 "stack_hint": state.get("stack_hint"),
+                "stack_source": state.get("stack_source") or "retry_preserve",
+                "stack_defaulted": bool(state.get("stack_defaulted")),
                 "route_confidence": 1.0,
                 "route_reason": "retry pós-compilador",
                 "style_guide": state.get("style_guide") or {},
@@ -423,6 +425,12 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             user_prompt=str(state.get("user_prompt") or ""),
             has_project=has_project,
             has_build_errors=has_build_errors,
+            compact_stack=str((state.get("compact_context_map") or {}).get("stack") or ""),
+            manifest_paths=[
+                str(r.get("path", ""))
+                for r in (state.get("file_manifest") or [])
+                if isinstance(r, dict) and r.get("path")
+            ],
         )
 
         trace_suffix = (
@@ -753,6 +761,8 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         style_guide = state.get("style_guide") or {}
         meta["dev_workflow"] = {
             "stack": plan.get("stack") if isinstance(plan, dict) else None,
+            "stack_source": state.get("stack_source"),
+            "stack_defaulted": bool(state.get("stack_defaulted")),
             "route": state.get("route"),
             "request_kind": request_kind or None,
             "compile_attempt": state.get("compile_attempt") or 0,
@@ -1192,6 +1202,9 @@ async def run_dev_workflow_pipeline(
         dw_meta["build_tasks"] = out.get("build_tasks")
     if out.get("orchestration"):
         dw_meta["orchestration"] = out.get("orchestration")
+    dw_meta.setdefault("stack", out.get("stack_hint"))
+    dw_meta.setdefault("stack_source", out.get("stack_source"))
+    dw_meta.setdefault("stack_defaulted", bool(out.get("stack_defaulted")))
     # Resultado do build sandbox real (portão anti-bug).
     build_result = out.get("build_result")
     if isinstance(build_result, dict) and build_result:

@@ -37,6 +37,41 @@ def test_parse_router_response_pdf_example():
     assert out["stack_hint"] == "fullstack-mixed"
 
 
+def test_parse_router_response_new_app_defaults_react_node_fullstack():
+    out = parse_router_response(
+        {"route": "architect", "affected_layers": "frontend"},
+        user_prompt="Cria uma landing page profissional para clínica médica",
+        has_project=False,
+    )
+    assert out["affected_layers"] == "fullstack"
+    assert out["stack_hint"] == "fullstack-mixed"
+    assert out["stack_defaulted"] is True
+    assert out["stack_source"] == "default_react_node"
+
+
+def test_parse_router_response_respects_explicit_frontend_only_stack():
+    out = parse_router_response(
+        {"route": "architect", "affected_layers": "frontend"},
+        user_prompt="Cria uma landing page só frontend em React, sem backend",
+        has_project=False,
+    )
+    assert out["affected_layers"] == "frontend"
+    assert out["stack_hint"] == "vite-react"
+    assert out["stack_defaulted"] is False
+    assert out["stack_source"] == "user_explicit"
+
+
+def test_parse_router_response_uses_project_stack_reference():
+    out = parse_router_response(
+        {"route": "architect", "affected_layers": "backend"},
+        user_prompt="Corrige o endpoint de contratos",
+        has_project=True,
+        manifest_paths=["go.mod", "cmd/api/main.go", "internal/handlers/contracts.go"],
+    )
+    assert out["stack_hint"] == "go-api"
+    assert out["stack_source"] == "project_reference"
+
+
 def test_filter_paths_by_layer_frontend_only():
     paths = [
         "src/pages/ContractsPage.tsx",

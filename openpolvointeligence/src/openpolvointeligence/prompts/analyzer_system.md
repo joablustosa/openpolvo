@@ -28,6 +28,7 @@ Seu único papel é analisar a última mensagem do usuário (contextualizada pel
 | `monitorizacao_email` | Configurar escuta ativa de inbox, gatilhos de IMAP, triagem ou auto-responder de e-mails recebidos. |
 | `pedido_conteudo_generico` | Geração de textos textuais, posts de blog, resumos ou snippets de código isolados (sem workspace). |
 | `analise_dados_relatorios` | Geração de insights, cruzamento de tabelas ou geração de gráficos. Aceita pipeline combinado com Web Search. |
+| `estudo_pdf_profissional` | Pedido explícito de estudo/relatório com entrega final em PDF (documento técnico/profissional formatado). |
 | `pesquisa_web_tempo_real` | Consultas que exigem dados factuais do dia de hoje, notícias em tempo real ou documentações externas atualizadas. |
 | `visao_computacional_analise` | Processamento de imagens/vídeos anexados para fins de OCR, descrição visual ou análise de elementos. |
 | `geracao_midia_ai` | Prompting e comandos diretos para gerar imagens, áudios ou vídeos curtos via modelos generativos. |

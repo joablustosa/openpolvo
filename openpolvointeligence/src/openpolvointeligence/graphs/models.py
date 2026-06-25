@@ -23,6 +23,44 @@ def effective_provider(p: str | None) -> ModelProvider:
     return "openai"
 
 
+def resolve_chat_provider(settings: Settings, provider: str | None) -> ModelProvider:
+    """Resolve provider com fallback resiliente para evitar falhas por chave ausente."""
+    raw = str(provider or "").strip().lower()
+    has_openai = bool((settings.openai_api_key or "").strip())
+    has_google = bool((settings.google_api_key or "").strip())
+
+    if raw in ("", "auto"):
+        if has_openai:
+            return "openai"
+        if has_google:
+            return "google"
+        return "ollama"
+
+    if raw == "openai":
+        if has_openai:
+            return "openai"
+        if has_google:
+            return "google"
+        return "ollama"
+
+    if raw == "google":
+        if has_google:
+            return "google"
+        if has_openai:
+            return "openai"
+        return "ollama"
+
+    if raw == "ollama":
+        return "ollama"
+
+    # Valor inesperado: escolhe automaticamente o melhor disponível.
+    if has_openai:
+        return "openai"
+    if has_google:
+        return "google"
+    return "ollama"
+
+
 def desk_effective_provider(p: str | None, settings: Settings) -> str:
     """Provider para pedidos Desk — default Ollama; cloud só com flag."""
     raw = str(p or "").strip().lower()
@@ -78,7 +116,7 @@ def get_chat_model(
     max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Devolve o modelo de chat para o fornecedor; falha se faltar API key."""
-    ep = effective_provider(provider)
+    ep = resolve_chat_provider(settings, provider)
     timeout = settings.agent_llm_timeout_s
     if ep == "ollama":
         kw_ollama: dict[str, Any] = {

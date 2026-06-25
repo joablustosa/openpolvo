@@ -82,6 +82,33 @@ def _parse_analysis(raw: str) -> dict[str, Any]:
     }
 
 
+def _friendly_stream_error(exc: Exception) -> tuple[str, str]:
+    """Converte erros de stream em mensagem amigável para o utilizador."""
+    detail = str(exc).lower()
+    if "no api key configured" in detail:
+        return (
+            "Não consegui concluir porque não há provedor LLM configurado para este pedido. "
+            "Configure `OPENAI_API_KEY` ou `GOOGLE_API_KEY`, ou inicie o Ollama local, e tente novamente.",
+            "llm_not_configured",
+        )
+    if (
+        "connection refused" in detail
+        or "failed to connect" in detail
+        or "all connection attempts failed" in detail
+        or "winerror 10061" in detail
+    ):
+        return (
+            "Não consegui concluir porque o provedor LLM está indisponível no momento. "
+            "Verifique se o serviço de modelo está ativo e tente novamente.",
+            "llm_unreachable",
+        )
+    return (
+        "Houve uma falha ao concluir a resposta, mas o agente já gerou "
+        "saída parcial. Tente novamente para finalizar a operação.",
+        "stream_partial_failure",
+    )
+
+
 def _parse_email_draft_json(raw: str) -> dict[str, Any]:
     raw = _strip_json_fence(raw)
     try:
@@ -252,6 +279,7 @@ _INTENT_ALIASES: dict[str, str] = {
     "monitorizacao_email": "criacao_email",
     "criacao_app_interativa": "polvo_code_builder",
     "criacao_sistema_web": "polvo_code_builder",
+    "estudo_pdf_profissional": "estudo_pdf_profissional",
 }
 
 # Rota normalizada → ficheiro de prompt em prompts/{stem}.md (sem extensão)
@@ -277,6 +305,7 @@ _ROUTE_TO_STEM: dict[str, str] = {
     "gestao_tarefas_calendario": "specialist_gestao_tarefas_calendario",
     "financas_pessoais": "specialist_financas_pessoais",
     "polvo_code_builder": "specialist_polvo_code_builder",
+    "estudo_pdf_profissional": "specialist_estudo_pdf_profissional",
 }
 
 # Intenções válidas após normalização (chaves finais do router)
@@ -286,6 +315,39 @@ _ROUTABLE: frozenset[str] = frozenset(_ROUTE_TO_STEM.keys())
 def _normalize_intent(raw: str) -> str:
     r = (raw or "geral").strip() or "geral"
     return _INTENT_ALIASES.get(r, r)
+
+
+_PDF_REQUEST_TERMS: tuple[str, ...] = (
+    "pdf",
+    "arquivo pdf",
+    "em pdf",
+    "retornar pdf",
+    "gerar pdf",
+    "exportar pdf",
+    "documento pdf",
+)
+
+_STUDY_REQUEST_TERMS: tuple[str, ...] = (
+    "estudo",
+    "análise",
+    "analise",
+    "relatório",
+    "relatorio",
+    "diagnóstico",
+    "diagnostico",
+    "pesquisa",
+    "levantamento",
+)
+
+
+def wants_pdf_study_specialist(user_text: str) -> bool:
+    """Detecta pedido de estudo/relatório com retorno em PDF no agente geral."""
+    txt = (user_text or "").strip().lower()
+    if not txt:
+        return False
+    has_pdf = any(k in txt for k in _PDF_REQUEST_TERMS)
+    has_study = any(k in txt for k in _STUDY_REQUEST_TERMS)
+    return has_pdf and has_study
 
 
 def route_intent(intent: str, confidence: float) -> str:
@@ -431,6 +493,17 @@ def build_zepolvinho_graph(settings: Settings):
             preview_console_block=state.get("preview_console_block"),
             compile_log=state.get("compile_log"),
         )
+        user_last = last_user_text(msgs)
+        if wants_pdf_study_specialist(user_last):
+            analysis = {
+                **analysis,
+                "intent": "estudo_pdf_profissional",
+                "confidence": max(float(analysis.get("confidence", 0.0)), 0.93),
+                "reasoning": (
+                    str(analysis.get("reasoning") or "").strip()
+                    + " [roteamento: pedido de estudo com entrega explícita em PDF]"
+                ).strip()[:500],
+            }
         return {"analysis": analysis}
 
     async def _run_dev_workflow_reply(
@@ -806,6 +879,14 @@ def build_zepolvinho_graph(settings: Settings):
             dashboard_json = _extract_dashboard_json_from_text(text)
             if dashboard_json:
                 meta.update(dashboard_json)
+        if routed == "estudo_pdf_profissional":
+            meta.update(
+                {
+                    "document_kind": "pdf_study_report",
+                    "document_format": "markdown_pdf_ready",
+                    "pdf_export_suggested_filename": "estudo-profissional-openpolvo.pdf",
+                },
+            )
         if routed == "gestao_tarefas_calendario":
             try:
                 meta.update(
@@ -956,11 +1037,11 @@ async def run_reply_stream(
         last_user_text,
         tail_messages,
     )
-    from openpolvointeligence.graphs.models import effective_provider, get_chat_model
+    from openpolvointeligence.graphs.models import get_chat_model, resolve_chat_provider
     from openpolvointeligence.graphs.native_plugins import match_native_plugin
 
     _log = _lg.getLogger(__name__)
-    mp = effective_provider(model_provider)
+    mp = resolve_chat_provider(settings, model_provider)
     pcb_stream = merge_preview_console_block(sandbox_project_id, preview_console_logs)
 
     # ── Plugins nativos (resposta instantânea) ──────────────────────────────────
@@ -1023,6 +1104,17 @@ async def run_reply_stream(
             preview_console_block=pcb_stream,
             compile_log=compile_log,
         )
+        user_last = last_user_text(messages)
+        if wants_pdf_study_specialist(user_last):
+            analysis = {
+                **analysis,
+                "intent": "estudo_pdf_profissional",
+                "confidence": max(float(analysis.get("confidence", 0.0)), 0.93),
+                "reasoning": (
+                    str(analysis.get("reasoning") or "").strip()
+                    + " [roteamento: pedido de estudo com entrega explícita em PDF]"
+                ).strip()[:500],
+            }
     except Exception as exc:
         _log.warning("análise de intenção falhou: %s — usando geral", exc)
         analysis = {"intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {}}
@@ -1101,19 +1193,15 @@ async def run_reply_stream(
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:
         _log.exception("run_reply falhou no stream: %s", exc)
-        # Mesmo em falha, termina com `done` para evitar erro genérico na API Go
-        # ("stream terminou sem resposta") quando já houve output parcial.
         detail = str(exc)[:400]
+        friendly, error_kind = _friendly_stream_error(exc)
         yield {
             "type": "done",
-            "assistant_text": (
-                "Houve uma falha ao concluir a resposta, mas o agente já gerou "
-                "saída parcial. Tente novamente para finalizar a operação."
-            ),
+            "assistant_text": friendly,
             "metadata": {
                 "intent": "polvo_code_builder",
                 "routed_intent": "polvo_code_builder",
                 "error": detail,
-                "error_kind": "stream_partial_failure",
+                "error_kind": error_kind,
             },
         }

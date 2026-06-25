@@ -20,7 +20,7 @@ Responde **apenas** JSON válido (sem markdown):
 }
 ```
 
-Stack do scaffold: **vite-react + Tailwind v4 + shadcn + Hono** (full-stack TypeScript; `react-router-dom` no `main.tsx`, backend em `server/*` com Drizzle + PGlite).
+Stack do scaffold: **React (Vite) + Node (Hono)** por padrão, com Tailwind v4 + shadcn (`react-router-dom` no `main.tsx`, backend em `server/*` com Drizzle + PGlite).
 
 ## Tipo de pedido (`request_kind`) — classifica SEMPRE
 
@@ -80,7 +80,8 @@ Se o manifesto / mapa compacto mostram ficheiros no disco e o utilizador pede **
 
 ## Stack hint
 
-- UI React/Vite (default do estúdio) → `vite-react`.
+- **Padrão quando o utilizador não especifica stack e não há referência de projecto:** `fullstack-mixed` (React + Node).
+- UI React/Vite explícita (frontend-only) → `vite-react`.
 - Frontend **e** backend (Hono em `server/*`) no mesmo pedido → `fullstack-mixed`.
 - API Go isolada → `go-api`; API Node isolada → `node-api`.
 

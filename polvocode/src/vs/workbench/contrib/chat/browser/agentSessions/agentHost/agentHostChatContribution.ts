@@ -26,7 +26,8 @@ import { ILanguageModelsService } from '../../../common/languageModels.js';
 import { Target } from '../../../common/promptSyntax/promptTypes.js';
 import { AgentCustomizationItemProvider } from './agentCustomizationItemProvider.js';
 import { authenticateProtectedResources, AgentHostAuthTokenCache, resolveAuthenticationInteractively } from './agentHostAuth.js';
-import { syncOpenPolvoTokenToAgentHost } from '../../../../polvoModes/browser/openPolvoAgentHostAuth.js';
+import { resolveOpenPolvoAuthenticationInteractively, syncOpenPolvoTokenToAgentHost } from '../../../../polvoModes/browser/openPolvoAgentHostAuth.js';
+import { IOpenPolvoSignInService } from '../../../../polvoModes/browser/openPolvoAuth.js';
 import { AgentHostLanguageModelProvider, agentHostProviderSupportsAutoModel } from './agentHostLanguageModelProvider.js';
 import { AgentHostSessionHandler } from './agentHostSessionHandler.js';
 import { IAgentHostActiveClientService } from './agentHostActiveClientService.js';
@@ -114,6 +115,7 @@ export class AgentHostContribution extends Disposable implements IWorkbenchContr
 		@ICustomizationHarnessService private readonly _customizationHarnessService: ICustomizationHarnessService,
 		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
 		@IAgentHostActiveClientService private readonly _activeClientService: IAgentHostActiveClientService,
+		@IOpenPolvoSignInService private readonly _openPolvoSignInService: IOpenPolvoSignInService,
 	) {
 		super();
 		this._isSessionsWindow = environmentService.isSessionsWindow;
@@ -339,6 +341,18 @@ export class AgentHostContribution extends Disposable implements IWorkbenchContr
 			}
 			return protectedResources.length > 0;
 		}
+
+		const openPolvoResult = await resolveOpenPolvoAuthenticationInteractively(
+			protectedResources,
+			this._configurationService,
+			this._agentHostService,
+			this._logService,
+			this._openPolvoSignInService,
+		);
+		if (openPolvoResult !== undefined) {
+			return openPolvoResult;
+		}
+
 		try {
 			return await resolveAuthenticationInteractively(protectedResources, {
 				authTokenCache: this._authTokenCache,
