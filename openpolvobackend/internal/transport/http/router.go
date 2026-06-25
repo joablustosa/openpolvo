@@ -52,6 +52,9 @@ func NewRouter(d Deps) http.Handler {
 						return true
 					}
 				}
+				if d.Config.CORSAllowVSCodeFileOrigin && strings.HasPrefix(origin, "vscode-file://") {
+					return true
+				}
 				_, ok := allowed[origin]
 				return ok
 			},

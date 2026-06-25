@@ -1,0 +1,670 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Fixed mode switcher — direct child of the sidebar, always visible across modes */
+
+.monaco-workbench .part.sidebar > .polvo-mode-switcher-host {
+	flex-shrink: 0;
+	width: 100%;
+	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
+	background-color: var(--vscode-sideBar-background);
+}
+
+.monaco-workbench .polvo-mode-switcher {
+	display: flex;
+	align-items: stretch;
+	width: 100%;
+	height: 28px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-mode-switcher-tabs {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-mode-tab {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--vscode-sideBarTitle-foreground);
+	cursor: pointer;
+	padding: 0;
+	min-width: 0;
+	height: 24px;
+	outline-offset: -1px;
+}
+
+.monaco-workbench .polvo-mode-tab:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+
+.monaco-workbench .polvo-mode-tab.active {
+	background-color: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.monaco-workbench .polvo-mode-tab-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 18px;
+	line-height: 18px;
+}
+
+/* Title bar mount — right side, pill style (Claude-like) */
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-right > .polvo-mode-switcher-host-titlebar-right {
+	position: relative;
+	z-index: 2500;
+	pointer-events: auto;
+	flex-shrink: 0;
+	order: -1;
+	margin-right: 10px;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar-right {
+	width: auto;
+	flex-shrink: 0;
+	align-self: center;
+	-webkit-app-region: no-drag;
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled {
+	display: flex;
+	align-items: center;
+	height: 30px;
+	padding: 3px;
+	border-radius: 999px;
+	background-color: color-mix(in srgb, var(--vscode-titleBar-activeForeground) 8%, transparent);
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-switcher-tabs {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 0;
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-tab {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 24px;
+	min-width: 0;
+	padding: 0 12px;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	color: color-mix(in srgb, var(--vscode-titleBar-activeForeground) 55%, transparent);
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+	pointer-events: auto;
+	outline-offset: -1px;
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-tab:hover:not(.active) {
+	color: color-mix(in srgb, var(--vscode-titleBar-activeForeground) 80%, transparent);
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-tab.active {
+	background-color: color-mix(in srgb, var(--vscode-titleBar-activeForeground) 14%, transparent);
+	color: var(--vscode-titleBar-activeForeground);
+}
+
+.monaco-workbench .part.titlebar.inactive .polvo-mode-switcher-labeled .polvo-mode-tab {
+	color: color-mix(in srgb, var(--vscode-titleBar-inactiveForeground) 55%, transparent);
+}
+
+.monaco-workbench .part.titlebar.inactive .polvo-mode-switcher-labeled .polvo-mode-tab.active {
+	color: var(--vscode-titleBar-inactiveForeground);
+	background-color: color-mix(in srgb, var(--vscode-titleBar-inactiveForeground) 14%, transparent);
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-tab-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
+	line-height: 14px;
+	flex-shrink: 0;
+}
+
+.monaco-workbench .polvo-mode-switcher-labeled .polvo-mode-tab-label {
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 16px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+/* Legacy titlebar-left mount (fallback) */
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .polvo-mode-switcher-host-titlebar {
+	position: relative;
+	z-index: 2500;
+	pointer-events: auto;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar {
+	width: auto;
+	flex-shrink: 0;
+	border-bottom: none;
+	background: transparent;
+	margin: 0 6px;
+	align-self: center;
+	-webkit-app-region: no-drag;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar .polvo-mode-switcher {
+	width: auto;
+	height: 22px;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar .polvo-mode-switcher-tabs {
+	width: auto;
+	padding: 0 2px;
+	gap: 2px;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar .polvo-mode-tab {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 22px;
+	position: relative;
+	z-index: 2501;
+	-webkit-app-region: no-drag;
+	pointer-events: auto;
+}
+
+.monaco-workbench .polvo-mode-switcher-host-titlebar .polvo-mode-tab-icon {
+	font-size: 16px;
+	line-height: 16px;
+}
+
+/* Mode-specific sidebar chrome — hide view-container title only; switcher host stays */
+
+.monaco-workbench.polvo-mode-agent .part.sidebar > .title,
+.monaco-workbench.polvo-mode-workflow .part.sidebar > .title {
+	display: none;
+}
+
+.monaco-workbench.polvo-mode-agent .part.sidebar .pane-composite-part > .title,
+.monaco-workbench.polvo-mode-workflow .part.sidebar .pane-composite-part > .title {
+	display: none;
+}
+
+/* Agent chat centered layout — composer estilo Claude */
+
+.monaco-workbench .polvo-agent-chat-editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	background-color: var(--vscode-editor-background);
+}
+
+.monaco-workbench .polvo-agent-chat-messages {
+	flex: 1;
+	overflow: auto;
+	padding: 24px 16px 8px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.monaco-workbench .polvo-agent-chat-messages-inner {
+	width: 100%;
+	max-width: 768px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.monaco-workbench .polvo-agent-chat-message {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.monaco-workbench .polvo-agent-chat-message.user {
+	align-items: flex-end;
+}
+
+.monaco-workbench .polvo-agent-chat-message.assistant {
+	align-items: flex-start;
+}
+
+.monaco-workbench .polvo-agent-chat-bubble {
+	padding: 10px 14px;
+	border-radius: 12px;
+	max-width: 85%;
+	line-height: 1.5;
+	font-size: 13px;
+	word-break: break-word;
+}
+
+.monaco-workbench .polvo-agent-chat-message.user .polvo-agent-chat-bubble {
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.monaco-workbench .polvo-agent-chat-message.assistant .polvo-agent-chat-bubble {
+	background-color: var(--vscode-editor-inactiveSelectionBackground);
+	color: var(--vscode-editor-foreground);
+}
+
+/* Composer fixo na base, centralizado */
+.monaco-workbench .polvo-agent-chat-composer {
+	flex-shrink: 0;
+	padding: 8px 16px 20px;
+	display: flex;
+	justify-content: center;
+	background-color: var(--vscode-editor-background);
+}
+
+.monaco-workbench .polvo-agent-chat-composer-inner {
+	width: 100%;
+	max-width: 768px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+/* Caixa principal do input */
+.monaco-workbench .polvo-agent-chat-composer-box {
+	display: flex;
+	flex-direction: column;
+	border-radius: 16px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	background-color: var(--vscode-input-background);
+	box-shadow: 0 0 0 1px transparent;
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.monaco-workbench .polvo-agent-chat-composer-box:focus-within {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.monaco-workbench .polvo-agent-chat-input {
+	display: block;
+	width: 100%;
+	min-height: 72px;
+	max-height: 200px;
+	padding: 14px 16px 8px;
+	border: none;
+	background: transparent;
+	color: var(--vscode-input-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 14px;
+	line-height: 1.45;
+	resize: none;
+	outline: none;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-agent-chat-input::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+}
+
+/* Barra inferior dentro da caixa: + à esquerda, modelo + enviar à direita */
+.monaco-workbench .polvo-agent-chat-composer-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 10px 10px;
+	gap: 8px;
+}
+
+.monaco-workbench .polvo-agent-chat-composer-footer-right {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+}
+
+.monaco-workbench .polvo-agent-chat-icon-button,
+.monaco-workbench .polvo-agent-chat-send-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	cursor: pointer;
+}
+
+.monaco-workbench .polvo-agent-chat-icon-button:hover,
+.monaco-workbench .polvo-agent-chat-model-chip:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .polvo-agent-chat-send-button {
+	width: 34px;
+	height: 34px;
+	border-radius: 10px;
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground) !important;
+}
+
+.monaco-workbench .polvo-agent-chat-send-button:hover {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .polvo-agent-chat-send-button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.monaco-workbench .polvo-agent-chat-input:disabled {
+	opacity: 0.7;
+}
+
+.monaco-workbench .polvo-agent-chat-model-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+	height: 32px;
+	padding: 0 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench .polvo-agent-chat-model-label {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Pílulas de ação rápida abaixo da caixa */
+.monaco-workbench .polvo-agent-chat-quick-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: center;
+}
+
+.monaco-workbench .polvo-agent-chat-quick-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 34px;
+	padding: 0 14px;
+	border-radius: 999px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-foreground);
+	font-size: 12px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-agent-chat-quick-action:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+
+/* Chat real (OpenPolvo) no modo agente — alinhar ao mesmo visual */
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session {
+	max-width: 768px;
+	width: 100%;
+	margin: 0 auto;
+}
+
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session .chat-input-container,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session .chat-input-container {
+	border-radius: 16px;
+	padding: 0 8px 8px;
+}
+
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session .interactive-input-part,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session .interactive-input-part {
+	padding: 8px 16px 20px;
+}
+
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session .chat-secondary-toolbar,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session .chat-secondary-toolbar {
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding-top: 8px;
+}
+
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session .chat-secondary-input-toolbar .monaco-action-bar .actions-container,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session .chat-secondary-input-toolbar .monaco-action-bar .actions-container {
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+}
+
+.monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session .chat-secondary-input-toolbar .monaco-action-bar .action-item > .action-label,
+.monaco-workbench.polvo-mode-agent .part.editor .interactive-session .chat-secondary-input-toolbar .monaco-action-bar .action-item > .action-label {
+	border-radius: 999px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	padding: 6px 14px;
+	height: 34px;
+}
+
+/* Workflow editor + sidenav */
+
+.monaco-workbench .polvo-workflow-editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+	background-color: var(--vscode-editor-background);
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-workflow-editor-inner {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	max-width: 800px;
+	margin: 0 auto;
+	padding: 32px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-workflow-editor h1 {
+	font-size: 22px;
+	font-weight: 500;
+	margin: 0 0 8px;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .polvo-workflow-editor .subtitle {
+	color: var(--vscode-descriptionForeground);
+	margin: 0 0 16px;
+	font-size: 13px;
+}
+
+.monaco-workbench .polvo-workflow-messages {
+	flex: 1;
+	overflow: auto;
+	margin: 8px 0;
+}
+
+.monaco-workbench .polvo-workflow-messages-inner {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.monaco-workbench .polvo-workflow-editor-composer {
+	padding: 0;
+	margin-top: 8px;
+}
+
+.monaco-workbench .polvo-workflow-nav-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+.monaco-workbench .polvo-workflow-nav-list {
+	flex: 1;
+	overflow: auto;
+	padding: 4px 0;
+}
+
+.monaco-workbench .polvo-workflow-nav-empty {
+	padding: 12px;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.4;
+}
+
+.monaco-workbench .polvo-workflow-nav-item-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.monaco-workbench .polvo-workflow-nav-summary {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-workflow-nav-composer {
+	flex-shrink: 0;
+	padding: 8px;
+	border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
+	background-color: var(--vscode-sideBar-background);
+}
+
+.monaco-workbench .polvo-workflow-nav-composer .polvo-agent-chat-composer-inner {
+	max-width: none;
+}
+
+.monaco-workbench .polvo-workflow-nav-composer .polvo-agent-chat-input {
+	min-height: 56px;
+}
+
+/* Conversations sidebar */
+
+.monaco-workbench .polvo-conversations-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+.monaco-workbench .polvo-conversations-view .polvo-conversations-header {
+	flex-shrink: 0;
+	padding: 8px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-conversations-view .polvo-new-chat-button {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .polvo-conversations-view .polvo-new-chat-button.monaco-text-button {
+	display: inline-flex;
+	justify-content: center;
+	align-items: center;
+	gap: 6px;
+	min-height: 28px;
+	padding: 6px 12px;
+}
+
+.monaco-workbench .polvo-conversations-view .polvo-new-chat-button .codicon {
+	margin: 0;
+	flex-shrink: 0;
+}
+
+.monaco-workbench .polvo-conversations-view .polvo-conversations-list {
+	flex: 1;
+	overflow: auto;
+	min-height: 0;
+}
+
+.monaco-workbench .polvo-conversation-item {
+	display: flex;
+	align-items: center;
+	padding: 8px 8px 8px 12px;
+	cursor: pointer;
+	gap: 8px;
+	border-radius: 6px;
+	margin: 2px 6px;
+	position: relative;
+}
+
+.monaco-workbench .polvo-conversation-item .title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+}
+
+.monaco-workbench .polvo-conversation-options {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	opacity: 0;
+}
+
+.monaco-workbench .polvo-conversation-item:hover .polvo-conversation-options,
+.monaco-workbench .polvo-conversation-item.active .polvo-conversation-options,
+.monaco-workbench .polvo-conversation-options:focus-visible {
+	opacity: 1;
+}
+
+.monaco-workbench .polvo-conversation-options:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .polvo-conversation-item:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+
+.monaco-workbench .polvo-conversation-item.active {
+	background-color: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+/* Conversations sidebar — title flex handled above */

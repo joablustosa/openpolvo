@@ -2,6 +2,17 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Removed
+
+- Frontend React (`openpolvo/`) — substituído por `polvocode` (VS Code OSS + polvoModes).
+- `setup.ps1` e workflow CI `release-desktop.yml` (build do Electron antigo).
+
+### Changed
+
+- Documentação de arranque e contrato API actualizada para `polvocode`.
+
 ## [desk-v0.1.0] — 2026-06-24
 
 ### Added

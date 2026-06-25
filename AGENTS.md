@@ -6,7 +6,7 @@ Monorepo de um **agente de desenvolvimento** e de **automação/workflows com RA
 
 | Stack | Pasta | Skill obrigatório |
 |-------|-------|-------------------|
-| Frontend (React 19 + Vite + Electron) | `openpolvo` | `react-frontend-standards` + `frontend-design-system` |
+| Frontend (VS Code OSS + polvoModes) | `polvocode` | Padrões TypeScript do VS Code; ver `polvocode/OPENPOLVO.md` |
 | Backend (Go 1.25, hexagonal) | `openpolvobackend` | `golang-backend-standards` |
 | Intelligence (Python 3.11, LangGraph + FastAPI + RAG) | `openpolvointeligence` | `python-intelligence-standards` |
 
@@ -26,7 +26,7 @@ Regra de ouro: subagentes só rodam em paralelo se escreverem em **arquivos disj
 
 ## Portões de qualidade por stack
 
-- Frontend: `tsc` + `vite build`.
+- Frontend (`polvocode`): `npm run transpile-client` (dev); ver `polvocode/OPENPOLVO.md`.
 - Backend: `gofmt`/`go vet ./...` + `go build ./...` + `go test ./...`.
 - Intelligence: `ruff check` + `ruff format --check` + `pytest`.
 

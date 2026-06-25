@@ -1,0 +1,32 @@
+<svg width="128" height="128" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(64 64) scale(0.875)">
+    <path d="M 395 530 Q 250 520 170 640 Q 110 720 175 790" stroke="currentColor" stroke-width="72" stroke-linecap="round" fill="none"/>
+    <path d="M 355 515 Q 200 500 95 560 Q 40 600 75 660" stroke="currentColor" stroke-width="68" stroke-linecap="round" fill="none"/>
+    <path d="M 330 495 Q 150 470 70 500 Q 20 520 55 575" stroke="currentColor" stroke-width="64" stroke-linecap="round" fill="none"/>
+    <path d="M 385 475 Q 280 350 200 250 Q 150 180 195 155 Q 235 140 270 210 Q 320 330 395 455" stroke="currentColor" stroke-width="60" stroke-linecap="round" fill="none"/>
+    <path d="M 629 530 Q 774 520 854 640 Q 914 720 849 790" stroke="currentColor" stroke-width="72" stroke-linecap="round" fill="none"/>
+    <path d="M 669 515 Q 824 500 929 560 Q 984 600 949 660" stroke="currentColor" stroke-width="68" stroke-linecap="round" fill="none"/>
+    <path d="M 694 495 Q 874 470 954 500 Q 1004 520 969 575" stroke="currentColor" stroke-width="64" stroke-linecap="round" fill="none"/>
+    <path d="M 639 475 Q 744 350 824 250 Q 874 180 829 155 Q 789 140 754 210 Q 704 330 629 455" stroke="currentColor" stroke-width="60" stroke-linecap="round" fill="none"/>
+    <ellipse cx="512" cy="355" rx="268" ry="278" fill="currentColor"/>
+    <ellipse cx="512" cy="500" rx="220" ry="95" fill="currentColor"/>
+    <circle cx="220" cy="700" r="20" fill="currentColor" opacity="0.35"/>
+    <circle cx="175" cy="760" r="16" fill="currentColor" opacity="0.35"/>
+    <circle cx="130" cy="610" r="18" fill="currentColor" opacity="0.35"/>
+    <circle cx="95" cy="555" r="15" fill="currentColor" opacity="0.35"/>
+    <circle cx="115" cy="505" r="14" fill="currentColor" opacity="0.35"/>
+    <circle cx="235" cy="280" r="17" fill="currentColor" opacity="0.35"/>
+    <circle cx="285" cy="360" r="15" fill="currentColor" opacity="0.35"/>
+    <circle cx="330" cy="430" r="13" fill="currentColor" opacity="0.35"/>
+    <circle cx="804" cy="700" r="20" fill="currentColor" opacity="0.35"/>
+    <circle cx="849" cy="760" r="16" fill="currentColor" opacity="0.35"/>
+    <circle cx="894" cy="610" r="18" fill="currentColor" opacity="0.35"/>
+    <circle cx="929" cy="555" r="15" fill="currentColor" opacity="0.35"/>
+    <circle cx="909" cy="505" r="14" fill="currentColor" opacity="0.35"/>
+    <circle cx="789" cy="280" r="17" fill="currentColor" opacity="0.35"/>
+    <circle cx="739" cy="360" r="15" fill="currentColor" opacity="0.35"/>
+    <circle cx="694" cy="430" r="13" fill="currentColor" opacity="0.35"/>
+    <path d="M 418 340 Q 442 378 466 340" stroke="currentColor" stroke-width="30" stroke-linecap="round" fill="none" opacity="0.45"/>
+    <path d="M 558 340 Q 582 378 606 340" stroke="currentColor" stroke-width="30" stroke-linecap="round" fill="none" opacity="0.45"/>
+  </g>
+</svg>

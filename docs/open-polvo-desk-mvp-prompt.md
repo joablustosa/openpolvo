@@ -24,7 +24,7 @@ Flow Mode existe só como shell vazio para v0.2.
 
 Monorepo em 3 stacks HTTP/JSON:
 
-- openpolvo/ — React 19 + Vite + Electron (Dev Studio, polvoCode IPC, chat)
+- polvocode/ — VS Code OSS + polvoModes (Agent Host, desk tools, login OpenPolvo)
 - openpolvobackend/ — Go hexagonal (conversas, auth, agent adapter)
 - openpolvointeligence/ — Python LangGraph + FastAPI (Zé Polvinho, dev_workflow)
 
@@ -109,7 +109,7 @@ Intelligence pede execução ao backend; backend valida sessão; Electron execut
 - Contexto: últimas 20 msgs + memória truncada 4k tokens
 - Sem embeddings no v0.1
 
-### 5. Open Polvo Desk (openpolvo)
+### 5. Open Polvo Desk (`polvocode`)
 
 Modos (tabs top-level):
 

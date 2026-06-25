@@ -15,8 +15,9 @@ import (
 
 type Config struct {
 	HTTPAddr            string
-	CORSAllowedOrigins  []string
-	CORSAllowNullOrigin bool
+	CORSAllowedOrigins       []string
+	CORSAllowNullOrigin      bool
+	CORSAllowVSCodeFileOrigin bool
 	JWTSecret           string
 	JWTIssuer           string
 	JWTAccessTTL        time.Duration
@@ -70,7 +71,8 @@ func Load() (Config, error) {
 			"CORS_ALLOWED_ORIGINS",
 			"http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
 		)),
-		CORSAllowNullOrigin:  parseBool(getEnv("CORS_ALLOW_NULL_ORIGIN", "true")),
+		CORSAllowNullOrigin:       parseBool(getEnv("CORS_ALLOW_NULL_ORIGIN", "true")),
+		CORSAllowVSCodeFileOrigin: parseBool(getEnv("CORS_ALLOW_VSCODE_FILE_ORIGIN", "true")),
 		JWTSecret:            strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		JWTIssuer:            getEnv("JWT_ISSUER", "open-polvo"),
 		DBDriver:             strings.ToLower(strings.TrimSpace(getEnv("DB_DRIVER", "mysql"))),

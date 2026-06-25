@@ -30,14 +30,13 @@ application_default_credentials.json
 # Cursor IDE — estado local do projecto (transcripts/terminals podem conter dados sensíveis)
 .cursor/projects/
 
-# Node / front (openpolvo)
+# Node / front (polvocode)
 node_modules/
 dist/
-# Desktop Electron — nunca versionar binários/pastas unpack (ex.: dist-electron-0.1.x, win-unpacked)
-openpolvo/dist-electron/
-openpolvo/dist-electron-*/
-openpolvo/out/
-openpolvo/release/
+polvocode/.build/
+polvocode/out/
+polvocode/.profile-oss
+polvocode/extensions/copilot/test/simulation/cache/
 *.log
 
 # Go (openpolvobackend)

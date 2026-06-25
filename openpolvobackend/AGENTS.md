@@ -15,4 +15,4 @@ Siga o skill `golang-backend-standards`.
 
 ## Contrato
 
-Expõe a API HTTP consumida pelo `openpolvo` e fala com o `openpolvointeligence`. Mantenha shapes JSON estáveis e documentados.
+Expõe a API HTTP consumida pelo `polvocode` e fala com o `openpolvointeligence`. Mantenha shapes JSON estáveis e documentados.

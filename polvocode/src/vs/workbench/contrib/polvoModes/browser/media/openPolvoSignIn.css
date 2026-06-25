@@ -1,0 +1,117 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.chat-setup-dialog .dialog-buttons-row > .dialog-buttons > .monaco-button.continue-button.openpolvo::before {
+	background-image: none;
+	content: '\eb7f';
+	font-family: codicon;
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	line-height: 16px;
+}
+
+.openpolvo-signin-page {
+	position: absolute;
+	inset: 0;
+	z-index: 200;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--vscode-editor-background);
+	animation: openpolvo-signin-fade-in 0.2s ease;
+}
+
+@keyframes openpolvo-signin-fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.openpolvo-signin-card {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	width: min(400px, calc(100% - 48px));
+	gap: 16px;
+	padding: 40px 36px;
+	border: 1px solid var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 12%, transparent));
+	border-radius: var(--vscode-cornerRadius-large, 12px);
+	background: var(--vscode-editor-background);
+	box-shadow: 0 8px 32px color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+}
+
+.openpolvo-signin-icon {
+	align-self: center;
+	font-size: 48px;
+	color: var(--vscode-foreground);
+	opacity: 0.85;
+}
+
+.openpolvo-signin-title {
+	margin: 0;
+	font-size: 22px;
+	font-weight: 600;
+	text-align: center;
+	color: var(--vscode-foreground);
+}
+
+.openpolvo-signin-subtitle {
+	margin: 0;
+	font-size: 13px;
+	text-align: center;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.5;
+}
+
+.openpolvo-signin-form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	margin-top: 4px;
+}
+
+.openpolvo-signin-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.openpolvo-signin-label {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--vscode-foreground);
+}
+
+.openpolvo-signin-field .monaco-inputbox {
+	width: 100%;
+}
+
+.openpolvo-signin-error {
+	font-size: 12px;
+	color: var(--vscode-errorForeground);
+	line-height: 1.4;
+}
+
+.openpolvo-signin-actions {
+	display: flex;
+	flex-direction: row;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.openpolvo-signin-actions .monaco-button {
+	min-width: 88px;
+}
+
+.openpolvo-signin-toggle-row {
+	display: flex;
+	justify-content: center;
+	margin-top: -4px;
+}
+
+.openpolvo-signin-toggle-row .monaco-button {
+	font-size: 12px;
+}

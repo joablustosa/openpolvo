@@ -5,7 +5,7 @@
 O Open Polvo é uma plataforma open source de agente pessoal com IA que roda 100 % localmente ou na nuvem. O agente **Zé Polvinho** entende contexto real do utilizador — tarefas, finanças, e-mails, redes sociais, automações agendadas — e age. Não é só um chatbot: é um verdadeiro assistente pessoal que executa.
 
 ```
-openpolvo/            → Frontend React + Electron (desktop/web)
+polvocode/          → Frontend VS Code OSS + polvoModes (desktop)
 openpolvobackend/     → API Go — auth, conversas, dados, orquestração
 openpolvointeligence/ → Agente Python — LangGraph, LLMs, especialistas
 ```
@@ -52,17 +52,17 @@ python -m openpolvointeligence.main
 # ✅ Agente em http://127.0.0.1:8090
 ```
 
-### Terminal 3 — Frontend (web/desktop)
+### Terminal 3 — Frontend (`polvocode`)
 
 ```bash
-cd open-polvo/openpolvo
+cd open-polvo/polvocode
 
 npm install
-npm run dev
-# ✅ Desktop: Electron + Vite (também em http://localhost:5173)
+npm run transpile-client
+# Ver polvocode/OPENPOLVO.md para lançar Electron em dev
 ```
 
-Em **desktop** o `npm run dev` abre o **Electron**; em **navegador** usa `npm run dev:web` no `openpolvo`. Entra com o utilizador definido em `openpolvobackend/.env` (por defeito no `.env.example`: **email** `admin@openlaele.local` e **password** `DEFAULT_ADMIN_PASSWORD`; altera antes do primeiro arranque em produção).
+Faça login OpenPolvo na IDE com o utilizador definido em `openpolvobackend/.env` (por defeito no `.env.example`: **email** `admin@openlaele.local` e **password** `DEFAULT_ADMIN_PASSWORD`; altera antes do primeiro arranque em produção).
 
 > **Pronto. Em menos de 2 minutos, o Zé Polvinho tá de pé.**
 
@@ -102,8 +102,8 @@ Ver `.env.example` de cada serviço para todas as opções (SMTP, Meta/WhatsApp/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (React + Electron)               │
-│  Chat · Tarefas · Finanças · Social · Automações · Builder  │
+│                    Frontend (polvocode / VS Code OSS)          │
+│  Agent · Code · Workflow · Chat · Tools locais               │
 └──────────────────────┬──────────────────────────────────────┘
                        │ HTTP / SSE streaming
 ┌──────────────────────▼──────────────────────────────────────┐
@@ -163,8 +163,8 @@ cd openpolvobackend && go test ./...
 # Python
 cd openpolvointeligence && pytest
 
-# Frontend
-cd openpolvo && npm run build
+# Frontend (polvocode)
+cd polvocode && npm run transpile-client
 ```
 
 #### 4. Abre um Pull Request
@@ -297,19 +297,14 @@ openpolvointeligence/src/openpolvointeligence/
     └── specialist_*.md       → 20+ especialistas por domínio
 ```
 
-### Frontend — React + Electron
+### Frontend — polvocode (VS Code OSS)
 
 ```
-openpolvo/src/
-├── pages/
-│   ├── Main/             → chat principal + painéis
-│   ├── Financas/         → painel de finanças pessoais
-│   ├── Automacoes/       → automações agendadas
-│   ├── Social/           → automação de redes sociais
-│   └── Settings/         → plugins (SMTP, Meta, WhatsApp...)
-├── core/                 → contextos, sidebar, workspace
-└── lib/                  → API clients (scheduleApi, metaApi...)
+polvocode/src/vs/workbench/contrib/polvoModes/   → modos Agent, Workflow, Code
+polvocode/src/vs/platform/agentHost/node/openpolvo/ → API client + desk tools
 ```
+
+Ver [polvocode/OPENPOLVO.md](../polvocode/OPENPOLVO.md) e [polvocode/MIGRATION.md](../polvocode/MIGRATION.md).
 
 ---
 

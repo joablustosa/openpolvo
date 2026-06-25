@@ -1,6 +1,6 @@
 # Contrato HTTP — Open Polvo Desk MVP v0.1
 
-Contrato mínimo entre **frontend** (`openpolvo`), **backend Go** (`openpolvobackend`) e **intelligence** (`openpolvointeligence`).
+Contrato mínimo entre **frontend** (`polvocode`), **backend Go** (`openpolvobackend`) e **intelligence** (`openpolvointeligence`).
 
 ## POST `/v1/conversations/{id}/messages/stream` (Go → cliente)
 

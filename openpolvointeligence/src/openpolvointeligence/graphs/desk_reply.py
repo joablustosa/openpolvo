@@ -166,6 +166,25 @@ async def run_desk_reply_stream(
                 f"Ollama indisponível — a usar **{cloud}** (perfil com chave) nesta resposta."
             )
             mp = cloud
+        else:
+            friendly = _friendly_desk_error(
+                "ollama",
+                settings,
+                Exception("connection refused"),
+            )
+            if friendly:
+                meta = {
+                    "model_provider": effective_provider("ollama"),
+                    "intent": "desk_agent",
+                    "error_kind": "llm_unreachable",
+                }
+                yield {
+                    "type": "progress",
+                    "step": "desk_start",
+                    "label": "A iniciar agente Desk…",
+                }
+                yield {"type": "done", "assistant_text": friendly, "metadata": meta}
+                return
 
     bridge = DeskToolBridge()
     if cid:

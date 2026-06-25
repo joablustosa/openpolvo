@@ -170,7 +170,7 @@ Congelar contrato HTTP mínimo entre as 3 stacks. Remover/ignorar payloads de do
 
 ##### Issue `DESK-1` — Flag `DESK_MVP_MODE`
 Labels: `layer-desk`, `stack-frontend`, `type-feature`  
-Paths: `openpolvo/src/core/**`, routes
+Paths: `polvocode/src/vs/workbench/contrib/polvoModes/**`
 
 **Descrição:**
 Com `DESK_MVP_MODE=true` (env Vite), ocultar sidebar/routes: finanças, social, meta, automações, pulo do gato. Landing = Desk shell.
@@ -204,7 +204,7 @@ Paths: `README`, `AGENTS.md`
 | ID | Título |
 |----|--------|
 | DESK-2.1 | Secção `docs/desk-mvp-quickstart.md` |
-| DESK-2.2 | Referência no README raiz + openpolvo |
+| DESK-2.2 | Referência no README raiz + polvocode |
 
 ---
 
