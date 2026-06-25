@@ -1,9 +1,9 @@
 ﻿{
-    "backend":  22696,
+    "backend":  12004,
     "intelPort":  8090,
     "vitePort":  5174,
-    "frontend":  3224,
-    "intelligence":  26592,
+    "frontend":  21600,
+    "intelligence":  9316,
     "backendPort":  8081,
     "deskMvpMode":  true
 }

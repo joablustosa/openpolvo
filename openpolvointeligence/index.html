@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Festas Joab - Casa de Festas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        header {
+            background: linear-gradient(90deg, #4CAF50, #FFEB3B);
+            color: #fff;
+            padding: 20px 0;
+            text-align: center;
+            font-size: 2em;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        nav {
+            background-color: #4CAF50;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            padding: 10px 0;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        nav a:hover {
+            text-decoration: underline;
+        }
+        section {
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        h2 {
+            color: #4CAF50;
+            border-bottom: 3px solid #FFEB3B;
+            padding-bottom: 10px;
+        }
+        .services-list {
+            list-style: none;
+            padding: 0;
+        }
+        .services-list li {
+            background-color: #e8f5e9;
+            margin: 10px 0;
+            padding: 15px;
+            border-left: 5px solid #4CAF50;
+            font-size: 1.1em;
+        }
+        .gallery-placeholder {
+            background-color: #c8e6c9;
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #2e7d32;
+            font-size: 1.2em;
+            border-radius: 8px;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-width: 400px;
+        }
+        input, textarea {
+            padding: 10px;
+            font-size: 1em;
+            border: 2px solid #4CAF50;
+            border-radius: 5px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 1.1em;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #388e3c;
+        }
+        footer {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            padding: 15px 0;
+            position: fixed;
+            width: 100%;
+            bottom: 0;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <header>Festas Joab</header>
+    <nav>
+        <a href="#servicos">Serviços</a>
+        <a href="#galeria">Galeria</a>
+        <a href="#contacto">Contacto</a>
+    </nav>
+
+    <section id="servicos">
+        <h2>Serviços</h2>
+        <ul class="services-list">
+            <li>Aluguer de espaço para festas infantis</li>
+            <li>Decoração temática personalizada</li>
+            <li>Serviço de catering com menus infantis</li>
+            <li>Animação com palhaços e magos</li>
+            <li>Equipamento de som e luzes</li>
+        </ul>
+    </section>
+
+    <section id="galeria">
+        <h2>Galeria</h2>
+        <div class="gallery-placeholder">Aqui poderá colocar fotos das festas e eventos.</div>
+    </section>
+
+    <section id="contacto">
+        <h2>Contacto</h2>
+        <p><strong>Telefone:</strong> 912 345 678</p>
+        <p><strong>Email:</strong> festasjoab@example.com</p>
+        <p><strong>Morada:</strong> Rua das Festas, 123, Lisboa</p>
+
+        <form>
+            <label for="nome">Nome:</label>
+            <input type="text" id="nome" name="nome" required>
+
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" required>
+
+            <label for="mensagem">Mensagem:</label>
+            <textarea id="mensagem" name="mensagem" rows="4" required></textarea>
+
+            <button type="submit">Enviar</button>
+        </form>
+    </section>
+
+    <footer>
+        &copy; 2024 Festas Joab - Todos os direitos reservados
+    </footer>
+</body>
+</html>
