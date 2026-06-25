@@ -34,10 +34,16 @@ from openpolvointeligence.graphs.workflow_web_search_enrich import run_workflow_
 from openpolvointeligence.graphs.dev_workflow_self_heal_logic import run_dev_workflow_self_heal
 from openpolvointeligence.code_rag.indexer import index_project_files
 from openpolvointeligence.code_rag.retriever import build_rag_context_block, retrieve_for_router
-from openpolvointeligence.graphs.zepolvinho_graph import run_reply, run_reply_stream
+from openpolvointeligence.graphs.zepolvinho_graph import (
+    run_reply,
+    run_reply_stream,
+    wants_pdf_study_specialist,
+)
 from openpolvointeligence.graphs.desk_routing import should_use_desk_graph
 from openpolvointeligence.graphs.desk_reply import run_desk_reply, run_desk_reply_stream
 from openpolvointeligence.graphs.desk_tool_bridge import get_bridge
+from openpolvointeligence.graphs.message_utils import last_user_text
+from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline, run_pdf_study_stream
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -85,6 +91,14 @@ async def post_reply(
         contacts_ctx = body.contacts_context
         if contacts_ctx is not None and not isinstance(contacts_ctx, list):
             contacts_ctx = None
+        if wants_pdf_study_specialist(last_user_text(msgs)):
+            text, meta = await run_pdf_study_pipeline(
+                eff,
+                msgs,
+                body.model_provider,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
         if should_use_desk_graph(desk_ctx):
             text, meta = await run_desk_reply(
                 eff,
@@ -270,6 +284,15 @@ async def post_reply_stream(
 
     async def event_gen():
         try:
+            if wants_pdf_study_specialist(last_user_text(msgs)):
+                async for event in run_pdf_study_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
             if should_use_desk_graph(desk_ctx):
                 async for event in run_desk_reply_stream(
                     eff,

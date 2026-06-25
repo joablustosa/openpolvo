@@ -24,6 +24,9 @@ export interface IPolvoConversation {
 export interface IPolvoConversationMessage {
 	readonly role: 'user' | 'assistant';
 	content: string;
+	metadata?: Record<string, unknown>;
+	pdfGenerating?: boolean;
+	pdfProgressLabel?: string;
 }
 
 export const IPolvoAgentConversationsService = createDecorator<IPolvoAgentConversationsService>('polvoAgentConversationsService');
@@ -148,7 +151,15 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 		this.persist();
 	}
 
-	updateAssistantMessage(conversationId: string, content: string): void {
+	updateAssistantMessage(
+		conversationId: string,
+		content: string,
+		extras?: {
+			metadata?: Record<string, unknown>;
+			pdfGenerating?: boolean;
+			pdfProgressLabel?: string;
+		},
+	): void {
 		const conversation = this.getConversation(conversationId);
 		if (!conversation) {
 			return;
@@ -156,8 +167,23 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 		const last = conversation.messages[conversation.messages.length - 1];
 		if (last?.role === 'assistant') {
 			last.content = content;
+			if (extras?.metadata !== undefined) {
+				last.metadata = extras.metadata;
+			}
+			if (extras?.pdfGenerating !== undefined) {
+				last.pdfGenerating = extras.pdfGenerating;
+			}
+			if (extras?.pdfProgressLabel !== undefined) {
+				last.pdfProgressLabel = extras.pdfProgressLabel;
+			}
 		} else {
-			conversation.messages.push({ role: 'assistant', content });
+			conversation.messages.push({
+				role: 'assistant',
+				content,
+				metadata: extras?.metadata,
+				pdfGenerating: extras?.pdfGenerating,
+				pdfProgressLabel: extras?.pdfProgressLabel,
+			});
 		}
 		this.persist();
 		this._onDidChangeConversations.fire();

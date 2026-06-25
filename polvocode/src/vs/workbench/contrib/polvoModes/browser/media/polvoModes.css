@@ -428,6 +428,125 @@
 	background-color: var(--vscode-list-hoverBackground);
 }
 
+/* Cartão de geração de PDF (loader estilo ficheiro) */
+.monaco-workbench .polvo-pdf-generating-card,
+.monaco-workbench .polvo-pdf-download-card {
+	display: flex;
+	align-items: flex-start;
+	gap: 14px;
+	margin-top: 12px;
+	padding: 14px 16px;
+	border-radius: 12px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	background: var(--vscode-editor-background);
+	max-width: 360px;
+}
+
+.monaco-workbench .polvo-pdf-generating-icon,
+.monaco-workbench .polvo-pdf-download-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 52px;
+	border-radius: 8px;
+	background: linear-gradient(145deg, #ef4444 0%, #b91c1c 100%);
+	color: #fff;
+	flex-shrink: 0;
+	box-shadow: 0 2px 8px rgba(185, 28, 28, 0.25);
+}
+
+.monaco-workbench .polvo-pdf-generating-body {
+	flex: 1;
+	min-width: 0;
+}
+
+.monaco-workbench .polvo-pdf-generating-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	margin-bottom: 4px;
+}
+
+.monaco-workbench .polvo-pdf-generating-status {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 10px;
+}
+
+.monaco-workbench .polvo-pdf-generating-lines {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.monaco-workbench .polvo-pdf-generating-line {
+	height: 6px;
+	border-radius: 4px;
+	background: linear-gradient(
+		90deg,
+		var(--vscode-input-border, rgba(128, 128, 128, 0.2)) 0%,
+		var(--vscode-focusBorder, rgba(100, 149, 237, 0.45)) 50%,
+		var(--vscode-input-border, rgba(128, 128, 128, 0.2)) 100%
+	);
+	background-size: 200% 100%;
+	animation: polvo-pdf-shimmer 1.4s ease-in-out infinite;
+}
+
+.monaco-workbench .polvo-pdf-generating-line:nth-child(2) { width: 92%; animation-delay: 0.1s; }
+.monaco-workbench .polvo-pdf-generating-line:nth-child(3) { width: 78%; animation-delay: 0.2s; }
+.monaco-workbench .polvo-pdf-generating-line:nth-child(4) { width: 64%; animation-delay: 0.3s; }
+
+@keyframes polvo-pdf-shimmer {
+	0% { background-position: 100% 0; }
+	100% { background-position: -100% 0; }
+}
+
+.monaco-workbench .polvo-pdf-download-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.monaco-workbench .polvo-pdf-download-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-pdf-download-size {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	margin-top: 2px;
+}
+
+.monaco-workbench .polvo-pdf-download-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 32px;
+	padding: 0 12px;
+	border-radius: 8px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font-size: 12px;
+	cursor: pointer;
+	flex-shrink: 0;
+	align-self: center;
+}
+
+.monaco-workbench .polvo-pdf-download-button:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .polvo-agent-chat-text {
+	white-space: pre-wrap;
+	margin-bottom: 4px;
+}
+
 /* Chat real (OpenPolvo) no modo agente — alinhar ao mesmo visual */
 .monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session,
 .monaco-workbench.polvo-mode-agent .part.editor .interactive-session {

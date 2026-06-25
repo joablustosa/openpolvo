@@ -250,7 +250,13 @@ export class BackendStreamNormalizer {
 		switch (type) {
 			case 'progress': {
 				const label = (evt.label ?? evt.step ?? '').trim();
-				const out: INormalizedStreamEvent[] = [{ type: 'progress', content: label, payload: evt.payload }];
+				const step = (evt.step ?? '').trim();
+				const payload = {
+					...(evt.payload ?? {}),
+					...(step ? { step } : {}),
+					...(label ? { label } : {}),
+				};
+				const out: INormalizedStreamEvent[] = [{ type: 'progress', content: label, payload }];
 				if (label && !this._sawText) {
 					out.push({ type: 'thinking', content: label, agentEventType: 'progress' });
 				}

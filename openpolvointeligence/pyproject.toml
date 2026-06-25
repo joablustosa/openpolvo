@@ -20,6 +20,8 @@ dependencies = [
   "langchain-google-genai>=2.0.0",
   "langchain-ollama>=0.2.0",
   "trafilatura>=1.8.0",
+  "markdown>=3.5.0",
+  "xhtml2pdf>=0.2.16",
 ]
 
 [project.optional-dependencies]

@@ -20,6 +20,7 @@ from openpolvointeligence.graphs.models import effective_provider, get_chat_mode
 from openpolvointeligence.graphs.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
 from openpolvointeligence.graphs.dev_workflow_graph import run_dev_workflow_pipeline
+from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline
 from openpolvointeligence.graphs.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
     should_use_dev_workflow,
@@ -607,6 +608,32 @@ def build_zepolvinho_graph(settings: Settings):
                     exc,
                 )
 
+        if routed == "estudo_pdf_profissional":
+            try:
+                msgs_pdf = state.get("messages") or []
+                text_pdf, meta_pdf = await run_pdf_study_pipeline(
+                    settings,
+                    msgs_pdf,
+                    state.get("model_provider"),
+                    agent_memory=state.get("agent_memory"),
+                )
+                meta_pdf.update(
+                    {
+                        "intent": str(analysis.get("intent", "")),
+                        "routed_intent": routed,
+                        "intent_confidence": float(analysis.get("confidence", 0)),
+                        "intent_reasoning": str(analysis.get("reasoning", "")),
+                    },
+                )
+                return {"assistant_text": text_pdf, "metadata": meta_pdf}
+            except Exception as exc:
+                import logging as _pdf_log
+
+                _pdf_log.getLogger(__name__).warning(
+                    "pdf_study_pipeline falhou (%s) — fallback ao especialista só-LLM",
+                    exc,
+                )
+
         tlc_raw = state.get("task_lists_context")
         tlc_list = tlc_raw if isinstance(tlc_raw, list) else None
 
@@ -1142,6 +1169,18 @@ async def run_reply_stream(
                 else "A entender e produtificar o pedido…"
             ),
         }
+
+    if routed == "estudo_pdf_profissional":
+        from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_stream
+
+        async for event in run_pdf_study_stream(
+            settings,
+            messages,
+            model_provider,
+            agent_memory=agent_memory,
+        ):
+            yield event
+        return
 
     yield {"type": "progress", "step": "specialist", "label": "A preparar resposta..."}
     try:
