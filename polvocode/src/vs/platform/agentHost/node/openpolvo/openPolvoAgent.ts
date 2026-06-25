@@ -24,7 +24,7 @@ import {
 	IAgentSessionMetadata,
 } from '../../common/agentService.js';
 import { OPENPOLVO_AGENT_PROVIDER_ID, buildOpenPolvoProtectedResourceMetadata, getOpenPolvoApiBaseUrlFromEnv } from '../../common/openpolvoConfiguration.js';
-import { buildDeskContext, toToolCall } from '../../common/openpolvoBackendProtocol.js';
+import { toToolCall } from '../../common/openpolvoBackendProtocol.js';
 import type { ProtectedResourceMetadata } from '../../common/state/protocol/state.js';
 import type { ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../../common/state/protocol/commands.js';
 import { ActionType, type ChatAction, type SessionAction } from '../../common/state/sessionActions.js';
@@ -32,6 +32,7 @@ import { ResponsePartKind, type AgentSelection, type MessageAttachment, type Mod
 import type { ClientPluginCustomization, Customization } from '../../common/state/protocol/state.js';
 import type { ISyncedCustomization } from '../../common/agentPluginManager.js';
 import { OpenPolvoApiClient } from './openPolvoApiClient.js';
+import { buildDevStudioStreamOptions } from './openPolvoDevStudioPayload.js';
 import { buildOpenPolvoRequestContext, type IOpenPolvoRequestContext } from './openPolvoContext.js';
 import { runDeskTool } from './deskToolRunner.js';
 
@@ -126,7 +127,9 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 
 		const requestContext = buildOpenPolvoRequestContext(attachments, state.workingDirectory);
 		const promptWithContext = appendSelectionContext(prompt, requestContext);
-		const deskContext = buildDeskContext(state.apiSessionId, state.workingDirectory, 'agent', state.modelId);
+		// Modo Code (chat nativo do VS Code): dev workflow via project_files — sem desk_context,
+		// para o Intelligence rotear para polvo_code_builder / dev_workflow e emitir eventos `file`.
+		const devStudio = await buildDevStudioStreamOptions(state.workingDirectory, state.apiSessionId);
 		let markdownPartId: string | undefined;
 		const pendingTools: Promise<void>[] = [];
 
@@ -136,7 +139,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 				promptWithContext,
 				{
 					modelId: state.modelId,
-					deskContext,
+					devStudio,
 				},
 				event => {
 					switch (event.type) {
