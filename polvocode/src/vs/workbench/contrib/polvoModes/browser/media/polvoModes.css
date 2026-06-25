@@ -547,6 +547,141 @@
 	margin-bottom: 4px;
 }
 
+/* Resposta rica em conversa (blocos estilizados) */
+.monaco-workbench .polvo-rich-formatting-card {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 14px;
+	border-radius: 12px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	background: var(--vscode-editor-background);
+	max-width: 420px;
+}
+
+.monaco-workbench .polvo-rich-formatting-pulse {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 999px;
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	animation: polvo-rich-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes polvo-rich-pulse {
+	0%, 100% { opacity: 0.65; transform: scale(0.96); }
+	50% { opacity: 1; transform: scale(1); }
+}
+
+.monaco-workbench .polvo-rich-formatting-status {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .polvo-rich-chat {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.monaco-workbench .polvo-rich-lead {
+	font-size: 14px;
+	line-height: 1.55;
+	font-weight: 500;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .polvo-rich-heading {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	margin-top: 4px;
+}
+
+.monaco-workbench .polvo-rich-heading.level-3 {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .polvo-rich-paragraph {
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .polvo-rich-list-title {
+	font-size: 12px;
+	font-weight: 600;
+	margin-bottom: 4px;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .polvo-rich-bullet-list,
+.monaco-workbench .polvo-rich-numbered-list {
+	margin: 0;
+	padding-left: 18px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .polvo-rich-callout {
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.1));
+}
+
+.monaco-workbench .polvo-rich-callout.variant-tip {
+	border-color: rgba(34, 197, 94, 0.35);
+	background: rgba(34, 197, 94, 0.08);
+}
+
+.monaco-workbench .polvo-rich-callout.variant-warning {
+	border-color: rgba(234, 179, 8, 0.4);
+	background: rgba(234, 179, 8, 0.08);
+}
+
+.monaco-workbench .polvo-rich-callout-title {
+	font-size: 12px;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.monaco-workbench .polvo-rich-callout-body {
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.monaco-workbench .polvo-rich-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.monaco-workbench .polvo-rich-table th,
+.monaco-workbench .polvo-rich-table td {
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	padding: 6px 8px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.monaco-workbench .polvo-rich-table th {
+	background: var(--vscode-list-hoverBackground);
+	font-weight: 600;
+}
+
+.monaco-workbench .polvo-rich-divider {
+	height: 1px;
+	background: var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+	margin: 4px 0;
+}
+
 /* Chat real (OpenPolvo) no modo agente — alinhar ao mesmo visual */
 .monaco-workbench.polvo-mode-agent .part.auxiliarybar .interactive-session,
 .monaco-workbench.polvo-mode-agent .part.editor .interactive-session {

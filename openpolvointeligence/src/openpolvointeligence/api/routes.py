@@ -44,6 +44,11 @@ from openpolvointeligence.graphs.desk_reply import run_desk_reply, run_desk_repl
 from openpolvointeligence.graphs.desk_tool_bridge import get_bridge
 from openpolvointeligence.graphs.message_utils import last_user_text
 from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline, run_pdf_study_stream
+from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation_reply_graph import (
+    run_conversation_reply_pipeline,
+    run_conversation_reply_stream,
+)
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
@@ -93,6 +98,14 @@ async def post_reply(
             contacts_ctx = None
         if wants_pdf_study_specialist(last_user_text(msgs)):
             text, meta = await run_pdf_study_pipeline(
+                eff,
+                msgs,
+                body.model_provider,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
+        if should_use_conversation_workflow(last_user_text(msgs)):
+            text, meta = await run_conversation_reply_pipeline(
                 eff,
                 msgs,
                 body.model_provider,
@@ -286,6 +299,15 @@ async def post_reply_stream(
         try:
             if wants_pdf_study_specialist(last_user_text(msgs)):
                 async for event in run_pdf_study_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
+            if should_use_conversation_workflow(last_user_text(msgs)):
+                async for event in run_conversation_reply_stream(
                     eff,
                     msgs,
                     body.model_provider,

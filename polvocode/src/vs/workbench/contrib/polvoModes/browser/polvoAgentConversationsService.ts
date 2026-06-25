@@ -27,6 +27,8 @@ export interface IPolvoConversationMessage {
 	metadata?: Record<string, unknown>;
 	pdfGenerating?: boolean;
 	pdfProgressLabel?: string;
+	richFormatting?: boolean;
+	richProgressLabel?: string;
 }
 
 export const IPolvoAgentConversationsService = createDecorator<IPolvoAgentConversationsService>('polvoAgentConversationsService');
@@ -158,6 +160,8 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 			metadata?: Record<string, unknown>;
 			pdfGenerating?: boolean;
 			pdfProgressLabel?: string;
+			richFormatting?: boolean;
+			richProgressLabel?: string;
 		},
 	): void {
 		const conversation = this.getConversation(conversationId);
@@ -176,6 +180,12 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 			if (extras?.pdfProgressLabel !== undefined) {
 				last.pdfProgressLabel = extras.pdfProgressLabel;
 			}
+			if (extras?.richFormatting !== undefined) {
+				last.richFormatting = extras.richFormatting;
+			}
+			if (extras?.richProgressLabel !== undefined) {
+				last.richProgressLabel = extras.richProgressLabel;
+			}
 		} else {
 			conversation.messages.push({
 				role: 'assistant',
@@ -183,6 +193,8 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 				metadata: extras?.metadata,
 				pdfGenerating: extras?.pdfGenerating,
 				pdfProgressLabel: extras?.pdfProgressLabel,
+				richFormatting: extras?.richFormatting,
+				richProgressLabel: extras?.richProgressLabel,
 			});
 		}
 		this.persist();

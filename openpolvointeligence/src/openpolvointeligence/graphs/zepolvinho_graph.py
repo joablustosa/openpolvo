@@ -21,6 +21,8 @@ from openpolvointeligence.graphs.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
 from openpolvointeligence.graphs.dev_workflow_graph import run_dev_workflow_pipeline
 from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline
+from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation_reply_graph import run_conversation_reply_pipeline
 from openpolvointeligence.graphs.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
     should_use_dev_workflow,
@@ -634,6 +636,44 @@ def build_zepolvinho_graph(settings: Settings):
                     exc,
                 )
 
+        user_last_for_conv = last_user_text(msgs)
+        if should_use_conversation_workflow(user_last_for_conv) and routed not in (
+            "polvo_code_builder",
+            "estudo_pdf_profissional",
+            "criacao_email",
+            "automacao",
+            "post_instagram",
+            "post_facebook",
+            "post_linkedin",
+            "post_twitter_x",
+            "planilha_estrategia_precos",
+            "financas_pessoais",
+            "gestao_tarefas_calendario",
+        ):
+            try:
+                text_cr, meta_cr = await run_conversation_reply_pipeline(
+                    settings,
+                    msgs,
+                    state.get("model_provider"),
+                    agent_memory=state.get("agent_memory"),
+                )
+                meta_cr.update(
+                    {
+                        "intent": str(analysis.get("intent", "")),
+                        "routed_intent": "conversation_rich",
+                        "intent_confidence": float(analysis.get("confidence", 0)),
+                        "intent_reasoning": str(analysis.get("reasoning", "")),
+                    },
+                )
+                return {"assistant_text": text_cr, "metadata": meta_cr}
+            except Exception as exc:
+                import logging as _conv_log
+
+                _conv_log.getLogger(__name__).warning(
+                    "conversation_reply_pipeline falhou (%s) — fallback ao especialista",
+                    exc,
+                )
+
         tlc_raw = state.get("task_lists_context")
         tlc_list = tlc_raw if isinstance(tlc_raw, list) else None
 
@@ -1174,6 +1214,20 @@ async def run_reply_stream(
         from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_stream
 
         async for event in run_pdf_study_stream(
+            settings,
+            messages,
+            model_provider,
+            agent_memory=agent_memory,
+        ):
+            yield event
+        return
+
+    if should_use_conversation_workflow(last_user_text(messages)):
+        from openpolvointeligence.graphs.conversation_reply_graph import (
+            run_conversation_reply_stream,
+        )
+
+        async for event in run_conversation_reply_stream(
             settings,
             messages,
             model_provider,

@@ -22,6 +22,7 @@ import { IEditorGroup } from '../../../services/editor/common/editorGroupsServic
 import { PolvoAgentChatEditorInput } from './polvoAgentChatEditorInput.js';
 import { IPolvoAgentConversationsService, type IPolvoConversationMessage } from './polvoAgentConversationsService.js';
 import { IOpenPolvoModel, IOpenPolvoWorkbenchApiService, type IOpenPolvoStreamEvent } from './openPolvoWorkbenchApiService.js';
+import { extractRichBlocks, renderRichChatBlocks } from './polvoRichChatRenderer.js';
 
 const $ = dom.$;
 
@@ -271,6 +272,8 @@ export class PolvoAgentChatEditor extends EditorPane {
 			let assistantMetadata: Record<string, unknown> | undefined;
 			let pdfGenerating = false;
 			let pdfProgressLabel = '';
+			let richFormatting = false;
+			let richProgressLabel = '';
 
 			const handleStreamEvent = (event: IOpenPolvoStreamEvent): void => {
 				if (event.type === 'text_delta' && event.delta) {
@@ -278,6 +281,8 @@ export class PolvoAgentChatEditor extends EditorPane {
 					this.conversationsService.updateAssistantMessage(this.conversationId!, assistantText, {
 						pdfGenerating,
 						pdfProgressLabel,
+						richFormatting,
+						richProgressLabel,
 						metadata: assistantMetadata,
 					});
 					this.renderMessages();
@@ -289,7 +294,16 @@ export class PolvoAgentChatEditor extends EditorPane {
 						this.conversationsService.updateAssistantMessage(
 							this.conversationId!,
 							assistantText || pdfProgressLabel,
-							{ pdfGenerating: true, pdfProgressLabel, metadata: assistantMetadata },
+							{ pdfGenerating: true, pdfProgressLabel, richFormatting: false, metadata: assistantMetadata },
+						);
+						this.renderMessages();
+					} else if (step.startsWith('conv_') || event.payload?.conversation_format === 'rich_blocks') {
+						richFormatting = true;
+						richProgressLabel = event.content ?? event.payload?.label as string ?? '';
+						this.conversationsService.updateAssistantMessage(
+							this.conversationId!,
+							richProgressLabel,
+							{ richFormatting: true, richProgressLabel, pdfGenerating: false, metadata: assistantMetadata },
 						);
 						this.renderMessages();
 					} else if (event.content && !assistantText) {
@@ -319,9 +333,11 @@ export class PolvoAgentChatEditor extends EditorPane {
 						assistantMetadata = event.metadata;
 					}
 					pdfGenerating = false;
+					richFormatting = false;
 					this.conversationsService.updateAssistantMessage(this.conversationId!, assistantText, {
 						metadata: assistantMetadata,
 						pdfGenerating: false,
+						richFormatting: false,
 					});
 					this.renderMessages();
 				}
@@ -397,7 +413,15 @@ export class PolvoAgentChatEditor extends EditorPane {
 			this.renderPdfGeneratingCard(bubble, message.pdfProgressLabel);
 			return;
 		}
-		if (message.content) {
+		if (message.richFormatting) {
+			this.renderRichFormattingCard(bubble, message.richProgressLabel);
+			return;
+		}
+		const richBlocks = extractRichBlocks(message.metadata);
+		if (richBlocks.length > 0) {
+			const richHost = dom.append(bubble, $('.polvo-agent-chat-rich'));
+			renderRichChatBlocks(richHost, richBlocks);
+		} else if (message.content) {
 			const textEl = dom.append(bubble, $('.polvo-agent-chat-text'));
 			textEl.textContent = message.content;
 		}
@@ -410,6 +434,14 @@ export class PolvoAgentChatEditor extends EditorPane {
 				typeof meta.pdf_size_bytes === 'number' ? meta.pdf_size_bytes : undefined,
 			);
 		}
+	}
+
+	private renderRichFormattingCard(bubble: HTMLElement, label?: string): void {
+		const card = dom.append(bubble, $('.polvo-rich-formatting-card'));
+		const pulse = dom.append(card, $('.polvo-rich-formatting-pulse'));
+		pulse.appendChild(renderIcon(Codicon.sparkle));
+		const status = dom.append(card, $('.polvo-rich-formatting-status'));
+		status.textContent = label || localize('polvoRichFormatting', "A preparar resposta formatada…");
 	}
 
 	private renderPdfGeneratingCard(bubble: HTMLElement, label?: string): void {
