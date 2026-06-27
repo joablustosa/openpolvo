@@ -1,6 +1,6 @@
-# Code - OSS Development MCP Server
+# Code - Open Polvoelopment MCP Server
 
-This directory contains a Model Context Protocol (MCP) server that provides VS Code automation capabilities for Code - OSS development and testing. The MCP server exposes Code - OSS's testing infrastructure through a standardized interface, allowing AI assistants and other tools to interact with VS Code programmatically.
+This directory contains a Model Context Protocol (MCP) server that provides VS Code automation capabilities for Code - Open Polvoelopment and testing. The MCP server exposes Code - OSS's testing infrastructure through a standardized interface, allowing AI assistants and other tools to interact with VS Code programmatically.
 
 ## What is MCP?
 
@@ -157,7 +157,7 @@ The server uses a simple architecture:
 
 ## Contributing
 
-This MCP server is part of the Code - OSS development infrastructure. When making changes:
+This MCP server is part of the Code - Open Polvoelopment infrastructure. When making changes:
 
 1. Follow the existing TypeScript and coding conventions
 2. Test with multiple MCP clients if possible

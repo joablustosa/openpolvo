@@ -1,4 +1,4 @@
-"""LLM para geração de workflows e texto (paridade com o antigo bridge Go)."""
+"""LLM para geração de texto simples (nós llm no runner de workflows)."""
 
 from __future__ import annotations
 
@@ -6,31 +6,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.models import get_chat_model
-
-_WORKFLOW_SYSTEM = """És um especialista em automação web. Responde APENAS com JSON válido, sem markdown nem texto fora do JSON.
-O formato obrigatório é:
-{"nodes":[{"id":"n1","type":"goto","data":{"url":"https://..."},"position":{"x":0,"y":0}},{"id":"n2","type":"click","data":{"selector":"css..."},"position":{"x":200,"y":0}}],"edges":[{"id":"e1","source":"n1","target":"n2"}]}
-Tipos de nó permitidos: schedule (data.cron cron de 5 campos, data.timezone fuso IANA, data.schedule_enabled booleano), goto (data.url), click (data.selector), fill (data.selector + data.value), wait (data.selector), llm (data.prompt), web_search (data.query; opcional data.search_engine "duckduckgo" ou "google"; data.m 1–10 resultados SerpAPI; data.web_search_skip_page_fetch true para só snippets sem aprofundar páginas no Intelligence), send_email (data.email_to ou data.contact_id, data.email_subject, data.email_body — envio SMTP na API; em subject/body podes usar {{previous}} para a saída dos nós a montante ligados por aresta, ou {{output:ID}} para a saída de um nó llm/web_search).
-IDs devem ser únicos. Inclui posições em grelha para o editor visual."""
-
-
-async def generate_graph_json(
-    settings: Settings,
-    model_provider: str | None,
-    user_request: str,
-    recording_hint: str,
-) -> str:
-    user = user_request
-    if recording_hint.strip():
-        user += "\n\nContexto adicional (gravação / passos brutos):\n" + recording_hint
-    chat = get_chat_model(settings, model_provider, json_mode=False)
-    resp = await chat.ainvoke(
-        [
-            SystemMessage(content=_WORKFLOW_SYSTEM),
-            HumanMessage(content=user),
-        ],
-    )
-    return str(resp.content).strip()
 
 
 async def generate_text(

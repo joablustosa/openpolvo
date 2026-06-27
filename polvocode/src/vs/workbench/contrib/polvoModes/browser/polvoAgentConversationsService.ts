@@ -29,6 +29,8 @@ export interface IPolvoConversationMessage {
 	pdfProgressLabel?: string;
 	richFormatting?: boolean;
 	richProgressLabel?: string;
+	/** Tempo total da resposta em segundos (exibido após concluir). */
+	responseTimeSeconds?: number;
 }
 
 export const IPolvoAgentConversationsService = createDecorator<IPolvoAgentConversationsService>('polvoAgentConversationsService');
@@ -162,6 +164,7 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 			pdfProgressLabel?: string;
 			richFormatting?: boolean;
 			richProgressLabel?: string;
+			responseTimeSeconds?: number;
 		},
 	): void {
 		const conversation = this.getConversation(conversationId);
@@ -186,6 +189,9 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 			if (extras?.richProgressLabel !== undefined) {
 				last.richProgressLabel = extras.richProgressLabel;
 			}
+			if (extras?.responseTimeSeconds !== undefined) {
+				last.responseTimeSeconds = extras.responseTimeSeconds;
+			}
 		} else {
 			conversation.messages.push({
 				role: 'assistant',
@@ -195,6 +201,7 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 				pdfProgressLabel: extras?.pdfProgressLabel,
 				richFormatting: extras?.richFormatting,
 				richProgressLabel: extras?.richProgressLabel,
+				responseTimeSeconds: extras?.responseTimeSeconds,
 			});
 		}
 		this.persist();

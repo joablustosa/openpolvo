@@ -12,7 +12,7 @@ class MessagePart(BaseModel):
 
 class ReplyRequest(BaseModel):
     messages: list[MessagePart]
-    model_provider: str = Field(default="openai", description="openai | google")
+    model_provider: str = Field(default="auto", description="auto | openai | google | ollama")
     openai_api_key: str | None = Field(
         default=None, description="Override por pedido (API Go / SQLite local)"
     )
@@ -102,7 +102,7 @@ class ReplyResponse(BaseModel):
 
 
 class DevStudioSelfHealRequest(BaseModel):
-    model_provider: str = Field(default="openai", description="openai | google")
+    model_provider: str = Field(default="auto", description="auto | openai | google | ollama")
     openai_api_key: str | None = None
     google_api_key: str | None = None
     openai_model: str | None = None
@@ -162,7 +162,7 @@ class CodeRagQueryResponse(BaseModel):
 
 
 class WorkflowGenerateRequest(BaseModel):
-    model_provider: str = "openai"
+    model_provider: str = "auto"
     openai_api_key: str | None = None
     google_api_key: str | None = None
     openai_model: str | None = None
@@ -173,10 +173,13 @@ class WorkflowGenerateRequest(BaseModel):
 
 class WorkflowGenerateResponse(BaseModel):
     raw_llm: str
+    brief: dict[str, Any] = Field(default_factory=dict)
+    step_blueprint: list[dict[str, Any]] = Field(default_factory=list)
+    assistant_text: str = ""
 
 
 class LLMTextRequest(BaseModel):
-    model_provider: str = "openai"
+    model_provider: str = "auto"
     openai_api_key: str | None = None
     google_api_key: str | None = None
     openai_model: str | None = None
@@ -196,7 +199,7 @@ class WorkflowWebSearchOrganicHit(BaseModel):
 
 
 class WorkflowWebSearchEnrichRequest(BaseModel):
-    model_provider: str = "openai"
+    model_provider: str = "auto"
     openai_api_key: str | None = None
     google_api_key: str | None = None
     openai_model: str | None = None

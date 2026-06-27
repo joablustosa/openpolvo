@@ -267,6 +267,20 @@
 	color: var(--vscode-editor-foreground);
 }
 
+.monaco-workbench .polvo-agent-chat-response-timer {
+	font-size: 11px;
+	line-height: 1.2;
+	color: var(--vscode-descriptionForeground);
+	opacity: 0.9;
+	padding: 0 4px;
+}
+
+.monaco-workbench .polvo-agent-chat-loading {
+	font-size: 13px;
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+}
+
 /* Composer fixo na base, centralizado */
 .monaco-workbench .polvo-agent-chat-composer {
 	flex-shrink: 0;
@@ -735,16 +749,6 @@
 	box-sizing: border-box;
 }
 
-.monaco-workbench .polvo-workflow-editor-inner {
-	display: flex;
-	flex-direction: column;
-	height: 100%;
-	max-width: 800px;
-	margin: 0 auto;
-	padding: 32px;
-	box-sizing: border-box;
-}
-
 .monaco-workbench .polvo-workflow-editor h1 {
 	font-size: 22px;
 	font-weight: 500;
@@ -773,6 +777,329 @@
 .monaco-workbench .polvo-workflow-editor-composer {
 	padding: 0;
 	margin-top: 8px;
+}
+
+/* Agente de workflows — layout estilo n8n (canvas + chat) */
+
+.monaco-workbench .polvo-workflow-agent-header {
+	flex-shrink: 0;
+	padding: 16px 24px;
+	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
+}
+
+.monaco-workbench .polvo-workflow-agent-header h1 {
+	font-size: 18px;
+	font-weight: 600;
+	margin: 0;
+}
+
+.monaco-workbench .polvo-workflow-agent-header .subtitle {
+	margin: 4px 0 0;
+}
+
+.monaco-workbench .polvo-workflow-agent-body {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+}
+
+.monaco-workbench .polvo-workflow-canvas-pane {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	background-color: var(--vscode-editor-background);
+	background-image: radial-gradient(var(--vscode-editorIndentGuide-background) 1px, transparent 1px);
+	background-size: 22px 22px;
+}
+
+.monaco-workbench .polvo-workflow-chat-pane {
+	width: 360px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 12px;
+	box-sizing: border-box;
+	border-left: 1px solid var(--vscode-sideBarSectionHeader-border);
+	background-color: var(--vscode-sideBar-background);
+}
+
+.monaco-workbench .polvo-workflow-chat-pane .polvo-workflow-messages {
+	margin: 0 0 8px;
+}
+
+.monaco-workbench .polvo-workflow-canvas {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	cursor: grab;
+}
+
+.monaco-workbench .polvo-workflow-canvas.panning {
+	cursor: grabbing;
+}
+
+.monaco-workbench .polvo-workflow-canvas-content {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+}
+
+.monaco-workbench .polvo-workflow-edges {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.monaco-workbench .polvo-workflow-edge {
+	fill: none;
+	stroke: var(--vscode-descriptionForeground);
+	stroke-width: 2;
+	opacity: 0.55;
+}
+
+.monaco-workbench .polvo-workflow-nodes {
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+
+.monaco-workbench .polvo-workflow-node {
+	position: absolute;
+	width: 200px;
+	box-sizing: border-box;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border));
+	border-left: 3px solid var(--polvo-node-accent, var(--vscode-charts-blue));
+	background-color: var(--vscode-editorWidget-background);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+	cursor: pointer;
+	transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.monaco-workbench .polvo-workflow-node:hover {
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.monaco-workbench .polvo-workflow-node.selected {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.monaco-workbench .polvo-workflow-node-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.monaco-workbench .polvo-workflow-node-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+	color: var(--polvo-node-accent, var(--vscode-charts-blue));
+	background-color: color-mix(in srgb, var(--polvo-node-accent, var(--vscode-charts-blue)) 16%, transparent);
+	flex-shrink: 0;
+}
+
+.monaco-workbench .polvo-workflow-node-titles {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.monaco-workbench .polvo-workflow-node-label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-workflow-node-type {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .polvo-workflow-node-prompt {
+	margin-top: 6px;
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--vscode-descriptionForeground);
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.monaco-workbench .polvo-workflow-canvas-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	color: var(--vscode-descriptionForeground);
+	pointer-events: none;
+}
+
+.monaco-workbench .polvo-workflow-canvas-empty .codicon {
+	font-size: 32px;
+	opacity: 0.6;
+}
+
+.monaco-workbench .polvo-workflow-canvas-empty p {
+	margin: 0;
+	font-size: 13px;
+	max-width: 260px;
+	text-align: center;
+}
+
+/* Painel de propriedades do nó */
+
+.monaco-workbench .polvo-workflow-props {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	max-height: 46%;
+	overflow: auto;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 14px 18px;
+	border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border));
+	background-color: var(--vscode-editorWidget-background);
+	box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.22);
+}
+
+.monaco-workbench .polvo-workflow-props-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.monaco-workbench .polvo-workflow-props-title {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.monaco-workbench .polvo-workflow-props-type {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	padding: 2px 6px;
+	border-radius: 4px;
+	color: var(--vscode-descriptionForeground);
+	background-color: var(--vscode-badge-background);
+}
+
+.monaco-workbench .polvo-workflow-props-close {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 2px;
+	border: none;
+	background: transparent;
+	color: var(--vscode-icon-foreground);
+	cursor: pointer;
+	border-radius: 4px;
+}
+
+.monaco-workbench .polvo-workflow-props-close:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .polvo-workflow-props-form {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.monaco-workbench .polvo-workflow-props-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.monaco-workbench .polvo-workflow-props-field-label {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .polvo-workflow-props-input,
+.monaco-workbench .polvo-workflow-props-textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	font-family: inherit;
+	font-size: 12px;
+	color: var(--vscode-input-foreground);
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 6px;
+	resize: vertical;
+}
+
+.monaco-workbench .polvo-workflow-props-input:focus,
+.monaco-workbench .polvo-workflow-props-textarea:focus {
+	outline: none;
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .polvo-workflow-props-actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.monaco-workbench .polvo-workflow-props-save {
+	padding: 6px 14px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--vscode-button-foreground);
+	background-color: var(--vscode-button-background);
+	border: none;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.monaco-workbench .polvo-workflow-props-save:hover {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .polvo-workflow-nav-item-title-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.monaco-workbench .polvo-workflow-nav-item-title-row .title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-workflow-nav-badge {
+	flex-shrink: 0;
+	font-size: 10px;
+	padding: 1px 6px;
+	border-radius: 8px;
+	color: var(--vscode-badge-foreground);
+	background-color: var(--vscode-badge-background);
 }
 
 .monaco-workbench .polvo-workflow-nav-view {

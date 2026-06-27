@@ -337,7 +337,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				},
 				{
 					id: 'settingsSyncWeb',
-					title: localize('gettingStarted.settingsSync.title', "Sync settings across devices"),
+					title: localize('gettingStarted.settingsSync.title', "Sync settings acrOpen Polvoices"),
 					description: localize('gettingStarted.settingsSync.description.interpolated', "Keep your essential customizations backed up and updated across all your devices.\n{0}", Button(localize('enableSync', "Backup and Sync Settings"), 'command:workbench.userDataSync.actions.turnOn')),
 					when: 'syncStatus != uninitialized',
 					completionEvents: ['onEvent:sync-enabled'],
@@ -491,7 +491,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 				{
 					id: 'settingsAndSync',
 					title: localize('gettingStarted.settings.title', "Tune your settings"),
-					description: localize('gettingStarted.settingsAndSync.description.interpolated', "Customize every aspect of VS Code and [sync](command:workbench.userDataSync.actions.turnOn) customizations across devices.\n{0}", Button(localize('tweakSettings', "Open Settings"), 'command:toSide:workbench.action.openSettings')),
+					description: localize('gettingStarted.settingsAndSync.description.interpolated', "Customize every aspect of VS Code and [sync](command:workbench.userDataSync.actions.turnOn) customizations acrOpen Polvoices.\n{0}", Button(localize('tweakSettings', "Open Settings"), 'command:toSide:workbench.action.openSettings')),
 					when: 'workspacePlatform != \'webworker\' && syncStatus != uninitialized',
 					completionEvents: ['onEvent:sync-enabled'],
 					media: {

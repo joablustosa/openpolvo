@@ -11,14 +11,16 @@ import './polvoSettingsCommands.js';
 import './openpolvo.config.contribution.js';
 import './openPolvoWorkbenchApiService.js';
 import './openPolvoAuth.js';
-import './openPolvoSignInContribution.js';
 import './openPolvoAgentHostAuthContribution.js';
 import './polvoAgentConversationsService.js';
 import './polvoWorkflowsService.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
+import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { PolvoWorkbenchModeLayoutController } from './polvoWorkbenchModeLayoutController.js';
 import { OpenPolvoAgentHostAuthContribution } from './openPolvoAgentHostAuthContribution.js';
 import './polvoModeSwitcherMount.js';
@@ -104,3 +106,22 @@ Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEdit
 
 registerWorkbenchContribution2(PolvoWorkbenchModeLayoutController.ID, PolvoWorkbenchModeLayoutController, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(OpenPolvoAgentHostAuthContribution.ID, OpenPolvoAgentHostAuthContribution, WorkbenchPhase.AfterRestored);
+
+/** Carrega o bootstrap Ollama de forma assíncrona para não bloquear o workbench se o módulo falhar. */
+class OpenPolvoLocalLlmSetupContributionLoader extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.openPolvoLocalLlmSetup';
+
+	constructor(
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@ILogService private readonly logService: ILogService,
+	) {
+		super();
+		void import('./openPolvoLocalLlmSetupContribution.js').then(module => {
+			this._register(this.instantiationService.createInstance(module.OpenPolvoLocalLlmSetupContribution));
+		}).catch(err => {
+			this.logService.error('[OpenPolvo] Falha ao carregar bootstrap de IA local', err);
+		});
+	}
+}
+
+registerWorkbenchContribution2(OpenPolvoLocalLlmSetupContributionLoader.ID, OpenPolvoLocalLlmSetupContributionLoader, WorkbenchPhase.Eventually);

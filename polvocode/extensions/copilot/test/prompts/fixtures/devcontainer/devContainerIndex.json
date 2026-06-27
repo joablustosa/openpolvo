@@ -2897,7 +2897,7 @@
           "name": "R history",
           "id": "ghcr.io/rocker-org/devcontainer-features/r-history",
           "version": "0.1.0",
-          "description": "Preserve R terminal history across Dev Container instances. Supports Radian and RStudio's R console.",
+          "description": "Preserve R terminal history acrOpen Polvo Container instances. Supports Radian and RStudio's R console.",
           "documentationURL": "https://github.com/rocker-org/devcontainer-features/tree/main/src/r-history",
           "options": {},
           "containerEnv": {
@@ -16143,7 +16143,7 @@
           "name": "Shell History",
           "id": "ghcr.io/stuartleeks/dev-container-features/shell-history",
           "version": "0.0.3",
-          "description": "Preserve shell history across dev container instances. Currently supports bash, zsh, and fish",
+          "description": "Preserve shell history acrOpen Polvo container instances. Currently supports bash, zsh, and fish",
           "options": {},
           "mounts": [
             {
@@ -22363,7 +22363,7 @@
           "name": "1Password CLI",
           "id": "ghcr.io/itsmechlark/features/1password",
           "version": "1.0.2",
-          "description": "1Password CLI allows you to automate administrative tasks, securely provision secrets across development environments, and use biometrics to authenticate in the terminal.",
+          "description": "1Password CLI allows you to automate administrative tasks, securely provision secrets acrOpen Polvoelopment environments, and use biometrics to authenticate in the terminal.",
           "options": {
             "version": {
               "type": "string",

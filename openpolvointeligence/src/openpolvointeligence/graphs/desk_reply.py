@@ -18,6 +18,7 @@ from openpolvointeligence.graphs.desk_state import initial_desk_state
 from openpolvointeligence.graphs.desk_tool_bridge import DeskToolBridge, clear_bridge, set_bridge
 from openpolvointeligence.graphs.models import effective_provider, resolve_desk_reply_provider
 from openpolvointeligence.graphs.agent_memory_utils import finalize_reply_metadata
+from openpolvointeligence.graphs.conversation_reply_blocks_logic import apply_rich_format_to_reply
 from openpolvointeligence.graphs.email_send_reply import try_apply_email_send_metadata
 from openpolvointeligence.graphs.message_utils import tail_messages
 
@@ -261,6 +262,7 @@ async def run_desk_reply_stream(
                 meta,
             )
             meta = {**meta, "model_provider": effective_provider(mp), "intent": "desk_agent"}
+            text, meta = apply_rich_format_to_reply(text, meta)
             await out_q.put(_agent_event("final", {"text": text[:500]}))
             await out_q.put({"type": "done", "assistant_text": text, "metadata": meta})
         except Exception as exc:  # noqa: BLE001

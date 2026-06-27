@@ -1,6 +1,6 @@
 ---
 name: code-oss-logs
-description: 'Find and read logs from Code OSS dev builds. Use when: finding logs, reading log files, debugging Code OSS, checking renderer logs, extension host logs, agent host logs, main process logs, investigating errors in dev builds.'
+description: 'Find and read logs from Code Open Polvo builds. Use when: finding logs, reading log files, debugging Code OSS, checking renderer logs, extension host logs, agent host logs, main process logs, investigating errors in dev builds.'
 ---
 
 # Code OSS Logs

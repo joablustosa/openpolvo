@@ -185,6 +185,154 @@ def parse_enriched_brief_json(raw: str) -> dict[str, Any]:
     return normalize_enriched_brief(data)
 
 
+_INLINE_MD_RE = re.compile(
+    r"\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_([^_]+)_|`([^`]+)`",
+)
+
+
+def _strip_inline_md(text: str) -> str:
+    """Remove marcação inline comum para texto legível nos blocos."""
+    out = text
+    for _ in range(8):
+        new = _INLINE_MD_RE.sub(lambda m: next(g for g in m.groups() if g), out)
+        if new == out:
+            break
+        out = new
+    return _norm(out)
+
+
+def markdown_to_rich_blocks(text: str) -> list[dict[str, Any]]:
+    """Converte markdown GFM simples em blocos ricos (zero-token, fallback universal)."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    lines = raw.split("\n")
+    blocks: list[dict[str, Any]] = []
+    i = 0
+    lead_set = False
+    while i < len(lines):
+        line = lines[i].rstrip()
+        stripped = line.strip()
+        if not stripped:
+            i += 1
+            continue
+        if stripped.startswith("### "):
+            blocks.append({"type": "heading", "level": 3, "text": _strip_inline_md(stripped[4:])})
+            i += 1
+            continue
+        if stripped.startswith("## "):
+            blocks.append({"type": "heading", "level": 2, "text": _strip_inline_md(stripped[3:])})
+            i += 1
+            continue
+        if stripped.startswith("# "):
+            title = _strip_inline_md(stripped[2:])
+            if not lead_set:
+                blocks.append({"type": "lead", "text": title})
+                lead_set = True
+            else:
+                blocks.append({"type": "heading", "level": 2, "text": title})
+            i += 1
+            continue
+        if stripped.startswith(">"):
+            quote_lines: list[str] = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                quote_lines.append(lines[i].strip().lstrip(">").strip())
+                i += 1
+            blocks.append(
+                {
+                    "type": "callout",
+                    "variant": "note",
+                    "text": _strip_inline_md(" ".join(quote_lines)),
+                },
+            )
+            continue
+        if re.match(r"^[-*+]\s+", stripped):
+            items: list[str] = []
+            while i < len(lines):
+                s = lines[i].strip()
+                m = re.match(r"^[-*+]\s+(.*)$", s)
+                if not m:
+                    break
+                items.append(_strip_inline_md(m.group(1)))
+                i += 1
+            if items:
+                blocks.append({"type": "bullet_list", "items": items})
+            continue
+        if re.match(r"^\d+\.\s+", stripped):
+            items = []
+            while i < len(lines):
+                s = lines[i].strip()
+                m = re.match(r"^\d+\.\s+(.*)$", s)
+                if not m:
+                    break
+                items.append(_strip_inline_md(m.group(1)))
+                i += 1
+            if items:
+                blocks.append({"type": "numbered_list", "items": items})
+            continue
+        if stripped in ("---", "***", "___"):
+            blocks.append({"type": "divider"})
+            i += 1
+            continue
+        para_lines: list[str] = [stripped]
+        i += 1
+        while i < len(lines):
+            nxt = lines[i].strip()
+            if (
+                not nxt
+                or nxt.startswith("#")
+                or nxt.startswith(">")
+                or re.match(r"^[-*+]\s+", nxt)
+                or re.match(r"^\d+\.\s+", nxt)
+                or nxt in ("---", "***", "___")
+            ):
+                break
+            para_lines.append(nxt)
+            i += 1
+        para = _strip_inline_md(" ".join(para_lines))
+        if para:
+            if not lead_set and len(blocks) == 0:
+                blocks.append({"type": "lead", "text": para})
+                lead_set = True
+            else:
+                blocks.append({"type": "paragraph", "text": para})
+    return normalize_rich_blocks(blocks)
+
+
+def should_enrich_with_rich_blocks(meta: dict[str, Any]) -> bool:
+    if meta.get("conversation_format") == "rich_blocks" and meta.get("rich_blocks"):
+        return False
+    if meta.get("document_kind") == "pdf_study_report":
+        return False
+    if meta.get("native_plugin"):
+        return False
+    routed = str(meta.get("routed_intent") or meta.get("intent") or "")
+    if routed in ("polvo_code_builder", "estudo_pdf_profissional"):
+        return False
+    if meta.get("polvo_code_ops") or meta.get("polvo_code_ops_pending"):
+        return False
+    return True
+
+
+def apply_rich_format_to_reply(text: str, meta: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Garante metadata rich_blocks para respostas gerais do Agente."""
+    out_meta = dict(meta or {})
+    if not should_enrich_with_rich_blocks(out_meta):
+        return text, out_meta
+    existing = out_meta.get("rich_blocks")
+    if isinstance(existing, list) and existing:
+        out_meta.setdefault("conversation_format", "rich_blocks")
+        return text, out_meta
+    blocks = markdown_to_rich_blocks(text)
+    if not blocks:
+        return text, out_meta
+    out_meta["conversation_format"] = "rich_blocks"
+    out_meta["rich_blocks"] = blocks
+    out_meta.setdefault("rich_blocks_source", "markdown_fallback")
+    plain = blocks_to_plain_text(blocks)
+    return plain or text, out_meta
+
+
 def normalize_enriched_brief(data: dict[str, Any], *, raw: str = "") -> dict[str, Any]:
     objective = _norm(str(data.get("objective") or raw or "Responder ao utilizador"))
     audience = _norm(str(data.get("audience") or "utilizador do Open Polvo"))

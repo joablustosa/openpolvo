@@ -91,13 +91,13 @@ export class SessionSyncStatus extends Disposable {
 			case 'on':
 				this._statusItem.description = `$(check) ${l10n.t('Enabled')}`;
 				this._statusItem.detail = `[${l10n.t('Show insights?')}](command:workbench.action.chat.open?%7B%22query%22%3A%22%2Fchronicle%20tips%22%7D)`;
-				this._statusItem.tooltip = l10n.t('Your sessions are being synced and available across devices.');
+				this._statusItem.tooltip = l10n.t('Your sessions are being synced and available acrOpen Polvoices.');
 				break;
 
 			case 'up-to-date':
 				this._statusItem.description = `$(check) [${l10n.t('{0} sessions synced', state.syncedCount)}](${sessionsOnGitHubLink})`;
 				this._statusItem.detail = `[${l10n.t('Show insights?')}](command:workbench.action.chat.open?%7B%22query%22%3A%22%2Fchronicle%20tips%22%7D)`;
-				this._statusItem.tooltip = l10n.t('Your sessions are being synced and available across devices. Click to view them on GitHub.');
+				this._statusItem.tooltip = l10n.t('Your sessions are being synced and available acrOpen Polvoices. Click to view them on GitHub.');
 				break;
 
 			case 'syncing':

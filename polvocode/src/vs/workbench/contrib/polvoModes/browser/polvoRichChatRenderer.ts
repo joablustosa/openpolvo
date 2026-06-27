@@ -19,7 +19,7 @@ export interface IRichChatBlock {
 }
 
 export function extractRichBlocks(metadata: Record<string, unknown> | undefined): IRichChatBlock[] {
-	if (!metadata || metadata.conversation_format !== 'rich_blocks') {
+	if (!metadata) {
 		return [];
 	}
 	const raw = metadata.rich_blocks;
@@ -148,4 +148,120 @@ export function renderRichChatBlocks(parent: HTMLElement, blocks: IRichChatBlock
 				break;
 		}
 	}
+}
+
+function stripInlineMd(text: string): string {
+	return text
+		.replace(/\*\*(.+?)\*\*/g, '$1')
+		.replace(/__(.+?)__/g, '$1')
+		.replace(/\*(.+?)\*/g, '$1')
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+/** Fallback cliente: converte markdown simples em blocos quando metadata não veio do backend. */
+export function markdownToRichBlocks(text: string): IRichChatBlock[] {
+	const raw = (text ?? '').trim();
+	if (!raw) {
+		return [];
+	}
+	const lines = raw.split('\n');
+	const blocks: IRichChatBlock[] = [];
+	let i = 0;
+	let leadSet = false;
+	while (i < lines.length) {
+		const stripped = lines[i].trim();
+		if (!stripped) {
+			i++;
+			continue;
+		}
+		if (stripped.startsWith('### ')) {
+			blocks.push({ type: 'heading', level: 3, text: stripInlineMd(stripped.slice(4)) });
+			i++;
+			continue;
+		}
+		if (stripped.startsWith('## ')) {
+			blocks.push({ type: 'heading', level: 2, text: stripInlineMd(stripped.slice(3)) });
+			i++;
+			continue;
+		}
+		if (stripped.startsWith('# ')) {
+			const title = stripInlineMd(stripped.slice(2));
+			if (!leadSet) {
+				blocks.push({ type: 'lead', text: title });
+				leadSet = true;
+			} else {
+				blocks.push({ type: 'heading', level: 2, text: title });
+			}
+			i++;
+			continue;
+		}
+		if (stripped.startsWith('>')) {
+			const quote: string[] = [];
+			while (i < lines.length && lines[i].trim().startsWith('>')) {
+				quote.push(lines[i].trim().replace(/^>\s?/, ''));
+				i++;
+			}
+			blocks.push({ type: 'callout', variant: 'note', text: stripInlineMd(quote.join(' ')) });
+			continue;
+		}
+		const bulletMatch = stripped.match(/^[-*+]\s+(.*)$/);
+		if (bulletMatch) {
+			const items: string[] = [];
+			while (i < lines.length) {
+				const m = lines[i].trim().match(/^[-*+]\s+(.*)$/);
+				if (!m) {
+					break;
+				}
+				items.push(stripInlineMd(m[1]));
+				i++;
+			}
+			if (items.length) {
+				blocks.push({ type: 'bullet_list', items });
+			}
+			continue;
+		}
+		const numMatch = stripped.match(/^\d+\.\s+(.*)$/);
+		if (numMatch) {
+			const items: string[] = [];
+			while (i < lines.length) {
+				const m = lines[i].trim().match(/^\d+\.\s+(.*)$/);
+				if (!m) {
+					break;
+				}
+				items.push(stripInlineMd(m[1]));
+				i++;
+			}
+			if (items.length) {
+				blocks.push({ type: 'numbered_list', items });
+			}
+			continue;
+		}
+		if (stripped === '---' || stripped === '***') {
+			blocks.push({ type: 'divider' });
+			i++;
+			continue;
+		}
+		const para: string[] = [stripped];
+		i++;
+		while (i < lines.length) {
+			const nxt = lines[i].trim();
+			if (!nxt || nxt.startsWith('#') || nxt.startsWith('>') || /^[-*+]\s+/.test(nxt) || /^\d+\.\s+/.test(nxt)) {
+				break;
+			}
+			para.push(nxt);
+			i++;
+		}
+		const p = stripInlineMd(para.join(' '));
+		if (p) {
+			if (!leadSet && blocks.length === 0) {
+				blocks.push({ type: 'lead', text: p });
+				leadSet = true;
+			} else {
+				blocks.push({ type: 'paragraph', text: p });
+			}
+		}
+	}
+	return blocks;
 }

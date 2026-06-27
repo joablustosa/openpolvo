@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { getOpenPolvoApiBaseUrlFromEnv, getOpenPolvoApiTokenFromEnv } from '../../common/openpolvoConfiguration.js';
+import { getOpenPolvoApiBaseUrlFromEnv, getOpenPolvoApiTokenFromEnv, resolveOpenPolvoLocalCredentials } from '../../common/openpolvoConfiguration.js';
 import {
 	BackendStreamNormalizer,
 	buildChatBody,
@@ -11,6 +11,7 @@ import {
 	type INormalizedStreamEvent,
 	OfficialRoutes,
 	parseSseBuffer,
+	performOpenPolvoLocalLogin,
 } from '../../common/openpolvoBackendProtocol.js';
 
 export interface IOpenPolvoApiModel {
@@ -52,15 +53,26 @@ export class OpenPolvoApiClient {
 		if (this._token) {
 			return;
 		}
-		throw new Error('OpenPolvo API token missing — sign in to OpenPolvo first');
+		this._token = await performOpenPolvoLocalLogin(this.baseUrl, (url, init) => fetch(url, init), resolveOpenPolvoLocalCredentials);
+	}
+
+	private async refreshAuth(): Promise<void> {
+		this._token = await performOpenPolvoLocalLogin(this.baseUrl, (url, init) => fetch(url, init), resolveOpenPolvoLocalCredentials);
+	}
+
+	private async fetchAuthorized(url: string, init: RequestInit): Promise<Response> {
+		await this.ensureAuth();
+		let res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
+		if (res.status === 401) {
+			await this.refreshAuth();
+			res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
+		}
+		return res;
 	}
 
 	async listModels(): Promise<IOpenPolvoApiModel[]> {
-		await this.ensureAuth();
 		try {
-			const res = await fetch(`${this.baseUrl}${OfficialRoutes.llmProfiles}`, {
-				headers: this._authHeaders(),
-			});
+			const res = await this.fetchAuthorized(`${this.baseUrl}${OfficialRoutes.llmProfiles}`, {});
 			if (!res.ok) {
 				return BASE_MODELS;
 			}
@@ -82,10 +94,9 @@ export class OpenPolvoApiClient {
 
 	/** Cria uma conversa no backend oficial e devolve o id. */
 	async createSession(title?: string, _model?: string): Promise<{ id: string }> {
-		await this.ensureAuth();
-		const res = await fetch(`${this.baseUrl}${OfficialRoutes.conversations}`, {
+		const res = await this.fetchAuthorized(`${this.baseUrl}${OfficialRoutes.conversations}`, {
 			method: 'POST',
-			headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ title: title ?? 'Nova conversa' }),
 		});
 		if (!res.ok) {
@@ -105,11 +116,10 @@ export class OpenPolvoApiClient {
 		onEvent: (event: INormalizedStreamEvent) => void,
 		signal?: AbortSignal,
 	): Promise<void> {
-		await this.ensureAuth();
 		const body = buildChatBody(content, options);
-		const res = await fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(conversationId)}`, {
+		const res = await this.fetchAuthorized(`${this.baseUrl}${OfficialRoutes.conversationStream(conversationId)}`, {
 			method: 'POST',
-			headers: { ...this._authHeaders(), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+			headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
 			body: JSON.stringify(body),
 			signal,
 		});
@@ -149,10 +159,9 @@ export class OpenPolvoApiClient {
 		result: Record<string, unknown>,
 		workspacePath?: string,
 	): Promise<void> {
-		await this.ensureAuth();
-		const res = await fetch(`${this.baseUrl}${OfficialRoutes.deskToolResult(conversationId)}`, {
+		const res = await this.fetchAuthorized(`${this.baseUrl}${OfficialRoutes.deskToolResult(conversationId)}`, {
 			method: 'POST',
-			headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ call_id: callId, workspace_path: workspacePath, result }),
 		});
 		if (!res.ok) {

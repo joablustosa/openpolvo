@@ -57,7 +57,8 @@ export async function syncOpenPolvoTokenToAgentHost(
 
 export interface IOpenPolvoInteractiveAuthHandlers {
 	isEnabled(): boolean;
-	signIn(): Promise<boolean>;
+	ensureSignedIn(): Promise<boolean>;
+	refreshSignedIn(): Promise<boolean>;
 }
 
 function normalizeProtectedResourceUrl(resource: string): string {
@@ -101,7 +102,10 @@ export async function resolveOpenPolvoAuthenticationInteractively(
 	}
 
 	if (readOpenPolvoApiToken(configurationService)) {
-		return syncOpenPolvoTokenToAgentHost(configurationService, agentHostService, logService);
+		const synced = await syncOpenPolvoTokenToAgentHost(configurationService, agentHostService, logService);
+		if (synced) {
+			return true;
+		}
 	}
 
 	if (!handlers.isEnabled()) {
@@ -109,9 +113,5 @@ export async function resolveOpenPolvoAuthenticationInteractively(
 		return false;
 	}
 
-	const signedIn = await handlers.signIn();
-	if (!signedIn) {
-		return false;
-	}
-	return syncOpenPolvoTokenToAgentHost(configurationService, agentHostService, logService);
+	return handlers.refreshSignedIn();
 }

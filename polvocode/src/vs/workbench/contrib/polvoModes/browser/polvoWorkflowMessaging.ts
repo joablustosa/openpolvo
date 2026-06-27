@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import { formatResponseElapsedSeconds } from './polvoChatResponseTimer.js';
 import { IOpenPolvoWorkbenchApiService, type IOpenPolvoWorkflowGraph } from './openPolvoWorkbenchApiService.js';
 import { IPolvoWorkflowsService } from './polvoWorkflowsService.js';
 
@@ -36,13 +37,25 @@ export async function sendPolvoWorkflowMessage(
 
 	workflowsService.addMessage(workflowId, 'user', userText);
 	workflowsService.addMessage(workflowId, 'assistant', '');
+	const startedAt = Date.now();
 
 	if (useBackend) {
 		try {
 			const result = await openPolvoApi.generateWorkflow(userText, workflow.modelId, workflow.title);
-			const summary = describeWorkflowGraph(result.graph, result.saved?.title);
-			workflowsService.updateAssistantMessage(workflowId, summary.message);
-			workflowsService.setSummary(workflowId, summary.headline);
+			const briefTitle = typeof result.brief?.title === 'string' ? result.brief.title.trim() : '';
+			const briefDescription = typeof result.brief?.description === 'string' ? result.brief.description.trim() : '';
+			const resolvedTitle = result.saved?.title || briefTitle || undefined;
+			workflowsService.setGraph(workflowId, {
+				graph: result.graph,
+				backendId: result.saved?.id,
+				stepBlueprint: result.stepBlueprint,
+				description: briefDescription || undefined,
+				title: resolvedTitle,
+			});
+			const summary = describeWorkflowGraph(result.graph, resolvedTitle);
+			const message = result.assistantText?.trim() || summary.message;
+			workflowsService.updateAssistantMessage(workflowId, message, { responseTimeSeconds: finalizeSeconds(startedAt) });
+			workflowsService.setSummary(workflowId, briefDescription || summary.headline);
 			return;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -54,7 +67,11 @@ export async function sendPolvoWorkflowMessage(
 		}
 	}
 
-	await streamWorkflowChat(workflowsService, openPolvoApi, workflowId, userText, opts.signal);
+	await streamWorkflowChat(workflowsService, openPolvoApi, workflowId, userText, startedAt, opts.signal);
+}
+
+function finalizeSeconds(startedAt: number): number {
+	return Math.max(1, formatResponseElapsedSeconds(startedAt));
 }
 
 function describeWorkflowGraph(graph: IOpenPolvoWorkflowGraph, savedTitle?: string): { message: string; headline: string } {
@@ -95,6 +112,7 @@ async function streamWorkflowChat(
 	openPolvoApi: IOpenPolvoWorkbenchApiService,
 	workflowId: string,
 	userText: string,
+	startedAt: number,
 	signal?: AbortSignal,
 ): Promise<void> {
 	const workflow = workflowsService.getWorkflow(workflowId);
@@ -126,7 +144,9 @@ async function streamWorkflowChat(
 		signal,
 	);
 
+	const responseTimeSeconds = finalizeSeconds(startedAt);
 	if (assistantText) {
+		workflowsService.updateAssistantMessage(workflowId, assistantText, { responseTimeSeconds });
 		const firstLine = assistantText.split('\n').find(line => line.trim().length > 0)?.trim();
 		if (firstLine) {
 			workflowsService.setSummary(workflowId, firstLine.length > 120 ? `${firstLine.slice(0, 120)}…` : firstLine);
@@ -134,7 +154,13 @@ async function streamWorkflowChat(
 	} else {
 		const last = workflowsService.getWorkflow(workflowId)?.messages.at(-1);
 		if (last?.role === 'assistant' && !last.content) {
-			workflowsService.updateAssistantMessage(workflowId, localize('polvoWorkflowEmptyResponse', "Sem resposta do servidor."));
+			workflowsService.updateAssistantMessage(
+				workflowId,
+				localize('polvoWorkflowEmptyResponse', "Sem resposta do servidor."),
+				{ responseTimeSeconds },
+			);
+		} else if (last?.role === 'assistant') {
+			workflowsService.updateAssistantMessage(workflowId, last.content, { responseTimeSeconds });
 		}
 	}
 }

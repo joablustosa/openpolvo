@@ -33,7 +33,7 @@ import { IChatSetupResult, ChatSetupAnonymous, InstallChatEvent, InstallChatClas
 import { GitHubPaths, IDefaultAccountService } from '../../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { OpenPolvoAgentEnabledSettingId, OPENPOLVO_SIGN_IN_COMMAND_ID, isOpenPolvoAuthEnabled } from '../../../../../platform/agentHost/common/openpolvoConfiguration.js';
+import { OPENPOLVO_SIGN_IN_COMMAND_ID, isOpenPolvoAuthEnabled } from '../../../../../platform/agentHost/common/openpolvoConfiguration.js';
 
 export { OPENPOLVO_SIGN_IN_COMMAND_ID };
 
@@ -121,9 +121,9 @@ export class ChatSetup {
 			setupStrategy = ChatSetupStrategy.DefaultSetup; // existing pro/free users setup without a dialog
 		} else if (options?.forceAnonymous === ChatSetupAnonymous.EnabledWithoutDialog) {
 			setupStrategy = ChatSetupStrategy.DefaultSetup; // anonymous setup without a dialog
-		} else if (isOpenPolvoAuthEnabled(this.configurationService)
-			&& (options?.forceSignInDialog || this.context.state.entitlement === ChatEntitlement.Unknown)) {
-			setupStrategy = ChatSetupStrategy.SetupWithOpenPolvo;
+		} else if (isOpenPolvoAuthEnabled(this.configurationService)) {
+			// Desk local: login automático no arranque; não mostrar diálogo de sign-in.
+			setupStrategy = ChatSetupStrategy.DefaultSetup;
 		} else {
 			setupStrategy = await this.showDialog(options);
 		}
@@ -158,7 +158,7 @@ export class ChatSetup {
 					success = await this.controller.value.setupWithProvider({ useEnterpriseProvider: false, useSocialProvider: 'google', additionalScopes: options?.additionalScopes, forceAnonymous: options?.forceAnonymous });
 					break;
 				case ChatSetupStrategy.SetupWithOpenPolvo:
-					success = await this.commandService.executeCommand<boolean>(OPENPOLVO_SIGN_IN_COMMAND_ID);
+					success = true;
 					break;
 				case ChatSetupStrategy.DefaultSetup:
 					success = await this.controller.value.setup({ ...options, forceAnonymous: options?.forceAnonymous });
@@ -222,13 +222,9 @@ export class ChatSetup {
 
 			const googleProviderButton: ContinueWithButton = [localize('continueWith', "Continue with {0}", defaultChat.provider.google.name), ChatSetupStrategy.SetupWithGoogleProvider, styleButton('continue-button', 'google')];
 			const appleProviderButton: ContinueWithButton = [localize('continueWith', "Continue with {0}", defaultChat.provider.apple.name), ChatSetupStrategy.SetupWithAppleProvider, styleButton('continue-button', 'apple')];
-			const openPolvoButton: ContinueWithButton = [localize('continueWithOpenPolvo', "Sign in with OpenPolvo"), ChatSetupStrategy.SetupWithOpenPolvo, styleButton('continue-button', 'openpolvo')];
-
-			const showOpenPolvo = this.configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId) !== false;
 
 			if (!this.defaultAccountService.getDefaultAccountAuthenticationProvider().enterprise) {
 				buttons = coalesce([
-					showOpenPolvo ? openPolvoButton : undefined,
 					defaultProviderButton,
 					googleProviderButton,
 					appleProviderButton,
@@ -236,7 +232,6 @@ export class ChatSetup {
 				]);
 			} else {
 				buttons = coalesce([
-					showOpenPolvo ? openPolvoButton : undefined,
 					enterpriseProviderButton,
 					googleProviderButton,
 					appleProviderButton,

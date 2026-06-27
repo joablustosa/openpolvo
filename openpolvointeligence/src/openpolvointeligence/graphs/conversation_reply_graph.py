@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.agent_memory_utils import finalize_reply_metadata
 from openpolvointeligence.graphs.conversation_reply_blocks_logic import (
+    apply_rich_format_to_reply,
     blocks_to_plain_text,
     normalize_enriched_brief,
     normalize_rich_blocks,
@@ -232,6 +233,7 @@ async def run_conversation_reply_pipeline(
     text = str(out.get("assistant_text") or "").strip()
     meta = out.get("metadata") if isinstance(out.get("metadata"), dict) else {}
     meta = await finalize_reply_metadata(settings, model_provider, messages, agent_memory, meta)
+    text, meta = apply_rich_format_to_reply(text, meta)
     return text, meta
 
 
@@ -276,6 +278,7 @@ async def run_conversation_reply_stream(
                 "routed_intent": "conversation_rich",
             }
         meta = await finalize_reply_metadata(settings, model_provider, messages, agent_memory, meta)
+        text, meta = apply_rich_format_to_reply(text, meta)
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:
         _logger.exception("conversation_reply pipeline failed")

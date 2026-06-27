@@ -5,10 +5,8 @@ from __future__ import annotations
 from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
 
 
-def test_routes_research_without_specific_format() -> None:
-    assert should_use_conversation_workflow(
-        "Faça uma pesquisa sobre tendências de IA generativa em 2026"
-    )
+def test_routes_short_general_question() -> None:
+    assert should_use_conversation_workflow("O que é LangGraph?")
 
 
 def test_skips_pdf_requests() -> None:

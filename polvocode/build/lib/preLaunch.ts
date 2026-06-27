@@ -5,6 +5,7 @@
 import path from 'path';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
+import { ensureNodePtyConpty } from '../npm/ensureNodePtyConpty.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const rootDir = path.resolve(import.meta.dirname, '..', '..');
@@ -44,6 +45,7 @@ async function ensureCompiled() {
 
 async function main() {
 	await ensureNodeModules();
+	ensureNodePtyConpty();
 	await getElectron();
 	await ensureCompiled();
 

@@ -29,7 +29,8 @@ from openpolvointeligence.api.schemas import (
 )
 from openpolvointeligence.core.config import get_settings
 from openpolvointeligence.graphs.social_generator import generate_social_post
-from openpolvointeligence.graphs.workflow_llm import generate_graph_json, generate_text
+from openpolvointeligence.graphs.workflow_llm import generate_text
+from openpolvointeligence.graphs.workflow_specialist_graph import run_workflow_specialist
 from openpolvointeligence.graphs.workflow_web_search_enrich import run_workflow_web_search_enrich
 from openpolvointeligence.graphs.dev_workflow_self_heal_logic import run_dev_workflow_self_heal
 from openpolvointeligence.code_rag.indexer import index_project_files
@@ -371,7 +372,7 @@ async def post_workflow_generate(
     if not eff.has_any_llm_key:
         raise HTTPException(status_code=503, detail="no LLM API keys configured")
     try:
-        raw = await generate_graph_json(
+        result = await run_workflow_specialist(
             eff,
             body.model_provider,
             body.prompt,
@@ -381,7 +382,12 @@ async def post_workflow_generate(
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return WorkflowGenerateResponse(raw_llm=raw)
+    return WorkflowGenerateResponse(
+        raw_llm=result["raw_llm"],
+        brief=result["brief"],
+        step_blueprint=result["step_blueprint"],
+        assistant_text=result["assistant_text"],
+    )
 
 
 @router.post("/llm/generate-text", response_model=LLMTextResponse)

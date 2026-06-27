@@ -7,9 +7,10 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { IRequestService, asJson } from '../../../../platform/request/common/request.js';
+import { IRequestService, asJson, type IRequestOptions } from '../../../../platform/request/common/request.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { OpenPolvoApiBaseUrlSettingId, OpenPolvoApiTokenSettingId } from '../common/openpolvoConfiguration.js';
 import {
@@ -22,6 +23,7 @@ import {
 	parseSseBuffer,
 	resolveModelSelection,
 } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
+import { IOpenPolvoSignInService } from './openPolvoAuth.js';
 
 export interface IOpenPolvoModel {
 	readonly id: string;
@@ -38,6 +40,7 @@ export interface IOpenPolvoWorkflowNode {
 	readonly id: string;
 	readonly type: string;
 	readonly data?: Record<string, unknown>;
+	readonly position?: { x: number; y: number };
 }
 
 export interface IOpenPolvoWorkflowGraph {
@@ -45,10 +48,30 @@ export interface IOpenPolvoWorkflowGraph {
 	readonly edges: Array<{ id: string; source: string; target: string }>;
 }
 
+export interface IWorkflowStepBlueprint {
+	readonly id: string;
+	readonly type: string;
+	readonly label: string;
+	readonly prompt: string;
+	readonly rationale?: string;
+}
+
 export interface IOpenPolvoWorkflowGenerateResult {
 	readonly graph: IOpenPolvoWorkflowGraph;
 	readonly rawLlm: string;
 	readonly saved?: { id: string; title: string };
+	readonly brief?: Record<string, unknown>;
+	readonly stepBlueprint?: IWorkflowStepBlueprint[];
+	readonly assistantText?: string;
+}
+
+/** Workflow persistido no backend (DTO de `/v1/workflows`). */
+export interface IOpenPolvoWorkflowRecord {
+	readonly id: string;
+	readonly title: string;
+	readonly graph: IOpenPolvoWorkflowGraph;
+	readonly createdAt?: string;
+	readonly updatedAt?: string;
 }
 
 export interface IOpenPolvoLlmProfile {
@@ -96,6 +119,24 @@ interface IOfficialLlmProfile {
 	has_api_key?: boolean;
 }
 
+interface IOfficialWorkflowDTO {
+	id: string;
+	title?: string;
+	graph?: IOpenPolvoWorkflowGraph;
+	created_at?: string;
+	updated_at?: string;
+}
+
+function toWorkflowRecord(dto: IOfficialWorkflowDTO): IOpenPolvoWorkflowRecord {
+	return {
+		id: dto.id,
+		title: dto.title ?? 'Automação',
+		graph: dto.graph ?? { nodes: [], edges: [] },
+		createdAt: dto.created_at,
+		updatedAt: dto.updated_at,
+	};
+}
+
 const BASE_MODELS: IOpenPolvoModel[] = [
 	{ id: 'auto', name: 'Automático', description: 'Routing automático (perfil/chave ou local)', provider: 'auto', configured: true },
 	{ id: 'openai', name: 'OpenAI', description: 'OpenAI (chave configurada no backend)', provider: 'openai' },
@@ -120,6 +161,10 @@ export interface IOpenPolvoWorkbenchApiService {
 	login(email: string, password: string): Promise<void>;
 	register(email: string, password: string, name?: string): Promise<void>;
 	generateWorkflow(prompt: string, model: string | undefined, saveTitle?: string): Promise<IOpenPolvoWorkflowGenerateResult>;
+	listWorkflows(): Promise<IOpenPolvoWorkflowRecord[]>;
+	getWorkflow(id: string): Promise<IOpenPolvoWorkflowRecord | undefined>;
+	updateWorkflow(id: string, patch: { title?: string; graph?: IOpenPolvoWorkflowGraph }): Promise<IOpenPolvoWorkflowRecord>;
+	deleteWorkflow(id: string): Promise<void>;
 	listLlmProfiles(): Promise<IOpenPolvoLlmProfile[]>;
 	createLlmProfile(input: IOpenPolvoLlmProfileInput): Promise<IOpenPolvoLlmProfile>;
 	deleteLlmProfile(id: string): Promise<void>;
@@ -138,6 +183,7 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		@IRequestService private readonly requestService: IRequestService,
 		@ILogService private readonly logService: ILogService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
 		const configuredToken = this.configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
@@ -158,13 +204,11 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 
 	async listModels(): Promise<IOpenPolvoModel[]> {
 		try {
-			await this.ensureAuth();
-			const context = await this.requestService.request({
+			const context = await this.requestAuthorized({
 				type: 'GET',
 				url: `${this.baseUrl}${OfficialRoutes.llmProfiles}`,
-				headers: this.authHeaders(),
 				callSite: 'openPolvoWorkbenchApiService.listModels',
-			}, CancellationToken.None);
+			});
 			const profiles = await asJson<IOfficialLlmProfile[]>(context);
 			const profileModels = (profiles ?? [])
 				.filter(p => p?.id && p.display_name)
@@ -183,14 +227,13 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	async createSession(title?: string, _model?: string): Promise<string> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'POST',
 			url: `${this.baseUrl}${OfficialRoutes.conversations}`,
-			headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			data: JSON.stringify({ title: title ?? 'Nova conversa' }),
 			callSite: 'openPolvoWorkbenchApiService.createSession',
-		}, CancellationToken.None);
+		});
 		const body = await asJson<{ id: string }>(context);
 		if (!body?.id) {
 			throw new Error('OpenPolvo create conversation failed: missing id');
@@ -216,12 +259,17 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		await this.ensureAuth();
 		const deskContext = buildDeskContext(sessionId, this.resolveWorkspacePath(), 'agent', model);
 		const body = buildChatBody(content, { modelId: model, deskContext });
-		const response = await fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(sessionId)}`, {
+		const doFetch = async () => fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(sessionId)}`, {
 			method: 'POST',
 			headers: { ...this.authHeaders(), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
 			body: JSON.stringify(body),
 			signal,
 		});
+		let response = await doFetch();
+		if (response.status === 401) {
+			await this.refreshAuth();
+			response = await doFetch();
+		}
 		if (!response.ok || !response.body) {
 			const text = await response.text().catch(() => '');
 			throw new Error(`OpenPolvo message failed: ${response.status} ${text}`);
@@ -278,12 +326,11 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	async generateWorkflow(prompt: string, model: string | undefined, saveTitle?: string): Promise<IOpenPolvoWorkflowGenerateResult> {
-		await this.ensureAuth();
 		const selection = resolveModelSelection(model);
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'POST',
 			url: `${this.baseUrl}${OfficialRoutes.workflowsGenerate}`,
-			headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			data: JSON.stringify({
 				prompt,
 				model_provider: selection.model_provider,
@@ -291,7 +338,7 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 				save_title: saveTitle,
 			}),
 			callSite: 'openPolvoWorkbenchApiService.generateWorkflow',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode === 422) {
 			const err = await asJson<{ error?: string; raw_llm?: string }>(context);
 			throw new Error(err?.error ?? 'JSON inválido do modelo ao gerar automação');
@@ -303,33 +350,98 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 			graph?: IOpenPolvoWorkflowGraph;
 			raw_llm?: string;
 			saved?: { id: string; title: string };
+			brief?: Record<string, unknown>;
+			step_blueprint?: IWorkflowStepBlueprint[];
+			assistant_text?: string;
 		}>(context);
 		if (!body?.graph) {
 			throw new Error('OpenPolvo generate workflow failed: missing graph');
 		}
-		return { graph: body.graph, rawLlm: body.raw_llm ?? '', saved: body.saved };
+		return {
+			graph: body.graph,
+			rawLlm: body.raw_llm ?? '',
+			saved: body.saved,
+			brief: body.brief,
+			stepBlueprint: body.step_blueprint,
+			assistantText: body.assistant_text,
+		};
+	}
+
+	async listWorkflows(): Promise<IOpenPolvoWorkflowRecord[]> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.workflows}`,
+			callSite: 'openPolvoWorkbenchApiService.listWorkflows',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`list workflows failed (${context.res.statusCode})`);
+		}
+		const body = (await asJson<IOfficialWorkflowDTO[]>(context)) ?? [];
+		return body.filter(w => w?.id).map(toWorkflowRecord);
+	}
+
+	async getWorkflow(id: string): Promise<IOpenPolvoWorkflowRecord | undefined> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.workflows}/${id}`,
+			callSite: 'openPolvoWorkbenchApiService.getWorkflow',
+		});
+		if (context.res.statusCode === 404) {
+			return undefined;
+		}
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`get workflow failed (${context.res.statusCode})`);
+		}
+		const body = await asJson<IOfficialWorkflowDTO>(context);
+		return body?.id ? toWorkflowRecord(body) : undefined;
+	}
+
+	async updateWorkflow(id: string, patch: { title?: string; graph?: IOpenPolvoWorkflowGraph }): Promise<IOpenPolvoWorkflowRecord> {
+		const context = await this.requestAuthorized({
+			type: 'PATCH',
+			url: `${this.baseUrl}${OfficialRoutes.workflows}/${id}`,
+			headers: { 'Content-Type': 'application/json' },
+			data: JSON.stringify(patch),
+			callSite: 'openPolvoWorkbenchApiService.updateWorkflow',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`update workflow failed (${context.res.statusCode})`);
+		}
+		const body = await asJson<IOfficialWorkflowDTO>(context);
+		if (!body?.id) {
+			throw new Error('update workflow failed: missing id');
+		}
+		return toWorkflowRecord(body);
+	}
+
+	async deleteWorkflow(id: string): Promise<void> {
+		const context = await this.requestAuthorized({
+			type: 'DELETE',
+			url: `${this.baseUrl}${OfficialRoutes.workflows}/${id}`,
+			callSite: 'openPolvoWorkbenchApiService.deleteWorkflow',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400 && context.res.statusCode !== 404) {
+			throw new Error(`delete workflow failed (${context.res.statusCode})`);
+		}
 	}
 
 	async listLlmProfiles(): Promise<IOpenPolvoLlmProfile[]> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'GET',
 			url: `${this.baseUrl}${OfficialRoutes.llmProfiles}`,
-			headers: this.authHeaders(),
 			callSite: 'openPolvoWorkbenchApiService.listLlmProfiles',
-		}, CancellationToken.None);
+		});
 		return (await asJson<IOpenPolvoLlmProfile[]>(context)) ?? [];
 	}
 
 	async createLlmProfile(input: IOpenPolvoLlmProfileInput): Promise<IOpenPolvoLlmProfile> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'POST',
 			url: `${this.baseUrl}${OfficialRoutes.llmProfiles}`,
-			headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			data: JSON.stringify(input),
 			callSite: 'openPolvoWorkbenchApiService.createLlmProfile',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode && context.res.statusCode >= 400) {
 			throw new Error(`create LLM profile failed (${context.res.statusCode})`);
 		}
@@ -341,26 +453,22 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	async deleteLlmProfile(id: string): Promise<void> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'DELETE',
 			url: `${this.baseUrl}${OfficialRoutes.llmProfiles}/${id}`,
-			headers: this.authHeaders(),
 			callSite: 'openPolvoWorkbenchApiService.deleteLlmProfile',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode && context.res.statusCode >= 400) {
 			throw new Error(`delete LLM profile failed (${context.res.statusCode})`);
 		}
 	}
 
 	async getSmtpSettings(): Promise<IOpenPolvoSmtpSettings | undefined> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'GET',
 			url: `${this.baseUrl}${OfficialRoutes.smtp}`,
-			headers: this.authHeaders(),
 			callSite: 'openPolvoWorkbenchApiService.getSmtpSettings',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode === 404) {
 			return undefined;
 		}
@@ -368,30 +476,43 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	async putSmtpSettings(input: IOpenPolvoSmtpInput): Promise<void> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'PUT',
 			url: `${this.baseUrl}${OfficialRoutes.smtp}`,
-			headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json' },
 			data: JSON.stringify(input),
 			callSite: 'openPolvoWorkbenchApiService.putSmtpSettings',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode && context.res.statusCode >= 400) {
 			throw new Error(`save SMTP failed (${context.res.statusCode})`);
 		}
 	}
 
 	async testSmtp(): Promise<void> {
-		await this.ensureAuth();
-		const context = await this.requestService.request({
+		const context = await this.requestAuthorized({
 			type: 'POST',
 			url: `${this.baseUrl}${OfficialRoutes.smtpTest}`,
-			headers: this.authHeaders(),
 			callSite: 'openPolvoWorkbenchApiService.testSmtp',
-		}, CancellationToken.None);
+		});
 		if (context.res.statusCode && context.res.statusCode >= 400) {
 			throw new Error(`SMTP test failed (${context.res.statusCode})`);
 		}
+	}
+
+	private async requestAuthorized(options: IRequestOptions) {
+		await this.ensureAuth();
+		let context = await this.requestService.request({
+			...options,
+			headers: { ...options.headers, ...this.authHeaders() },
+		}, CancellationToken.None);
+		if (context.res.statusCode === 401) {
+			await this.refreshAuth();
+			context = await this.requestService.request({
+				...options,
+				headers: { ...options.headers, ...this.authHeaders() },
+			}, CancellationToken.None);
+		}
+		return context;
 	}
 
 	private async ensureAuth(): Promise<void> {
@@ -403,7 +524,24 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 			this._token = configuredToken;
 			return;
 		}
-		throw new Error('OpenPolvo API token missing — sign in to OpenPolvo first');
+		const ok = await this.instantiationService.invokeFunction(accessor =>
+			accessor.get(IOpenPolvoSignInService).ensureSignedIn()
+		);
+		if (!ok || !this._token) {
+			throw new Error('OpenPolvo auto-login failed');
+		}
+	}
+
+	private async refreshAuth(): Promise<void> {
+		this._token = undefined;
+		const ok = await this.instantiationService.invokeFunction(accessor =>
+			accessor.get(IOpenPolvoSignInService).refreshSignedIn()
+		);
+		if (!ok) {
+			throw new Error('OpenPolvo token refresh failed');
+		}
+		const token = this.configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
+		this._token = token || undefined;
 	}
 
 	private async requestLogin(email: string, password: string): Promise<string> {

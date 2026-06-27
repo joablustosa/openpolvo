@@ -560,7 +560,7 @@ export class UserDataSyncWorkbenchContribution extends Disposable implements IWo
 			quickPick.ok = false;
 			quickPick.customButton = true;
 			quickPick.customLabel = localize('sign in and turn on', "Sign in");
-			quickPick.description = localize('configure and turn on sync detail', "Please sign in to backup and sync your data across devices.");
+			quickPick.description = localize('configure and turn on sync detail', "Please sign in to backup and sync your data acrOpen Polvoices.");
 			quickPick.canSelectMany = true;
 			quickPick.ignoreFocusOut = true;
 			quickPick.hideInput = true;

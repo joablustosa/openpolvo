@@ -326,7 +326,7 @@ When using `action: "query"`:
 ### Query routing
 
 The tool automatically routes queries based on the user's cloud sync settings:
-- **Cloud enabled**: Queries go to the cloud DuckDB backend which contains ALL sessions across devices and agents (VS Code, CLI, Copilot Coding Agent, PR reviews). The tool description will show DuckDB SQL syntax — follow it.
+- **Cloud enabled**: Queries go to the cloud DuckDB backend which contains ALL sessions acrOpen Polvoices and agents (VS Code, CLI, Copilot Coding Agent, PR reviews). The tool description will show DuckDB SQL syntax — follow it.
 - **Cloud disabled**: Queries go to local SQLite which only contains sessions from this device. The tool description will show SQLite syntax.
 
 The tool's description dynamically changes based on the active backend. **Always follow the SQL syntax shown in the tool description** — it matches the active backend.

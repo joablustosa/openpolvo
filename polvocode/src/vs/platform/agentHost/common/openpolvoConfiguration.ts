@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { env } from '../../../base/common/process.js';
 import { OFFICIAL_API_DEFAULT_BASE_URL } from './openpolvoBackendProtocol.js';
 import type { ProtectedResourceMetadata } from './state/protocol/state.js';
 
@@ -13,9 +14,26 @@ export const OpenPolvoAgentEnabledSettingId = 'openpolvo.agent.enabled';
 export const OpenPolvoWorkflowsBackendSettingId = 'openpolvo.workflows.useBackend';
 export const OpenPolvoDevWorkflowEnabledSettingId = 'openpolvo.devWorkflow.enabled';
 
+/**
+ * LLM local (Ollama). Permite que o Open Polvo funcione gratuitamente, sem chaves
+ * cloud: no primeiro arranque o app oferece instalar o Ollama e o modelo padrão.
+ */
+export const OpenPolvoLocalLlmAutoSetupSettingId = 'openpolvo.localLlm.autoSetup';
+export const OpenPolvoLocalLlmModelSettingId = 'openpolvo.localLlm.model';
+export const OpenPolvoLocalLlmOllamaUrlSettingId = 'openpolvo.localLlm.ollamaUrl';
+
+export const OPENPOLVO_DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+export const OPENPOLVO_DEFAULT_LOCAL_MODEL = 'llama3.2';
+
 export const OpenPolvoApiBaseUrlEnvVar = 'OPENPOLVO_API_BASE_URL';
 export const OpenPolvoApiTokenEnvVar = 'OPENPOLVO_API_TOKEN';
 export const OpenPolvoAgentEnabledEnvVar = 'OPENPOLVO_AGENT_ENABLED';
+export const OpenPolvoLocalEmailEnvVar = 'OPENPOLVO_LOCAL_EMAIL';
+export const OpenPolvoLocalPasswordEnvVar = 'OPENPOLVO_LOCAL_PASSWORD';
+
+/** Credenciais do admin bootstrap do backend local (openpolvobackend `.env`). */
+export const OPENPOLVO_LOCAL_DEFAULT_EMAIL = 'admin@openlaele.local';
+export const OPENPOLVO_LOCAL_DEFAULT_PASSWORD = 'ChangeMeLocalDev_Only';
 
 export const OPENPOLVO_AGENT_HOST_SESSION_TYPE = 'agent-host-openpolvo';
 export const OPENPOLVO_AGENT_PROVIDER_ID = 'openpolvo';
@@ -47,11 +65,11 @@ export function buildOpenPolvoEnv(
 }
 
 export function isOpenPolvoAgentEnabledFromEnv(): boolean {
-	return process.env[OpenPolvoAgentEnabledEnvVar] !== 'false';
+	return env[OpenPolvoAgentEnabledEnvVar] !== 'false';
 }
 
 export function getOpenPolvoApiBaseUrlFromEnv(): string {
-	return process.env[OpenPolvoApiBaseUrlEnvVar] ?? OFFICIAL_API_DEFAULT_BASE_URL;
+	return env[OpenPolvoApiBaseUrlEnvVar] ?? OFFICIAL_API_DEFAULT_BASE_URL;
 }
 
 export function isOpenPolvoAuthEnabled(configurationService: { getValue<T>(key: string): T }): boolean {
@@ -59,8 +77,15 @@ export function isOpenPolvoAuthEnabled(configurationService: { getValue<T>(key: 
 }
 
 export function getOpenPolvoApiTokenFromEnv(): string | undefined {
-	const token = process.env[OpenPolvoApiTokenEnvVar];
+	const token = env[OpenPolvoApiTokenEnvVar];
 	return token && token.length > 0 ? token : undefined;
+}
+
+/** Credenciais do utilizador admin local (desk MVP totalmente offline). */
+export function resolveOpenPolvoLocalCredentials(): { email: string; password: string } {
+	const email = env[OpenPolvoLocalEmailEnvVar]?.trim() || OPENPOLVO_LOCAL_DEFAULT_EMAIL;
+	const password = env[OpenPolvoLocalPasswordEnvVar]?.trim() || OPENPOLVO_LOCAL_DEFAULT_PASSWORD;
+	return { email, password };
 }
 
 /** Base URL normalizada (sem barra final). */

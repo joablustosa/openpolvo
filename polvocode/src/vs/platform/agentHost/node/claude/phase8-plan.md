@@ -480,7 +480,7 @@ npm run valid-layers-check
 Use the **`launch`** skill (personal, `~/.agents/skills/launch/`) to drive Code OSS and the **`code-oss-logs`** skill (`.github/skills/code-oss-logs/`) to verify agent-host logs.
 
 **Scenario:**
-1. Use `launch` to open Code OSS dev build pointing at a test workspace with a writable file.
+1. Use `launch` to open Code Open Polvo build pointing at a test workspace with a writable file.
 2. Open a Claude session and send: "Edit `test.ts` — add a comment `// Phase 8 test` at the top."
 3. Approve the `Write`/`Edit` permission prompt via the UI (from Phase 7's permission card).
 4. Use `code-oss-logs` to read the agent-host log; confirm:

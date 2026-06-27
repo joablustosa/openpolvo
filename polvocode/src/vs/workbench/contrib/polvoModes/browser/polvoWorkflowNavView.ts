@@ -23,6 +23,8 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IPolvoWorkflowsService } from './polvoWorkflowsService.js';
 import { PolvoWorkflowEditorInput } from './polvoWorkflowEditorInput.js';
 import { IOpenPolvoModel, IOpenPolvoWorkbenchApiService } from './openPolvoWorkbenchApiService.js';
+import { IOpenPolvoSignInService } from './openPolvoAuth.js';
+import { withOpenPolvoApiAuth } from './openPolvoApiAuthHelper.js';
 import { sendPolvoWorkflowMessage } from './polvoWorkflowMessaging.js';
 import { OpenPolvoWorkflowsBackendSettingId } from '../common/openpolvoConfiguration.js';
 
@@ -56,6 +58,7 @@ export class PolvoWorkflowNavView extends ViewPane {
 		@IPolvoWorkflowsService private readonly workflowsService: IPolvoWorkflowsService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IOpenPolvoWorkbenchApiService private readonly openPolvoApi: IOpenPolvoWorkbenchApiService,
+		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 	}
@@ -129,12 +132,16 @@ export class PolvoWorkflowNavView extends ViewPane {
 			}
 		}));
 
-		void this.loadModels();
+		void this.signInService.ensureSignedIn().then(async () => {
+			await this.loadModels();
+			await this.workflowsService.loadFromBackend();
+			this.renderList();
+		});
 		this.renderList();
 	}
 
 	private async loadModels(): Promise<void> {
-		this.models = await this.openPolvoApi.listModels();
+		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels());
 		const model = this.models.find(m => m.id === this.selectedModelId) ?? this.models[0];
 		this.selectedModelId = model?.id ?? 'polvo';
 		if (this.modelLabelElement) {
@@ -192,11 +199,18 @@ export class PolvoWorkflowNavView extends ViewPane {
 			icon.classList.add(...ThemeIcon.asClassNameArray(Codicon.runAll));
 
 			const textWrap = dom.append(item, $('.polvo-workflow-nav-item-text'));
-			const title = dom.append(textWrap, $('.title'));
+			const titleRow = dom.append(textWrap, $('.polvo-workflow-nav-item-title-row'));
+			const title = dom.append(titleRow, $('.title'));
 			title.textContent = workflow.title;
-			if (workflow.summary) {
+			const stepCount = workflow.graph?.nodes?.length ?? 0;
+			if (stepCount > 0) {
+				const badge = dom.append(titleRow, $('.polvo-workflow-nav-badge'));
+				badge.textContent = localize('polvoWorkflowStepBadge', "{0} passos", stepCount);
+			}
+			const subtitle = workflow.summary ?? workflow.description;
+			if (subtitle) {
 				const summary = dom.append(textWrap, $('.polvo-workflow-nav-summary'));
-				summary.textContent = workflow.summary;
+				summary.textContent = subtitle;
 			}
 
 			const optionsButton = document.createElement('button');
@@ -277,10 +291,12 @@ export class PolvoWorkflowNavView extends ViewPane {
 
 		try {
 			await this.editorService.openEditor(new PolvoWorkflowEditorInput(workflow.resource), { pinned: true });
-			await sendPolvoWorkflowMessage(this.workflowsService, this.openPolvoApi, workflow.id, text, {
-				useBackend: this.configurationService.getValue<boolean>(OpenPolvoWorkflowsBackendSettingId) !== false,
-				signal: this.abortController.signal,
-			});
+			await withOpenPolvoApiAuth(this.signInService, () =>
+				sendPolvoWorkflowMessage(this.workflowsService, this.openPolvoApi, workflow.id, text, {
+					useBackend: this.configurationService.getValue<boolean>(OpenPolvoWorkflowsBackendSettingId) !== false,
+					signal: this.abortController!.signal,
+				})
+			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.workflowsService.addMessage(workflow.id, 'assistant', localize('polvoWorkflowApiError', "Não foi possível contactar a API OpenPolvo: {0}", message));

@@ -514,6 +514,8 @@ function createTestServices(disposables: DisposableStore, workingDirectoryResolv
 		_serviceBrand: undefined,
 		isEnabled: () => false,
 		isSignedIn: () => false,
+		ensureSignedIn: async () => false,
+		refreshSignedIn: async () => false,
 		signIn: async () => false,
 	});
 	instantiationService.stub(ILanguageModelsService, {

@@ -8439,7 +8439,7 @@ declare module 'vscode' {
 		 */
 		readonly globalState: Memento & {
 			/**
-			 * Set the keys whose values should be synchronized across devices when synchronizing user-data
+			 * Set the keys whose values should be synchronized acrOpen Polvoices when synchronizing user-data
 			 * like configuration, extensions, and mementos.
 			 *
 			 * Note that this function defines the whole set of keys whose values are synchronized:

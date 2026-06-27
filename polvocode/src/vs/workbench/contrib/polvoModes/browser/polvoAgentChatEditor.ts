@@ -22,7 +22,15 @@ import { IEditorGroup } from '../../../services/editor/common/editorGroupsServic
 import { PolvoAgentChatEditorInput } from './polvoAgentChatEditorInput.js';
 import { IPolvoAgentConversationsService, type IPolvoConversationMessage } from './polvoAgentConversationsService.js';
 import { IOpenPolvoModel, IOpenPolvoWorkbenchApiService, type IOpenPolvoStreamEvent } from './openPolvoWorkbenchApiService.js';
-import { extractRichBlocks, renderRichChatBlocks } from './polvoRichChatRenderer.js';
+import { IOpenPolvoSignInService } from './openPolvoAuth.js';
+import { withOpenPolvoApiAuth } from './openPolvoApiAuthHelper.js';
+import { extractRichBlocks, markdownToRichBlocks, renderRichChatBlocks } from './polvoRichChatRenderer.js';
+import {
+	appendResponseTimerLabel,
+	isAssistantResponseLoading,
+	PolvoChatResponseTimerController,
+	renderLoadingPlaceholder,
+} from './polvoChatResponseTimer.js';
 
 const $ = dom.$;
 
@@ -45,6 +53,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 	private models: IOpenPolvoModel[] = [];
 	private isSending = false;
 	private abortController: AbortController | undefined;
+	private readonly responseTimer = new PolvoChatResponseTimerController(() => this.renderMessages());
 
 	private readonly quickActions: IQuickAction[] = [
 		{ icon: Codicon.code, label: localize('polvoQuickCode', "Código"), prompt: localize('polvoQuickCodePrompt', "Ajude-me com o código selecionado no workspace.") },
@@ -60,9 +69,11 @@ export class PolvoAgentChatEditor extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IPolvoAgentConversationsService private readonly conversationsService: IPolvoAgentConversationsService,
 		@IOpenPolvoWorkbenchApiService private readonly openPolvoApi: IOpenPolvoWorkbenchApiService,
+		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 	) {
 		super(PolvoAgentChatEditor.ID, group, telemetryService, themeService, storageService);
+		this._register(this.responseTimer);
 	}
 
 	protected createEditor(parent: HTMLElement): void {
@@ -152,6 +163,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.conversationId = input.resource.path;
 		this.conversationsService.setActiveConversation(this.conversationId);
+		await this.signInService.ensureSignedIn();
 		await this.ensureApiSession();
 		this.updateModelLabel();
 		this.renderMessages();
@@ -167,7 +179,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 	}
 
 	private async loadModels(): Promise<void> {
-		this.models = await this.openPolvoApi.listModels();
+		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels());
 		this.updateModelLabel();
 	}
 
@@ -218,7 +230,9 @@ export class PolvoAgentChatEditor extends EditorPane {
 			return;
 		}
 		try {
-			const apiSessionId = await this.openPolvoApi.createSession(conversation.title, conversation.modelId);
+			const apiSessionId = await withOpenPolvoApiAuth(this.signInService, () =>
+				this.openPolvoApi.createSession(conversation.title, conversation.modelId)
+			);
 			this.conversationsService.setApiSessionId(this.conversationId, apiSessionId);
 		} catch {
 			// A sessão será criada na primeira mensagem.
@@ -255,27 +269,29 @@ export class PolvoAgentChatEditor extends EditorPane {
 		this.renderMessages();
 
 		this.setSending(true);
+		this.responseTimer.start();
 		this.abortController?.abort();
 		this.abortController = new AbortController();
 
 		let apiSessionId = conversation.apiSessionId;
 		try {
-			if (!apiSessionId) {
-				apiSessionId = await this.openPolvoApi.createSession(conversation.title, conversation.modelId);
-				this.conversationsService.setApiSessionId(this.conversationId, apiSessionId);
-			}
+			await withOpenPolvoApiAuth(this.signInService, async () => {
+				if (!apiSessionId) {
+					apiSessionId = await this.openPolvoApi.createSession(conversation.title, conversation.modelId);
+					this.conversationsService.setApiSessionId(this.conversationId!, apiSessionId);
+				}
 
-			this.conversationsService.addMessage(this.conversationId, 'assistant', '');
-			this.renderMessages();
+				this.conversationsService.addMessage(this.conversationId!, 'assistant', '');
+				this.renderMessages();
 
-			let assistantText = '';
-			let assistantMetadata: Record<string, unknown> | undefined;
-			let pdfGenerating = false;
-			let pdfProgressLabel = '';
-			let richFormatting = false;
-			let richProgressLabel = '';
+				let assistantText = '';
+				let assistantMetadata: Record<string, unknown> | undefined;
+				let pdfGenerating = false;
+				let pdfProgressLabel = '';
+				let richFormatting = false;
+				let richProgressLabel = '';
 
-			const handleStreamEvent = (event: IOpenPolvoStreamEvent): void => {
+				const handleStreamEvent = (event: IOpenPolvoStreamEvent): void => {
 				if (event.type === 'text_delta' && event.delta) {
 					assistantText += event.delta;
 					this.conversationsService.updateAssistantMessage(this.conversationId!, assistantText, {
@@ -344,7 +360,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 			};
 
 			await this.openPolvoApi.streamMessage(
-				apiSessionId,
+				apiSessionId!,
 				text,
 				conversation.modelId,
 				handleStreamEvent,
@@ -352,15 +368,16 @@ export class PolvoAgentChatEditor extends EditorPane {
 			);
 
 			if (!assistantText) {
-				const last = this.conversationsService.getConversation(this.conversationId)?.messages.at(-1);
+				const last = this.conversationsService.getConversation(this.conversationId!)?.messages.at(-1);
 				if (last?.role === 'assistant' && !last.content) {
 					this.conversationsService.updateAssistantMessage(
-						this.conversationId,
+						this.conversationId!,
 						localize('polvoAgentEmptyResponse', "Sem resposta do servidor.")
 					);
 					this.renderMessages();
 				}
 			}
+			});
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.conversationsService.addMessage(
@@ -370,6 +387,22 @@ export class PolvoAgentChatEditor extends EditorPane {
 			);
 			this.renderMessages();
 		} finally {
+			const responseTimeSeconds = this.responseTimer.stop();
+			if (responseTimeSeconds !== undefined && this.conversationId) {
+				const conversation = this.conversationsService.getConversation(this.conversationId);
+				const last = conversation?.messages.at(-1);
+				if (last?.role === 'assistant') {
+					this.conversationsService.updateAssistantMessage(this.conversationId, last.content, {
+						metadata: last.metadata,
+						pdfGenerating: last.pdfGenerating,
+						pdfProgressLabel: last.pdfProgressLabel,
+						richFormatting: last.richFormatting,
+						richProgressLabel: last.richProgressLabel,
+						responseTimeSeconds,
+					});
+					this.renderMessages();
+				}
+			}
 			this.setSending(false);
 		}
 	}
@@ -394,12 +427,23 @@ export class PolvoAgentChatEditor extends EditorPane {
 			return;
 		}
 
-		for (const message of conversation.messages) {
+		for (let i = 0; i < conversation.messages.length; i++) {
+			const message = conversation.messages[i];
+			const isLast = i === conversation.messages.length - 1;
+			const isLoading = isAssistantResponseLoading(message, isLast, this.isSending);
+			if (isLoading && !this.responseTimer.isRunning()) {
+				this.responseTimer.start();
+			}
+
 			const messageEl = dom.append(this.messagesInner, $('.polvo-agent-chat-message'));
 			messageEl.classList.add(message.role);
 			const bubble = dom.append(messageEl, $('.polvo-agent-chat-bubble'));
 			if (message.role === 'assistant') {
-				this.renderAssistantBubble(bubble, message);
+				const elapsed = isLoading ? this.responseTimer.getElapsedSeconds() : message.responseTimeSeconds;
+				this.renderAssistantBubble(bubble, message, isLoading, elapsed);
+				if (elapsed !== undefined) {
+					appendResponseTimerLabel(messageEl, elapsed, isLoading);
+				}
 			} else {
 				bubble.textContent = message.content;
 			}
@@ -408,7 +452,16 @@ export class PolvoAgentChatEditor extends EditorPane {
 		this.messagesInner.parentElement?.scrollTo({ top: this.messagesInner.parentElement.scrollHeight });
 	}
 
-	private renderAssistantBubble(bubble: HTMLElement, message: IPolvoConversationMessage): void {
+	private renderAssistantBubble(
+		bubble: HTMLElement,
+		message: IPolvoConversationMessage,
+		isLoading: boolean,
+		elapsedSeconds?: number,
+	): void {
+		if (isLoading && !message.content && !message.pdfGenerating && !message.richFormatting) {
+			renderLoadingPlaceholder(bubble, elapsedSeconds ?? 0);
+			return;
+		}
 		if (message.pdfGenerating) {
 			this.renderPdfGeneratingCard(bubble, message.pdfProgressLabel);
 			return;
@@ -422,8 +475,14 @@ export class PolvoAgentChatEditor extends EditorPane {
 			const richHost = dom.append(bubble, $('.polvo-agent-chat-rich'));
 			renderRichChatBlocks(richHost, richBlocks);
 		} else if (message.content) {
-			const textEl = dom.append(bubble, $('.polvo-agent-chat-text'));
-			textEl.textContent = message.content;
+			const fallbackBlocks = markdownToRichBlocks(message.content);
+			if (fallbackBlocks.length > 0) {
+				const richHost = dom.append(bubble, $('.polvo-agent-chat-rich'));
+				renderRichChatBlocks(richHost, fallbackBlocks);
+			} else {
+				const textEl = dom.append(bubble, $('.polvo-agent-chat-text'));
+				textEl.textContent = message.content;
+			}
 		}
 		const meta = message.metadata;
 		if (meta && typeof meta.pdf_document_base64 === 'string' && meta.pdf_document_base64) {

@@ -127,9 +127,9 @@ def _looks_like_dev_builder_request(user_text: str) -> bool:
 
 
 def should_use_conversation_workflow(user_text: str) -> bool:
-    """Pedidos gerais/pesquisa sem formato de entrega específico → workflow rico."""
+    """Pedidos gerais no Agente → workflow rico (exceto formatos específicos e ferramentas desk)."""
     txt = (user_text or "").strip()
-    if len(txt) < 8:
+    if len(txt) < 3:
         return False
     if wants_specific_deliverable_format(txt):
         return False
@@ -137,13 +137,4 @@ def should_use_conversation_workflow(user_text: str) -> bool:
         return False
     if _looks_like_dev_builder_request(txt):
         return False
-    low = txt.lower()
-    if any(term in low for term in _CONVERSATION_POSITIVE_TERMS):
-        return True
-    # Perguntas abertas e pedidos explicativos comuns.
-    if txt.endswith("?"):
-        return True
-    if low.startswith(("como ", "porque ", "porquê ", "qual ", "quais ", "quando ", "onde ")):
-        return True
-    # Pedidos descritivos mais longos beneficiam do workflow completo.
-    return len(txt) >= 40
+    return True

@@ -62,25 +62,10 @@ export class PolvoModeNavigationService extends Disposable implements IPolvoMode
 			return;
 		}
 
-		if (!await this.ensureSignedInForMode(mode)) {
-			return;
-		}
+		void this.signInService.ensureSignedIn();
 
 		this.modeService.setMode(mode, { force: true });
 		await this.applier(mode);
-	}
-
-	private async ensureSignedInForMode(mode: PolvoWorkbenchMode): Promise<boolean> {
-		if (mode === PolvoWorkbenchMode.Code) {
-			return true;
-		}
-		if (!this.signInService.isEnabled()) {
-			return true;
-		}
-		if (this.signInService.isSignedIn()) {
-			return true;
-		}
-		return this.signInService.signIn();
 	}
 }
 

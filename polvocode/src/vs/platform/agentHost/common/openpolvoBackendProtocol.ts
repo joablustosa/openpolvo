@@ -339,3 +339,27 @@ export function toToolCall(payload: Record<string, unknown> | undefined): IOpenP
 	const args = (payload.args && typeof payload.args === 'object') ? payload.args as Record<string, unknown> : {};
 	return { id, tool, args, requiresClient: payload.requires_client === true };
 }
+
+/** Login silencioso com credenciais locais (`openpolvobackend/.env` ou env vars). */
+export async function performOpenPolvoLocalLogin(
+	baseUrl: string,
+	request: (url: string, init: RequestInit) => Promise<Response>,
+	resolveCredentials: () => { email: string; password: string },
+): Promise<string> {
+	const { email, password } = resolveCredentials();
+	const url = `${baseUrl.replace(/\/$/, '')}${OfficialRoutes.login}`;
+	const res = await request(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ email, password }),
+	});
+	if (!res.ok) {
+		const text = await res.text().catch(() => '');
+		throw new Error(`OpenPolvo local login failed: ${res.status} ${text}`);
+	}
+	const body = await res.json() as { access_token?: string };
+	if (!body.access_token) {
+		throw new Error('OpenPolvo local login failed: missing access_token');
+	}
+	return body.access_token;
+}

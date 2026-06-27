@@ -23,6 +23,7 @@ from openpolvointeligence.graphs.dev_workflow_graph import run_dev_workflow_pipe
 from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline
 from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
 from openpolvointeligence.graphs.conversation_reply_graph import run_conversation_reply_pipeline
+from openpolvointeligence.graphs.conversation_reply_blocks_logic import apply_rich_format_to_reply
 from openpolvointeligence.graphs.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
     should_use_dev_workflow,
@@ -988,6 +989,7 @@ def build_zepolvinho_graph(settings: Settings):
             state.get("agent_memory"),
             meta,
         )
+        text, meta = apply_rich_format_to_reply(text, meta)
         return {"assistant_text": text, "metadata": meta}
 
     g = StateGraph(ZepState)

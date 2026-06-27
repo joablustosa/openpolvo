@@ -786,7 +786,7 @@ The setting has the following advantages over the previous solution we had in pl
 
 The command to "Hide AI Features" was renamed to reflect this change and will now reveal this new setting in the settings editor.
 
-> **Note**: users that were hiding AI features previously will continue to see AI features hidden. You can update the setting in addition if you want to synchronize your choice across devices.
+> **Note**: users that were hiding AI features previously will continue to see AI features hidden. You can update the setting in addition if you want to synchronize your choice acrOpen Polvoices.
 
 ### MCP
 

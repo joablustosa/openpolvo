@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from openpolvointeligence.graphs.conversation_reply_blocks_logic import (
+    apply_rich_format_to_reply,
     blocks_to_plain_text,
+    markdown_to_rich_blocks,
     normalize_rich_blocks,
     parse_rich_blocks_json,
 )
@@ -14,6 +16,21 @@ def test_parse_blocks_json() -> None:
     blocks = normalize_rich_blocks(parse_rich_blocks_json(raw))
     assert len(blocks) == 2
     assert blocks[0]["type"] == "lead"
+
+
+def test_markdown_to_rich_blocks() -> None:
+    md = "# Título\n\n## Secção\n\n- item um\n- item dois\n\nParágrafo final."
+    blocks = markdown_to_rich_blocks(md)
+    assert any(b["type"] == "lead" for b in blocks)
+    assert any(b["type"] == "heading" for b in blocks)
+    assert any(b["type"] == "bullet_list" for b in blocks)
+
+
+def test_apply_rich_format_to_reply() -> None:
+    text = "## Olá\n\n- a\n- b"
+    _, meta = apply_rich_format_to_reply(text, {"intent": "desk_agent"})
+    assert meta.get("conversation_format") == "rich_blocks"
+    assert meta.get("rich_blocks")
 
 
 def test_blocks_to_plain_text() -> None:
