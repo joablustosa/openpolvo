@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.desk_routing import should_use_desk_graph
-from openpolvointeligence.graphs.zepolvinho_graph import wants_pdf_study_specialist
+from openpolvointeligence.graphs.desk.desk_routing import should_use_desk_graph
+from openpolvointeligence.graphs.orchestrator.zepolvinho_graph import wants_pdf_study_specialist
 
 
 def test_pdf_request_bypasses_desk_even_with_agent_context() -> None:

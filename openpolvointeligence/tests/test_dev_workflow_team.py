@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from openpolvointeligence.graphs.dev_workflow_review_logic import parse_review_response
-from openpolvointeligence.graphs.dev_workflow_team import run_team_review_loop
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_review_logic import parse_review_response
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_team import run_team_review_loop
 
 
 @pytest.mark.asyncio

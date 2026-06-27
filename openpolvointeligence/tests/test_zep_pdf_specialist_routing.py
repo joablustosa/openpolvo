@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from openpolvointeligence.graphs.zepolvinho_graph import (
+from openpolvointeligence.graphs.orchestrator.zepolvinho_graph import (
     route_intent,
     wants_pdf_study_specialist,
 )

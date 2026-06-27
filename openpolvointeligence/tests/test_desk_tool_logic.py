@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.desk_tool_logic import (
+from openpolvointeligence.graphs.desk.desk_tool_logic import (
     PathTraversalError,
     execute_tool_local,
     normalize_rel_path,

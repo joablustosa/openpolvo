@@ -6,21 +6,21 @@ import pytest
 
 from openpolvointeligence.code_rag.vector_store import reset_vector_store_cache
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.dev_workflow_code_rag import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_code_rag import (
     reindex_project_files,
     retrieve_for_architect,
     retrieve_for_codegen_task,
     retrieve_for_reviewer,
     stable_project_id,
 )
-from openpolvointeligence.graphs.dev_workflow_error_memory import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_error_memory import (
     build_error_memory_block,
     error_memory_namespace,
     error_signature,
     index_error_fix,
     recall_similar_errors,
 )
-from openpolvointeligence.graphs.dev_workflow_graph import _stable_project_id_for_pipeline
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import _stable_project_id_for_pipeline
 
 AUTH_ROUTE = """\
 import { Hono } from 'hono';

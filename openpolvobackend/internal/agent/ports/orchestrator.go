@@ -13,6 +13,14 @@ type AgentMemoryIn struct {
 	Builder string
 }
 
+// MessageAttachment é um anexo transiente do turno (ex.: PDF) enviado ao
+// Intelligence para leitura/extração. Não é persistido na conversa.
+type MessageAttachment struct {
+	Name       string `json:"name"`
+	MimeType   string `json:"mime_type"`
+	DataBase64 string `json:"data_base64"`
+}
+
 // ReplyInput contém o histórico já persistido (incluindo a última mensagem do utilizador).
 type ReplyInput struct {
 	Messages        []domain.Message
@@ -38,6 +46,8 @@ type ReplyInput struct {
 	DevStudioContext   map[string]any
 	CompileLog         string
 	DeskContext        map[string]any
+	// Attachments transientes do turno (ex.: PDFs) — não persistidos.
+	Attachments []MessageAttachment
 }
 
 // ChatOrchestrator implementa o fluxo analisador → router → especialista (Zé Polvinho).

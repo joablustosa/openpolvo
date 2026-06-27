@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.pdf_render import (
+from openpolvointeligence.graphs.pdf_study.pdf_render import (
     build_pdf_metadata,
     markdown_to_html,
     render_pdf_bytes,

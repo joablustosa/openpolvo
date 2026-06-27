@@ -1,13 +1,13 @@
 """Testes de classificação explícita do tipo de pedido (new_app / feature / bug_fix)."""
 
-from openpolvointeligence.graphs.dev_workflow_request_kind import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_request_kind import (
     classify_request_kind,
     create_project_for_kind,
     normalize_request_kind,
     prefers_diff_mode,
     route_for_request_kind,
 )
-from openpolvointeligence.graphs.dev_workflow_router_logic import parse_router_response
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_router_logic import parse_router_response
 
 
 def test_no_project_create_keywords_is_new_app():

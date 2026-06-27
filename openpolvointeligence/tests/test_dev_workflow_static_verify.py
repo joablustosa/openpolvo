@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.dev_workflow_static_verify import run_static_verify
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_static_verify import run_static_verify
 
 
 def test_static_verify_allows_router_with_import():

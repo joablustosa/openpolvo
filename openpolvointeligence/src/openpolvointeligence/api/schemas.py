@@ -10,8 +10,18 @@ class MessagePart(BaseModel):
     content: str
 
 
+class MessageAttachment(BaseModel):
+    name: str = Field(default="documento.pdf", description="Nome original do ficheiro")
+    mime_type: str = Field(default="application/pdf", description="MIME do anexo")
+    data_base64: str = Field(default="", description="Conteúdo do ficheiro em base64 (inline)")
+
+
 class ReplyRequest(BaseModel):
     messages: list[MessagePart]
+    attachments: list[MessageAttachment] | None = Field(
+        default=None,
+        description="Anexos do turno (ex.: PDFs) para leitura/extração pelo agente.",
+    )
     model_provider: str = Field(default="auto", description="auto | openai | google | ollama")
     openai_api_key: str | None = Field(
         default=None, description="Override por pedido (API Go / SQLite local)"

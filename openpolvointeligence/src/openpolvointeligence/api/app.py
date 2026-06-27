@@ -9,8 +9,8 @@ from openpolvointeligence import __version__
 from openpolvointeligence.api.health import readyz_payload
 from openpolvointeligence.api.routes import router as v1_router
 from openpolvointeligence.core.config import get_settings
-from openpolvointeligence.graphs.desk_graph import get_compiled_desk_graph
-from openpolvointeligence.graphs.zepolvinho_graph import get_compiled_graph
+from openpolvointeligence.graphs.desk.desk_graph import get_compiled_desk_graph
+from openpolvointeligence.graphs.orchestrator.zepolvinho_graph import get_compiled_graph
 
 
 @asynccontextmanager

@@ -1,10 +1,10 @@
 """Testes mínimos para validação de operações Polvo Code (metadata)."""
 
-from openpolvointeligence.graphs.polvo_code_metadata import (
+from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
     validate_polvo_code_operations,
 )
-from openpolvointeligence.graphs import polvo_code_metadata as pcm
+from openpolvointeligence.graphs.dev_workflow import polvo_code_metadata as pcm
 
 
 def test_validate_write_ok():

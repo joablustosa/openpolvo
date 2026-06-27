@@ -1,6 +1,6 @@
 """Testes do Compiler_Checker (parse de logs e selecção de ficheiro)."""
 
-from openpolvointeligence.graphs.dev_workflow_compiler_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_compiler_logic import (
     build_error_file_excerpt,
     has_compile_errors_in_state,
     merge_compile_sources,

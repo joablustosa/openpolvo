@@ -1,6 +1,6 @@
 """Testes desk_routing (M1 CORE-4.1)."""
 
-from openpolvointeligence.graphs.desk_routing import (
+from openpolvointeligence.graphs.desk.desk_routing import (
     desk_workspace_path,
     should_use_desk_graph,
 )

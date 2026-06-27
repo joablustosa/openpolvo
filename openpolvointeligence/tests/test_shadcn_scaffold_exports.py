@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.shadcn_scaffold_exports import (
+from openpolvointeligence.graphs.dev_workflow.shadcn_scaffold_exports import (
     build_shadcn_import_heal_ops,
     rewrite_shadcn_imports,
     validate_shadcn_named_imports,

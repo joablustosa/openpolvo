@@ -1,4 +1,4 @@
-from openpolvointeligence.graphs.web_research_intent import user_requests_live_web_auxiliary
+from openpolvointeligence.graphs.web_research.web_research_intent import user_requests_live_web_auxiliary
 
 
 def test_detects_web_keywords() -> None:

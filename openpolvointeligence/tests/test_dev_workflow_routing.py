@@ -1,6 +1,6 @@
 """Testes de encaminhamento para o dev workflow."""
 
-from openpolvointeligence.graphs.dev_workflow_routing import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
     should_use_dev_workflow,
 )

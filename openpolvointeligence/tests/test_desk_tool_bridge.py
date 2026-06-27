@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from openpolvointeligence.graphs.desk_tool_bridge import DeskToolBridge
+from openpolvointeligence.graphs.desk.desk_tool_bridge import DeskToolBridge
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ import {
 	buildChatBody,
 	buildDeskContext,
 	type INormalizedStreamEvent,
+	type IOpenPolvoAttachment,
 	OFFICIAL_API_DEFAULT_BASE_URL,
 	OfficialRoutes,
 	parseSseBuffer,
@@ -157,6 +158,7 @@ export interface IOpenPolvoWorkbenchApiService {
 		model: string | undefined,
 		onEvent: (event: IOpenPolvoStreamEvent) => void,
 		signal?: AbortSignal,
+		attachments?: IOpenPolvoAttachment[],
 	): Promise<void>;
 	login(email: string, password: string): Promise<void>;
 	register(email: string, password: string, name?: string): Promise<void>;
@@ -255,10 +257,11 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		model: string | undefined,
 		onEvent: (event: IOpenPolvoStreamEvent) => void,
 		signal?: AbortSignal,
+		attachments?: IOpenPolvoAttachment[],
 	): Promise<void> {
 		await this.ensureAuth();
 		const deskContext = buildDeskContext(sessionId, this.resolveWorkspacePath(), 'agent', model);
-		const body = buildChatBody(content, { modelId: model, deskContext });
+		const body = buildChatBody(content, { modelId: model, deskContext, attachments });
 		const doFetch = async () => fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(sessionId)}`, {
 			method: 'POST',
 			headers: { ...this.authHeaders(), 'Content-Type': 'application/json', Accept: 'text/event-stream' },

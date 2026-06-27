@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
 	"github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	convports "github.com/open-polvo/open-polvo/internal/conversations/ports"
@@ -132,6 +133,41 @@ type postMessageRequest struct {
 	DevStudioContext   map[string]any    `json:"dev_studio_context,omitempty"`
 	CompileLog         string            `json:"compile_log,omitempty"`
 	DeskContext        map[string]any    `json:"desk_context,omitempty"`
+	Attachments        []attachmentDTO   `json:"attachments,omitempty"`
+}
+
+type attachmentDTO struct {
+	Name       string `json:"name"`
+	MimeType   string `json:"mime_type"`
+	DataBase64 string `json:"data_base64"`
+}
+
+// maxAttachmentBase64Bytes limita anexos inline a ~8 MB binário (base64 ≈ 4/3).
+const maxAttachmentBase64Bytes = 8 * 1024 * 1024 * 4 / 3
+
+var errAttachmentTooLarge = errors.New("attachment too large")
+
+// toAgentAttachments converte os DTOs HTTP para os anexos do orquestrador.
+// Devolve erro se algum anexo exceder o limite inline.
+func toAgentAttachments(in []attachmentDTO) ([]agentports.MessageAttachment, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make([]agentports.MessageAttachment, 0, len(in))
+	for _, a := range in {
+		if strings.TrimSpace(a.DataBase64) == "" {
+			continue
+		}
+		if len(a.DataBase64) > maxAttachmentBase64Bytes {
+			return nil, errAttachmentTooLarge
+		}
+		out = append(out, agentports.MessageAttachment{
+			Name:       a.Name,
+			MimeType:   a.MimeType,
+			DataBase64: a.DataBase64,
+		})
+	}
+	return out, nil
 }
 
 func (h *ConversationHandlers) GetConversations(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +361,11 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 		}
 		profID = &p
 	}
+	attachments, err := toAgentAttachments(req.Attachments)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "attachment too large (max 8 MB per file)")
+		return
+	}
 	msgs, err := h.SendMessage.Execute(r.Context(), application.SendMessageCommand{
 		UserID:             uid,
 		ConversationID:     cid,
@@ -338,6 +379,7 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 		DevStudioContext:   req.DevStudioContext,
 		CompileLog:         req.CompileLog,
 		DeskContext:        req.DeskContext,
+		Attachments:        attachments,
 	})
 	if err != nil {
 		switch {
@@ -500,6 +542,11 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		profID = &p
 	}
 
+	attachments, err := toAgentAttachments(req.Attachments)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "attachment too large (max 8 MB per file)")
+		return
+	}
 	// Prepara: guarda mensagem do utilizador, abre stream Python.
 	result, err := h.StreamMsg.Prepare(r.Context(), application.StreamMessageCommand{
 		UserID:             uid,
@@ -514,6 +561,7 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		DevStudioContext:   req.DevStudioContext,
 		CompileLog:         req.CompileLog,
 		DeskContext:        req.DeskContext,
+		Attachments:        attachments,
 	})
 	if err != nil {
 		switch {

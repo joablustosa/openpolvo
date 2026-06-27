@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.dev_workflow_build_sandbox import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_build_sandbox import (
     build_disabled_result,
     build_errors_to_digest,
     node_toolchain_available,

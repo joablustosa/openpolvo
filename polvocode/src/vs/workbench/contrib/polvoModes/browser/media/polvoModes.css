@@ -335,6 +335,93 @@
 	color: var(--vscode-input-placeholderForeground);
 }
 
+/* Linha de anexos pendentes (chips acima do textarea) */
+.monaco-workbench .polvo-agent-chat-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 10px 12px 0;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 260px;
+	padding: 4px 8px;
+	border-radius: 8px;
+	background-color: var(--vscode-badge-background, rgba(128, 128, 128, 0.18));
+	color: var(--vscode-foreground);
+	font-size: 12px;
+	line-height: 1.2;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-chip .codicon {
+	flex-shrink: 0;
+	color: var(--vscode-charts-red, #e06c75);
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-size {
+	flex-shrink: 0;
+	opacity: 0.7;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	opacity: 0.7;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-remove:hover {
+	opacity: 1;
+	background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+/* Chips de anexo já enviados, dentro do balão do utilizador */
+.monaco-workbench .polvo-agent-chat-message-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+
+.monaco-workbench .polvo-agent-chat-attachment-chip.is-sent {
+	background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Badge de resultado da leitura de PDF (resposta do assistente) */
+.monaco-workbench .polvo-pdf-read-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	padding: 5px 10px;
+	border-radius: 8px;
+	border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.3));
+	background-color: var(--vscode-badge-background, rgba(128, 128, 128, 0.12));
+	font-size: 12px;
+}
+
+.monaco-workbench .polvo-pdf-read-badge .codicon {
+	color: var(--vscode-charts-red, #e06c75);
+}
+
 /* Barra inferior dentro da caixa: + à esquerda, modelo + enviar à direita */
 .monaco-workbench .polvo-agent-chat-composer-footer {
 	display: flex;

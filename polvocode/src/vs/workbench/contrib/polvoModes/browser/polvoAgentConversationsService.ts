@@ -21,10 +21,18 @@ export interface IPolvoConversation {
 	apiSessionId?: string;
 }
 
+/** Metadados (sem conteúdo) de um anexo de mensagem — base64 nunca é persistido. */
+export interface IPolvoMessageAttachment {
+	readonly name: string;
+	readonly mimeType: string;
+	readonly sizeBytes: number;
+}
+
 export interface IPolvoConversationMessage {
 	readonly role: 'user' | 'assistant';
 	content: string;
 	metadata?: Record<string, unknown>;
+	attachments?: IPolvoMessageAttachment[];
 	pdfGenerating?: boolean;
 	pdfProgressLabel?: string;
 	richFormatting?: boolean;
@@ -46,7 +54,7 @@ export interface IPolvoAgentConversationsService {
 	createConversation(): IPolvoConversation;
 	setActiveConversation(id: string | undefined): void;
 	getConversation(id: string): IPolvoConversation | undefined;
-	addMessage(conversationId: string, role: 'user' | 'assistant', content: string): void;
+	addMessage(conversationId: string, role: 'user' | 'assistant', content: string, attachments?: IPolvoMessageAttachment[]): void;
 	setConversationModel(conversationId: string, modelId: string): void;
 	setApiSessionId(conversationId: string, apiSessionId: string): void;
 	updateAssistantMessage(conversationId: string, content: string): void;
@@ -123,12 +131,12 @@ export class PolvoAgentConversationsService extends Disposable implements IPolvo
 		return this._conversations.find(c => c.id === id);
 	}
 
-	addMessage(conversationId: string, role: 'user' | 'assistant', content: string): void {
+	addMessage(conversationId: string, role: 'user' | 'assistant', content: string, attachments?: IPolvoMessageAttachment[]): void {
 		const conversation = this.getConversation(conversationId);
 		if (!conversation) {
 			return;
 		}
-		conversation.messages.push({ role, content });
+		conversation.messages.push({ role, content, attachments: attachments && attachments.length > 0 ? attachments : undefined });
 		if (role === 'user' && conversation.title === localize('polvoNewConversation', "Nova conversa")) {
 			conversation.title = content.length > 40 ? `${content.slice(0, 40)}…` : content;
 		}

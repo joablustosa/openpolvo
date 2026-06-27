@@ -1,4 +1,4 @@
-from openpolvointeligence.graphs.web_url_extract import pick_urls_for_deep_dive
+from openpolvointeligence.graphs.web_research.web_url_extract import pick_urls_for_deep_dive
 
 
 def test_pick_urls_skips_google_prefers_publishers() -> None:

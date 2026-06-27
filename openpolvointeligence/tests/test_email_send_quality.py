@@ -1,6 +1,6 @@
 """Testes heurísticos de qualidade do corpo de e-mail."""
 
-from openpolvointeligence.graphs.email_send_quality import (
+from openpolvointeligence.graphs.email.email_send_quality import (
     apply_email_quality_gate,
     email_body_looks_raw_or_incomplete,
 )

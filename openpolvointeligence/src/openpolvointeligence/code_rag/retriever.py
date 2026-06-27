@@ -8,7 +8,7 @@ from openpolvointeligence.code_rag.embedder import embed_query
 from openpolvointeligence.code_rag.types import ChunkType, LayerHint, RetrievedChunk
 from openpolvointeligence.code_rag.vector_store import get_vector_store
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.dev_workflow_router_logic import infer_affected_layers
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_router_logic import infer_affected_layers
 
 # Sinais de feature → boost de tipos de chunk e termos de query
 _FEATURE_SIGNALS: dict[str, dict[str, Any]] = {

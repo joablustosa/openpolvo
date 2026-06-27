@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.pdf_study_prompt_logic import (
+from openpolvointeligence.graphs.pdf_study.pdf_study_prompt_logic import (
     normalize_enriched_brief,
     parse_enriched_brief_json,
 )

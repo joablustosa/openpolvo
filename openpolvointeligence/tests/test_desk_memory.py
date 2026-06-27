@@ -9,7 +9,7 @@ from openpolvointeligence.graphs.agent_memory_utils import (
     normalize_agent_memory,
     truncate_memory_for_desk,
 )
-from openpolvointeligence.graphs.desk_graph import make_load_context_node
+from openpolvointeligence.graphs.desk.desk_graph import make_load_context_node
 
 
 def test_normalize_agent_memory_workspace_alias():

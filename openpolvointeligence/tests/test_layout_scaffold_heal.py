@@ -1,4 +1,4 @@
-from openpolvointeligence.graphs.layout_scaffold_heal_logic import (
+from openpolvointeligence.graphs.dev_workflow.layout_scaffold_heal_logic import (
     build_layout_scaffold_heal_ops,
 )
 

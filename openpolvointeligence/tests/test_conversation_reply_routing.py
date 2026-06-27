@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation.conversation_reply_routing import should_use_conversation_workflow
 
 
 def test_routes_short_general_question() -> None:

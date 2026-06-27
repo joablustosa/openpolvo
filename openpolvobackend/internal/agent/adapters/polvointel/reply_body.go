@@ -29,11 +29,18 @@ type replyHTTPBody struct {
 	DevStudioContext      map[string]any                  `json:"dev_studio_context,omitempty"`
 	CompileLog            string                          `json:"compile_log,omitempty"`
 	DeskContext           map[string]any                  `json:"desk_context,omitempty"`
+	Attachments           []attachmentPart                `json:"attachments,omitempty"`
 }
 
 type msgPart struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+type attachmentPart struct {
+	Name       string `json:"name"`
+	MimeType   string `json:"mime_type"`
+	DataBase64 string `json:"data_base64"`
 }
 
 // DevStudioFields transporta payload Dev Studio do HTTP handler até ao Intelligence.
@@ -88,6 +95,17 @@ func marshalReplyBody(in agentports.ReplyInput) ([]byte, error) {
 	}
 	for _, m := range in.Messages {
 		body.Messages = append(body.Messages, msgPart{Role: m.Role, Content: m.Content})
+	}
+	// Anexos (ex.: PDFs) seguem em ambos os modos — leitura é genérica.
+	for _, a := range in.Attachments {
+		if strings.TrimSpace(a.DataBase64) == "" {
+			continue
+		}
+		body.Attachments = append(body.Attachments, attachmentPart{
+			Name:       a.Name,
+			MimeType:   a.MimeType,
+			DataBase64: a.DataBase64,
+		})
 	}
 	return json.Marshal(body)
 }

@@ -1,13 +1,13 @@
 """Testes do grafo de desenvolvimento (lógica pura, sem LLM)."""
 
-from openpolvointeligence.graphs.dev_workflow_compiler_logic import parse_compile_output
-from openpolvointeligence.graphs.dev_workflow_graph import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_compiler_logic import parse_compile_output
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import (
     _normalize_route,
     _normalize_stack,
     route_after_compiler,
     route_after_router,
 )
-from openpolvointeligence.graphs.dev_workflow_state import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_state import (
     content_sha256,
     manifest_from_writes,
     merge_manifest,
@@ -60,7 +60,7 @@ def test_route_after_compiler_retry():
 
 
 def test_route_after_build_sandbox():
-    from openpolvointeligence.graphs.dev_workflow_graph import route_after_build_sandbox
+    from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import route_after_build_sandbox
 
     assert (
         route_after_build_sandbox({"build_result": {"ok": True, "ran": True}}) == "context_finalize"
@@ -85,7 +85,7 @@ def test_route_after_build_sandbox():
 
 
 def test_route_after_static_verify():
-    from openpolvointeligence.graphs.dev_workflow_graph import route_after_static_verify
+    from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import route_after_static_verify
 
     assert route_after_static_verify({"static_verify": {"ok": True}}) == "compiler_checker"
     assert (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.conversation_reply_blocks_logic import (
+from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic import (
     apply_rich_format_to_reply,
     blocks_to_plain_text,
     markdown_to_rich_blocks,

@@ -1,6 +1,6 @@
 """Testes Code_Generator — patches estruturados."""
 
-from openpolvointeligence.graphs.dev_workflow_codegen_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_logic import (
     apply_structured_patch,
     build_codegen_file_excerpts,
     resolve_codegen_operations,

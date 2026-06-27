@@ -1,6 +1,6 @@
 """Testes desk_state (M1 CORE-1)."""
 
-from openpolvointeligence.graphs.desk_state import initial_desk_state, truncate_trace
+from openpolvointeligence.graphs.desk.desk_state import initial_desk_state, truncate_trace
 
 
 def test_initial_desk_state_defaults():

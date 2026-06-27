@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from openpolvointeligence.graphs.workflow_specialist_prompt_logic import (
+from openpolvointeligence.graphs.workflow_builder.workflow_specialist_prompt_logic import (
     graph_to_raw_json,
     normalize_brief,
     normalize_steps,

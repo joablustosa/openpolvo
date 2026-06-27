@@ -29,6 +29,7 @@ type StreamMessageCommand struct {
 	DevStudioContext   map[string]any
 	CompileLog         string
 	DeskContext        map[string]any
+	Attachments        []agentports.MessageAttachment
 }
 
 // StreamEvent é o evento SSE deserializado do Python.
@@ -140,6 +141,7 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 	repIn.CompileLog = strings.TrimSpace(cmd.CompileLog)
 	repIn.DeskContext = cmd.DeskContext
 	polvointel.StripLegacyContextsForDesk(&repIn)
+	repIn.Attachments = cmd.Attachments
 	if s.LLM != nil {
 		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
 			return nil, err

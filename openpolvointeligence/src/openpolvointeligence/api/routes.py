@@ -28,25 +28,36 @@ from openpolvointeligence.api.schemas import (
     WorkflowWebSearchEnrichResponse,
 )
 from openpolvointeligence.core.config import get_settings
-from openpolvointeligence.graphs.social_generator import generate_social_post
-from openpolvointeligence.graphs.workflow_llm import generate_text
-from openpolvointeligence.graphs.workflow_specialist_graph import run_workflow_specialist
-from openpolvointeligence.graphs.workflow_web_search_enrich import run_workflow_web_search_enrich
-from openpolvointeligence.graphs.dev_workflow_self_heal_logic import run_dev_workflow_self_heal
+from openpolvointeligence.graphs.social.social_generator import generate_social_post
+from openpolvointeligence.graphs.workflow_builder.workflow_llm import generate_text
+from openpolvointeligence.graphs.workflow_builder.workflow_specialist_graph import run_workflow_specialist
+from openpolvointeligence.graphs.workflow_builder.workflow_web_search_enrich import run_workflow_web_search_enrich
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_self_heal_logic import run_dev_workflow_self_heal
 from openpolvointeligence.code_rag.indexer import index_project_files
 from openpolvointeligence.code_rag.retriever import build_rag_context_block, retrieve_for_router
-from openpolvointeligence.graphs.zepolvinho_graph import (
+from openpolvointeligence.graphs.orchestrator.zepolvinho_graph import (
     run_reply,
     run_reply_stream,
     wants_pdf_study_specialist,
 )
-from openpolvointeligence.graphs.desk_routing import should_use_desk_graph
-from openpolvointeligence.graphs.desk_reply import run_desk_reply, run_desk_reply_stream
-from openpolvointeligence.graphs.desk_tool_bridge import get_bridge
+from openpolvointeligence.graphs.desk.desk_routing import should_use_desk_graph
+from openpolvointeligence.graphs.desk.desk_reply import run_desk_reply, run_desk_reply_stream
+from openpolvointeligence.graphs.desk.desk_tool_bridge import get_bridge
 from openpolvointeligence.graphs.message_utils import last_user_text
-from openpolvointeligence.graphs.pdf_study_graph import run_pdf_study_pipeline, run_pdf_study_stream
-from openpolvointeligence.graphs.conversation_reply_routing import should_use_conversation_workflow
-from openpolvointeligence.graphs.conversation_reply_graph import (
+from openpolvointeligence.graphs.pdf_read.pdf_read_graph import run_pdf_read_pipeline, run_pdf_read_stream
+from openpolvointeligence.graphs.pdf_read.pdf_read_routing import should_use_pdf_read_workflow
+from openpolvointeligence.graphs.pdf_study.pdf_study_graph import run_pdf_study_pipeline, run_pdf_study_stream
+from openpolvointeligence.graphs.xlsx_full.xlsx_full_graph import run_xlsx_full_pipeline, run_xlsx_full_stream
+from openpolvointeligence.graphs.xlsx_full.xlsx_full_routing import should_use_xlsx_workflow
+from openpolvointeligence.graphs.documents_full.documents_full_graph import (
+    run_documents_full_pipeline,
+    run_documents_full_stream,
+)
+from openpolvointeligence.graphs.documents_full.documents_full_routing import (
+    should_use_documents_workflow,
+)
+from openpolvointeligence.graphs.conversation.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation.conversation_reply_graph import (
     run_conversation_reply_pipeline,
     run_conversation_reply_stream,
 )
@@ -97,6 +108,34 @@ async def post_reply(
         contacts_ctx = body.contacts_context
         if contacts_ctx is not None and not isinstance(contacts_ctx, list):
             contacts_ctx = None
+        attachments = [a.model_dump() for a in body.attachments] if body.attachments else []
+        if should_use_pdf_read_workflow(last_user_text(msgs), attachments):
+            text, meta = await run_pdf_read_pipeline(
+                eff,
+                msgs,
+                body.model_provider,
+                attachments,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
+        if should_use_xlsx_workflow(last_user_text(msgs), attachments):
+            text, meta = await run_xlsx_full_pipeline(
+                eff,
+                msgs,
+                body.model_provider,
+                attachments,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
+        if should_use_documents_workflow(last_user_text(msgs), attachments):
+            text, meta = await run_documents_full_pipeline(
+                eff,
+                msgs,
+                body.model_provider,
+                attachments,
+                agent_memory=body.agent_memory,
+            )
+            return ReplyResponse(assistant_text=text, metadata=meta)
         if wants_pdf_study_specialist(last_user_text(msgs)):
             text, meta = await run_pdf_study_pipeline(
                 eff,
@@ -295,9 +334,40 @@ async def post_reply_stream(
     contacts_ctx = body.contacts_context
     if contacts_ctx is not None and not isinstance(contacts_ctx, list):
         contacts_ctx = None
+    attachments = [a.model_dump() for a in body.attachments] if body.attachments else []
 
     async def event_gen():
         try:
+            if should_use_pdf_read_workflow(last_user_text(msgs), attachments):
+                async for event in run_pdf_read_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    attachments,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
+            if should_use_xlsx_workflow(last_user_text(msgs), attachments):
+                async for event in run_xlsx_full_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    attachments,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
+            if should_use_documents_workflow(last_user_text(msgs), attachments):
+                async for event in run_documents_full_stream(
+                    eff,
+                    msgs,
+                    body.model_provider,
+                    attachments,
+                    agent_memory=body.agent_memory,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                return
             if wants_pdf_study_specialist(last_user_text(msgs)):
                 async for event in run_pdf_study_stream(
                     eff,

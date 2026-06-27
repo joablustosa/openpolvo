@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.workflow_web_search_enrich import run_workflow_web_search_enrich
+from openpolvointeligence.graphs.workflow_builder.workflow_web_search_enrich import run_workflow_web_search_enrich
 
 
 @pytest.mark.asyncio

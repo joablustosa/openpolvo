@@ -1,6 +1,6 @@
 """Testes do Context_Manager (extracção estrutural + unified diff)."""
 
-from openpolvointeligence.graphs.dev_workflow_context_manager import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_context_manager import (
     apply_unified_diff,
     build_structural_index,
     diff_instructions_to_writes,

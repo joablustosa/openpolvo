@@ -9,8 +9,8 @@ from typing import Any
 import httpx
 import pytest
 
-from openpolvointeligence.graphs.desk_routing import should_use_desk_graph
-from openpolvointeligence.graphs.desk_tool_logic import execute_tool_local
+from openpolvointeligence.graphs.desk.desk_routing import should_use_desk_graph
+from openpolvointeligence.graphs.desk.desk_tool_logic import execute_tool_local
 from openpolvointeligence.core.config import Settings
 
 

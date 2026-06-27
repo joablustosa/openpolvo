@@ -1,6 +1,6 @@
 """Extração principal HTML (trafilatura) para pesquisa web."""
 
-from openpolvointeligence.graphs.web_page_fetch import (
+from openpolvointeligence.graphs.web_research.web_page_fetch import (
     extract_main_content_trafilatura,
     strip_html_to_text,
 )

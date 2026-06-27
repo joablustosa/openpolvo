@@ -1,6 +1,6 @@
 """Testes email_send_reply (Desk SMTP)."""
 
-from openpolvointeligence.graphs.email_send_reply import format_smtp_block_for_prompt
+from openpolvointeligence.graphs.email.email_send_reply import format_smtp_block_for_prompt
 
 
 def test_format_smtp_block_when_configured():

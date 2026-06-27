@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.dev_workflow_style_rag import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_style_rag import (
     build_style_guide_block,
     design_tokens_from_style_guide,
     detect_style_domain,

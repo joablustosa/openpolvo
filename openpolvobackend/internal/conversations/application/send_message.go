@@ -28,6 +28,7 @@ type SendMessageCommand struct {
 	DevStudioContext   map[string]any
 	CompileLog         string
 	DeskContext        map[string]any
+	Attachments        []agentports.MessageAttachment
 }
 
 type SendMessage struct {
@@ -127,6 +128,7 @@ func (s *SendMessage) Execute(ctx context.Context, cmd SendMessageCommand) ([]do
 	repIn.CompileLog = strings.TrimSpace(cmd.CompileLog)
 	repIn.DeskContext = cmd.DeskContext
 	polvointel.StripLegacyContextsForDesk(&repIn)
+	repIn.Attachments = cmd.Attachments
 	if s.LLM != nil {
 		if err := s.LLM.ApplyToReplyInput(ctx, &repIn, model, cmd.LLMProfileID); err != nil {
 			return nil, err

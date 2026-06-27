@@ -57,6 +57,12 @@ export interface IOpenPolvoConsoleLog {
 	source?: string;
 }
 
+export interface IOpenPolvoAttachment {
+	name: string;
+	mime_type: string;
+	data_base64: string;
+}
+
 export interface IOpenPolvoChatBody {
 	text: string;
 	model_provider?: OfficialModelProvider;
@@ -68,6 +74,7 @@ export interface IOpenPolvoChatBody {
 	preview_console_logs?: IOpenPolvoConsoleLog[];
 	dev_studio_context?: Record<string, unknown>;
 	compile_log?: string;
+	attachments?: IOpenPolvoAttachment[];
 }
 
 export interface IOfficialMessage {
@@ -140,6 +147,7 @@ export interface IBuildChatBodyOptions {
 		IOpenPolvoChatBody,
 		'sandbox_project_id' | 'project_file_tree' | 'project_files' | 'preview_console_logs' | 'dev_studio_context' | 'compile_log'
 	>;
+	attachments?: IOpenPolvoAttachment[];
 }
 
 export function buildChatBody(text: string, options: IBuildChatBodyOptions = {}): IOpenPolvoChatBody {
@@ -159,6 +167,9 @@ export function buildChatBody(text: string, options: IBuildChatBodyOptions = {})
 	}
 	if (options.devStudio) {
 		Object.assign(body, options.devStudio);
+	}
+	if (options.attachments && options.attachments.length > 0) {
+		body.attachments = options.attachments;
 	}
 	return body;
 }

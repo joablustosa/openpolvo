@@ -1,4 +1,4 @@
-from openpolvointeligence.graphs.dev_workflow_prompt_enricher_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_prompt_enricher_logic import (
     normalize_enriched_prompt,
     should_enrich,
 )

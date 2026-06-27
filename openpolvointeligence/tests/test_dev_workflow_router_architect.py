@@ -1,12 +1,12 @@
 """Testes Router + Architect (camadas e plano PDF contratos)."""
 
-from openpolvointeligence.graphs.dev_workflow_architect_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_architect_logic import (
     filter_paths_by_layer,
     match_paths_for_feature,
     normalize_architect_plan,
     normalize_design_tokens,
 )
-from openpolvointeligence.graphs.dev_workflow_router_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_router_logic import (
     infer_affected_layers,
     infer_force_code_route,
     parse_router_response,

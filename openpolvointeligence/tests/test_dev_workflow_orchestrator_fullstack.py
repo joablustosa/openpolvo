@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.dev_workflow_orchestrator_logic import (
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_orchestrator_logic import (
     build_tasks_from_plan,
     topological_sort_tasks,
 )

@@ -6,7 +6,7 @@ from openpolvointeligence.core.config import get_settings
 import pytest
 from langchain_core.messages import AIMessage
 
-from openpolvointeligence.graphs.desk_graph import (
+from openpolvointeligence.graphs.desk.desk_graph import (
     get_compiled_desk_graph,
     make_tools_node,
     should_continue_tools,
@@ -36,7 +36,7 @@ async def test_tools_node_preserves_ai_tool_call_before_tool_message(monkeypatch
     async def fake_dispatch(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
         return [{"content": "{}", "tool_call_id": "tc-1", "name": "filesystem_list"}]
 
-    monkeypatch.setattr("openpolvointeligence.graphs.desk_graph.dispatch_tool_calls", fake_dispatch)
+    monkeypatch.setattr("openpolvointeligence.graphs.desk.desk_graph.dispatch_tool_calls", fake_dispatch)
     node = make_tools_node(get_settings(), bridge_wait=lambda *_: None)
     ai = AIMessage(content="", tool_calls=[{"name": "filesystem_list", "args": {}, "id": "tc-1"}])
     out = await node(
