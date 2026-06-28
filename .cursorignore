@@ -1,0 +1,61 @@
+﻿# --- Runtime / deps / build output ---
+**/node_modules/**
+**/.venv/**
+**/__pycache__/**
+**/.pytest_cache/**
+**/.mypy_cache/**
+**/.ruff_cache/**
+**/out/**
+**/.build/**
+**/dist/**
+**/.profile-oss
+**/coverage/**
+**/.vscode-test
+**/.playwright-cli
+**/.playwright-mcp
+**/.chat-simulation-data
+
+# --- Databases locais ---
+**/*.db
+**/*.db-shm
+**/*.db-wal
+openpolvobackend/build/**
+
+# --- Peso 0: ruído (snapshots, perf, fixtures) ---
+**/*.snap
+polvocode/test/**
+polvocode/src/**/test/**
+polvocode/extensions/copilot/test/**
+polvocode/extensions/vscode-colorize-tests/**
+polvocode/extensions/vscode-colorize-perf-tests/**
+**/fixtures/**
+**/recordings/**
+**/*perf*.data*
+**/*perf-data*
+
+# --- Assets binários / packaging ---
+polvocode/resources/**
+polvocode/build/win32/**
+polvocode/build/darwin/**
+polvocode/build/linux/**
+polvocode/build/azure-pipelines/**
+polvocode/build/checksums/**
+
+# --- Tokenizer blobs ---
+**/*.tiktoken
+
+# --- Locks e caches de build ---
+**/package-lock.json
+**/*.tsbuildinfo
+**/.eslintcache
+
+# --- IDE state (não confundir com .cursorignore) ---
+.cursor/projects/**
+
+# --- Tier C: upstream opcional (desabilitado inicialmente) ---
+polvocode/src/vs/editor/**
+polvocode/src/vs/base/**
+polvocode/src/vs/workbench/contrib/notebook/**
+polvocode/src/vs/workbench/contrib/debug/**
+polvocode/src/vs/workbench/contrib/terminalContrib/**
+polvocode/extensions/terminal-suggest/**
