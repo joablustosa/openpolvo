@@ -2,6 +2,35 @@
 
 Monorepo de um **agente de desenvolvimento** e de **automação/workflows com RAG**. Três stacks independentes que se comunicam por API HTTP/JSON.
 
+## Integração com ai-workspace (platform)
+
+Abra o repo via `ai-workspace/core.code-workspace` — multi-root: **ai-workspace** + **openpolvo** + **personal-vault**.
+
+| Variável | Valor (platform) |
+|----------|------------------|
+| `AI_EXECUTION_CONTEXT` | `platform` |
+| `AI_WORKSPACE` | caminho do clone ai-workspace |
+
+**Loop CORE** (um chat = um card):
+
+```
+/start-workspace  →  /scan OPE-123 descrição  →  /model  →  Execute plan  →  /ship  →  /close
+```
+
+| Fase | Comando / harness |
+|------|-------------------|
+| Bootstrap | `ai-workspace\install.ps1` (uma vez por máquina) |
+| Discover | `invoke-pipeline.ps1 -Pipeline <phase> -Action discover` |
+| Scan | `invoke-pipeline.ps1 -Pipeline scan -Action run` |
+| Ship | `invoke-pipeline.ps1 -Pipeline ship -Action run` |
+| Verify openpolvo | `repo-policies/openpolvo.yaml` → go build / go vet em openpolvobackend |
+
+**Linear:** `/scan` **não cria** issue no contexto platform. Passe o ID no chat (`/scan OPE-158 …`); use o plugin Linear (MCP) para ler/atualizar issues. Criação de card = manual ou futuro provider platform.
+
+**Token economy:** rules/skills em `ai-workspace/domains/core/` (caveman lite, @≤3, read-gate). Ver `ai-workspace/docs/ONBOARDING.md`.
+
+**Secrets:** personal-vault local — nunca commitar; mapear para `.env` gitignored por stack.
+
 ## Stacks e padrões
 
 | Stack | Pasta | Skill obrigatório |
@@ -33,5 +62,5 @@ Regra de ouro: subagentes só rodam em paralelo se escreverem em **arquivos disj
 ## Princípios
 
 - Código limpo, performático e tipado; **sem erros engolidos nem código morto/lixo**.
-- Contexto mínimo via RAG/`SemanticSearch`, não o repo inteiro.
+- Contexto mínimo via RAG/SemanticSearch, não o repo inteiro.
 - Cada subagente tem responsabilidade única, skill de padrão e portão de verificação.
