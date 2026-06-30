@@ -28,6 +28,7 @@ export const OPENPOLVO_DEFAULT_LOCAL_MODEL = 'llama3.2';
 export const OpenPolvoApiBaseUrlEnvVar = 'OPENPOLVO_API_BASE_URL';
 export const OpenPolvoApiTokenEnvVar = 'OPENPOLVO_API_TOKEN';
 export const OpenPolvoAgentEnabledEnvVar = 'OPENPOLVO_AGENT_ENABLED';
+export const OpenPolvoDevWorkflowEnabledEnvVar = 'OPENPOLVO_DEV_WORKFLOW_ENABLED';
 export const OpenPolvoLocalEmailEnvVar = 'OPENPOLVO_LOCAL_EMAIL';
 export const OpenPolvoLocalPasswordEnvVar = 'OPENPOLVO_LOCAL_PASSWORD';
 
@@ -43,6 +44,7 @@ export interface IOpenPolvoStarterSettings {
 	readonly baseUrl?: string;
 	readonly token?: string;
 	readonly enabled?: boolean;
+	readonly devWorkflowEnabled?: boolean;
 }
 
 export function buildOpenPolvoEnv(
@@ -59,6 +61,9 @@ export function buildOpenPolvoEnv(
 	if (settings.enabled !== undefined) {
 		setIfMissing(OpenPolvoAgentEnabledEnvVar, settings.enabled ? 'true' : 'false');
 	}
+	if (settings.devWorkflowEnabled !== undefined) {
+		setIfMissing(OpenPolvoDevWorkflowEnabledEnvVar, settings.devWorkflowEnabled ? 'true' : 'false');
+	}
 	setIfMissing(OpenPolvoApiBaseUrlEnvVar, settings.baseUrl);
 	setIfMissing(OpenPolvoApiTokenEnvVar, settings.token);
 	return out;
@@ -66,6 +71,10 @@ export function buildOpenPolvoEnv(
 
 export function isOpenPolvoAgentEnabledFromEnv(): boolean {
 	return env[OpenPolvoAgentEnabledEnvVar] !== 'false';
+}
+
+export function isOpenPolvoDevWorkflowEnabledFromEnv(): boolean {
+	return env[OpenPolvoDevWorkflowEnabledEnvVar] !== 'false';
 }
 
 export function getOpenPolvoApiBaseUrlFromEnv(): string {

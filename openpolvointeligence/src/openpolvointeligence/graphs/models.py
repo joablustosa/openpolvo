@@ -8,8 +8,31 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
 from openpolvointeligence.core.config import Settings
+from openpolvointeligence.core.ollama_health import is_ollama_usable
 
 ModelProvider = Literal["openai", "google", "ollama"]
+
+
+def cloud_fallback_provider(settings: Settings) -> ModelProvider | None:
+    if (settings.openai_api_key or "").strip():
+        return "openai"
+    if (settings.google_api_key or "").strip():
+        return "google"
+    return None
+
+
+def _fallback_if_ollama_unusable(settings: Settings, provider: ModelProvider) -> ModelProvider:
+    """Se Ollama não estiver configurado/acessível, usa GPT/Gemini quando houver chave."""
+    if provider != "ollama":
+        return provider
+    if is_ollama_usable(
+        settings.ollama_base_url,
+        settings.ollama_model,
+        enabled=settings.ollama_enabled,
+    ):
+        return "ollama"
+    cloud = cloud_fallback_provider(settings)
+    return cloud if cloud else "ollama"
 
 
 def effective_provider(p: str | None) -> ModelProvider:
@@ -34,38 +57,47 @@ def resolve_chat_provider(settings: Settings, provider: str | None) -> ModelProv
             return "openai"
         if has_google:
             return "google"
-        return "ollama"
+        return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "openai":
         if has_openai:
             return "openai"
         if has_google:
             return "google"
-        return "ollama"
+        return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "google":
         if has_google:
             return "google"
         if has_openai:
             return "openai"
-        return "ollama"
+        return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "ollama":
-        return "ollama"
+        return _fallback_if_ollama_unusable(settings, "ollama")
 
     # Valor inesperado: escolhe automaticamente o melhor disponível.
     if has_openai:
         return "openai"
     if has_google:
         return "google"
-    return "ollama"
+    return _fallback_if_ollama_unusable(settings, "ollama")
 
 
 def desk_effective_provider(p: str | None, settings: Settings) -> str:
     """Provider para pedidos Desk — default Ollama; cloud só com flag."""
     raw = str(p or "").strip().lower()
     if not raw or raw == "auto":
-        return str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
+        default = str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
+        if default == "ollama":
+            cloud = cloud_fallback_provider(settings)
+            if cloud and not is_ollama_usable(
+                settings.ollama_base_url,
+                settings.ollama_model,
+                enabled=settings.ollama_enabled,
+            ):
+                return cloud
+        return default
     if raw in ("openai", "google", "anthropic") and not settings.desk_allow_cloud_providers:
         return str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
     if raw == "anthropic":
@@ -85,7 +117,7 @@ def resolve_desk_reply_provider(
     """Provider do grafo Desk após Go resolver perfis/chaves no body."""
     mp = str(model_provider or "").strip().lower()
     if mp == "ollama":
-        return "ollama"
+        return _fallback_if_ollama_unusable(settings, "ollama")
     if mp == "openai" and settings.openai_api_key:
         return "openai"
     if mp == "google" and settings.google_api_key:
@@ -103,9 +135,15 @@ def resolve_desk_reply_provider(
         if isinstance(desk_context, dict):
             dc_mp = str(desk_context.get("model_provider") or "").strip().lower()
         if dc_mp == "ollama":
-            return "ollama"
-        return desk_effective_provider(dc_mp or "auto", settings)
-    return desk_effective_provider(model_provider, settings)
+            return _fallback_if_ollama_unusable(settings, "ollama")
+        resolved = desk_effective_provider(dc_mp or "auto", settings)
+        if resolved == "ollama":
+            return _fallback_if_ollama_unusable(settings, "ollama")
+        return resolved
+    resolved = desk_effective_provider(model_provider, settings)
+    if resolved == "ollama":
+        return _fallback_if_ollama_unusable(settings, "ollama")
+    return resolved
 
 
 def get_chat_model(
@@ -116,7 +154,7 @@ def get_chat_model(
     max_tokens: int | None = None,
 ) -> BaseChatModel:
     """Devolve o modelo de chat para o fornecedor; falha se faltar API key."""
-    ep = resolve_chat_provider(settings, provider)
+    ep = _fallback_if_ollama_unusable(settings, resolve_chat_provider(settings, provider))
     timeout = settings.agent_llm_timeout_s
     if ep == "ollama":
         kw_ollama: dict[str, Any] = {

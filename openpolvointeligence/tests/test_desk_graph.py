@@ -22,21 +22,29 @@ def test_should_continue_tools_with_tool_calls():
     state = {
         "iteration": 1,
         "max_iterations": 8,
-        "messages": [AIMessage(content="", tool_calls=[{"name": "filesystem_list", "args": {}, "id": "1"}])],
+        "messages": [
+            AIMessage(content="", tool_calls=[{"name": "filesystem_list", "args": {}, "id": "1"}])
+        ],
     }
     assert should_continue_tools(state) == "tools"
 
 
 def test_should_continue_tools_finalize():
-    assert should_continue_tools({"iteration": 9, "max_iterations": 8, "messages": []}) == "finalize"
+    assert (
+        should_continue_tools({"iteration": 9, "max_iterations": 8, "messages": []}) == "finalize"
+    )
 
 
 @pytest.mark.asyncio
-async def test_tools_node_preserves_ai_tool_call_before_tool_message(monkeypatch: pytest.MonkeyPatch):
+async def test_tools_node_preserves_ai_tool_call_before_tool_message(
+    monkeypatch: pytest.MonkeyPatch,
+):
     async def fake_dispatch(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
         return [{"content": "{}", "tool_call_id": "tc-1", "name": "filesystem_list"}]
 
-    monkeypatch.setattr("openpolvointeligence.graphs.desk.desk_graph.dispatch_tool_calls", fake_dispatch)
+    monkeypatch.setattr(
+        "openpolvointeligence.graphs.desk.desk_graph.dispatch_tool_calls", fake_dispatch
+    )
     node = make_tools_node(get_settings(), bridge_wait=lambda *_: None)
     ai = AIMessage(content="", tool_calls=[{"name": "filesystem_list", "args": {}, "id": "tc-1"}])
     out = await node(

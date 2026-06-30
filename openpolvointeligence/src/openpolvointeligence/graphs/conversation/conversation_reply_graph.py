@@ -79,7 +79,9 @@ def build_conversation_reply_graph(settings: Settings) -> Any:
                 "trace": trace,
             }
         try:
-            from openpolvointeligence.graphs.web_research.web_research_serpapi import fetch_organic_snippets
+            from openpolvointeligence.graphs.web_research.web_research_serpapi import (
+                fetch_organic_snippets,
+            )
 
             parts: list[str] = []
             for q in queries[:3]:

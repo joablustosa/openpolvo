@@ -241,6 +241,7 @@ def normalize_stack(raw: str | None) -> StackId | None:
         "go-api",
         "node-api",
         "fullstack-mixed",
+        "fullstack-react-go",
     )
     return s if s in allowed else None  # type: ignore[return-value]
 
@@ -251,10 +252,10 @@ def stack_hint_from_layers(layer: AffectedLayer, compact_stack: str | None = Non
         if norm:
             return norm
     if layer == "backend":
-        return "node-api"
+        return "go-api"
     if layer == "frontend":
         return "vite-react"
-    return "fullstack-mixed"
+    return "fullstack-react-go"
 
 
 _FRONT_ONLY_HINTS = (
@@ -295,6 +296,8 @@ def _stack_hint_from_user_prompt(user_prompt: str) -> StackId | None:
     """Detecta stack explicitamente pedida pelo utilizador."""
     p = (user_prompt or "").lower()
     if any(k in p for k in _STACK_GO_HINTS):
+        if any(k in p for k in _STACK_REACT_HINTS):
+            return "fullstack-react-go"
         return "go-api"
     if any(k in p for k in _STACK_ANGULAR_HINTS):
         return "angular"
@@ -307,7 +310,7 @@ def _stack_hint_from_user_prompt(user_prompt: str) -> StackId | None:
     if any(k in p for k in _STACK_REACT_HINTS):
         if any(k in p for k in _FRONT_ONLY_HINTS):
             return "vite-react"
-        return "fullstack-mixed"
+        return "fullstack-react-go"
     return None
 
 
@@ -323,7 +326,9 @@ def _stack_hint_from_references(
         return None
     paths = [str(p).strip().replace("\\", "/").lower() for p in manifest_paths if p]
     has_go = any(p.endswith(".go") or p.endswith("go.mod") for p in paths)
+    has_backend = any(p.startswith("backend/") for p in paths)
     has_server = any(p.startswith("server/") for p in paths)
+    has_frontend = any(p.startswith("frontend/") for p in paths)
     has_src = any(p.startswith("src/") for p in paths)
     has_angular = any(p.endswith("angular.json") for p in paths)
     has_next = any("/app/" in p or p.endswith("next.config.js") for p in paths)
@@ -331,8 +336,12 @@ def _stack_hint_from_references(
         return "angular"
     if has_next:
         return "next-react"
+    if has_backend and has_frontend:
+        return "fullstack-react-go"
+    if has_go and has_frontend:
+        return "fullstack-react-go"
     if has_go and has_src:
-        return "fullstack-mixed"
+        return "fullstack-react-go"
     if has_go:
         return "go-api"
     if has_server and has_src:

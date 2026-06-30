@@ -25,7 +25,9 @@ from openpolvointeligence.graphs.workflow_builder.workflow_specialist_prompt_log
     steps_to_graph,
     validate_graph,
 )
-from openpolvointeligence.graphs.workflow_builder.workflow_specialist_state import WorkflowSpecialistState
+from openpolvointeligence.graphs.workflow_builder.workflow_specialist_state import (
+    WorkflowSpecialistState,
+)
 
 _logger = logging.getLogger(__name__)
 _PROMPTS = Path(__file__).resolve().parent.parent.parent / "prompts" / "workflow_specialist"

@@ -14,7 +14,7 @@ import { ILogService } from '../../log/common/log.js';
 import { getResolvedShellEnv } from '../../shell/node/shellEnv.js';
 import { IAgentHostConnection, IAgentHostStarter } from '../common/agent.js';
 import { AgentHostClaudeAgentEnabledSettingId, AgentHostCodexAgentBinaryArgsSettingId, AgentHostCodexAgentEnabledSettingId, AgentHostCodexAgentSdkRootSettingId, AgentHostCodexAgentCodexHomeSettingId, AgentHostOTelCaptureContentSettingId, AgentHostOTelDbSpanExporterEnabledSettingId, AgentHostOTelEnabledSettingId, AgentHostOTelExporterTypeSettingId, AgentHostOTelOtlpEndpointSettingId, AgentHostOTelOutfileSettingId, buildAgentHostOTelEnv, buildAgentSdkEnv } from '../common/agentService.js';
-import { buildOpenPolvoEnv, OpenPolvoAgentEnabledSettingId, OpenPolvoApiBaseUrlSettingId, OpenPolvoApiTokenSettingId } from '../common/openpolvoConfiguration.js';
+import { buildOpenPolvoEnv, OpenPolvoAgentEnabledSettingId, OpenPolvoApiBaseUrlSettingId, OpenPolvoApiTokenSettingId, OpenPolvoDevWorkflowEnabledSettingId } from '../common/openpolvoConfiguration.js';
 import '../common/agentHostStarter.config.contribution.js';
 
 /**
@@ -104,6 +104,7 @@ export class NodeAgentHostStarter extends Disposable implements IAgentHostStarte
 			enabled: this._configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId),
 			baseUrl: this._configurationService.getValue<string>(OpenPolvoApiBaseUrlSettingId),
 			token: this._configurationService.getValue<string>(OpenPolvoApiTokenSettingId),
+			devWorkflowEnabled: this._configurationService.getValue<boolean>(OpenPolvoDevWorkflowEnabledSettingId),
 		}, process.env);
 		Object.assign(env, openPolvoEnv);
 

@@ -324,7 +324,7 @@ def normalize_architect_plan(
                 rag_relevant_paths,
             )
 
-    stack = str(data.get("stack") or exec_raw.get("scope") or stack_hint or "fullstack-mixed")
+    stack = str(data.get("stack") or exec_raw.get("scope") or stack_hint or "fullstack-react-go")
     if stack not in (
         "next-react",
         "angular",
@@ -332,8 +332,9 @@ def normalize_architect_plan(
         "go-api",
         "node-api",
         "fullstack-mixed",
+        "fullstack-react-go",
     ):
-        stack = stack_hint or "fullstack-mixed"
+        stack = stack_hint or "fullstack-react-go"
 
     scope = str(exec_raw.get("scope") or data.get("scope") or affected_layers)
 
@@ -374,6 +375,10 @@ def normalize_architect_plan(
 
 
 def build_architect_human_suffix(state: dict[str, Any]) -> str:
+    from openpolvointeligence.graphs.dev_workflow.agents.agent_context import (
+        build_agent_context_block,
+    )
+
     layer = state.get("affected_layers") or "fullstack"
     compact = state.get("compact_context_map") or {}
     manifest = [
@@ -393,7 +398,7 @@ def build_architect_human_suffix(state: dict[str, Any]) -> str:
             f"{', '.join(rag_paths[:20])}\n"
             f"Não modifiques outros ficheiros do app neste turno."
         )
-    return (
+    body = (
         f"\n\n## Router decidiu\n"
         f"- Camadas: **{layer}**\n"
         f"- Stack hint: {state.get('stack_hint') or 'auto'}\n"
@@ -405,3 +410,4 @@ def build_architect_human_suffix(state: dict[str, Any]) -> str:
         f"para esta feature. Não incluas ficheiros fora do scope `{layer}`."
         f"{rag_note}"
     )
+    return body + build_agent_context_block(state)

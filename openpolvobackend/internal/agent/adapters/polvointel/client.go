@@ -64,7 +64,7 @@ func (c *Client) Reply(ctx context.Context, in agentports.ReplyInput) (string, m
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", nil, err
+		return "", nil, wrapTransportError(err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
@@ -261,7 +261,7 @@ func (c *Client) ReplyStream(ctx context.Context, in agentports.ReplyInput) (io.
 	streamClient := &http.Client{}
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, wrapTransportError(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -282,7 +282,7 @@ func (c *Client) Readyz(ctx context.Context) error {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return wrapTransportError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

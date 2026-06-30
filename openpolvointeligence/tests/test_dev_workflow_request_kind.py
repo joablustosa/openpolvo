@@ -125,7 +125,60 @@ def test_create_project_only_for_new_app():
 def test_prefers_diff_mode():
     assert prefers_diff_mode("bug_fix") is True
     assert prefers_diff_mode("feature") is True
+    assert prefers_diff_mode("refactor") is True
     assert prefers_diff_mode("new_app") is False
+
+
+def test_refactor_keywords():
+    kind = classify_request_kind(
+        "refatora o módulo de autenticação e separa responsabilidades",
+        has_project=True,
+    )
+    assert kind == "refactor"
+
+
+def test_api_design_keywords():
+    kind = classify_request_kind(
+        "desenha a api rest com openapi e documenta os endpoints",
+        has_project=True,
+    )
+    assert kind == "api_design"
+
+
+def test_route_for_refactor_and_api_design():
+    assert route_for_request_kind("refactor") == "architect"
+    assert route_for_request_kind("api_design") == "architect"
+
+
+def test_normalize_refactor_and_api_design_aliases():
+    assert normalize_request_kind("refactoring") == "refactor"
+    assert normalize_request_kind("openapi") == "api_design"
+
+
+def test_edit_keywords():
+    kind = classify_request_kind(
+        "edita o componente Header para usar o novo logo",
+        has_project=True,
+    )
+    assert kind == "edit"
+
+
+def test_delete_keywords():
+    kind = classify_request_kind(
+        "remove o componente LegacyFooter e limpa imports",
+        has_project=True,
+    )
+    assert kind == "delete"
+
+
+def test_route_for_edit_and_delete():
+    assert route_for_request_kind("edit") == "patch"
+    assert route_for_request_kind("delete") == "architect"
+
+
+def test_create_project_not_for_delete():
+    assert create_project_for_kind("delete", has_workspace=True) is False
+    assert create_project_for_kind("edit", has_workspace=True) is False
 
 
 def test_parse_router_response_emits_request_kind_bug():

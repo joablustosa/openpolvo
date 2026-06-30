@@ -24,6 +24,8 @@ import { defaultButtonStyles } from '../../../../platform/theme/browser/defaultS
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IPolvoAgentConversationsService } from './polvoAgentConversationsService.js';
 import { PolvoAgentChatEditorInput } from './polvoAgentChatEditorInput.js';
+import { IPolvoAgentHistorySyncService } from './polvoAgentHistorySyncService.js';
+import { IOpenPolvoSignInService } from './openPolvoAuth.js';
 
 const $ = dom.$;
 
@@ -45,6 +47,8 @@ export class PolvoAgentConversationsView extends ViewPane {
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@IPolvoAgentConversationsService private readonly conversationsService: IPolvoAgentConversationsService,
+		@IPolvoAgentHistorySyncService private readonly historySyncService: IPolvoAgentHistorySyncService,
+		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
 		@IEditorService private readonly editorService: IEditorService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -59,6 +63,11 @@ export class PolvoAgentConversationsView extends ViewPane {
 		newChatButton.label = `$(${Codicon.add.id}) ${localize('polvoNewChat', "Nova conversa")}`;
 		newChatButton.element.classList.add('polvo-new-chat-button');
 		this._register(newChatButton.onDidClick(() => void this.createNewConversation()));
+
+		const syncButton = this._register(new Button(header, { ...defaultButtonStyles, supportIcons: true, secondary: true }));
+		syncButton.label = `$(${Codicon.refresh.id}) ${localize('polvoSyncConversations', "Sincronizar")}`;
+		syncButton.element.classList.add('polvo-conversations-sync-button');
+		this._register(syncButton.onDidClick(() => void this.syncConversations()));
 
 		this.listContainer = dom.append(container, $('.polvo-conversations-list'));
 
@@ -110,6 +119,9 @@ export class PolvoAgentConversationsView extends ViewPane {
 
 			const title = dom.append(item, $('.title'));
 			title.textContent = conversation.title;
+			if (conversation.updatedAt) {
+				item.title = conversation.updatedAt;
+			}
 
 			const optionsButton = document.createElement('button');
 			optionsButton.className = 'polvo-conversation-options';
@@ -155,7 +167,16 @@ export class PolvoAgentConversationsView extends ViewPane {
 			return;
 		}
 		this.conversationsService.setActiveConversation(conversationId);
+		if (conversation.apiSessionId && conversation.messages.length === 0) {
+			await this.historySyncService.syncConversationMessages(conversationId);
+		}
 		await this.editorService.openEditor(new PolvoAgentChatEditorInput(conversation.resource), { pinned: true, revealIfOpened: true });
+	}
+
+	private async syncConversations(): Promise<void> {
+		await this.signInService.ensureSignedIn();
+		await this.historySyncService.syncOnStartup();
+		this.renderList();
 	}
 
 	private async deleteConversation(conversationId: string): Promise<void> {

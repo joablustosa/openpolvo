@@ -30,6 +30,7 @@ type StreamMessageCommand struct {
 	CompileLog         string
 	DeskContext        map[string]any
 	Attachments        []agentports.MessageAttachment
+	UserMessageMetadata map[string]any
 }
 
 // StreamEvent é o evento SSE deserializado do Python.
@@ -94,6 +95,9 @@ func (s *StreamMessage) Prepare(ctx context.Context, cmd StreamMessageCommand) (
 		Role:           "user",
 		Content:        text,
 		CreatedAt:      time.Now().UTC(),
+	}
+	if len(cmd.UserMessageMetadata) > 0 {
+		userMsg.Metadata, _ = json.Marshal(cmd.UserMessageMetadata)
 	}
 	if err := s.Messages.Create(ctx, &userMsg); err != nil {
 		return nil, err

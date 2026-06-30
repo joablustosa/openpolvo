@@ -20,7 +20,7 @@ import { NullTelemetryService } from '../../telemetry/common/telemetryUtils.js';
 import { UtilityProcess } from '../../utilityProcess/electron-main/utilityProcess.js';
 import { IAgentHostConnection, IAgentHostStarter } from '../common/agent.js';
 import { AgentHostClaudeAgentEnabledSettingId, AgentHostCodexAgentBinaryArgsSettingId, AgentHostCodexAgentEnabledSettingId, AgentHostCodexAgentSdkRootSettingId, AgentHostCodexAgentCodexHomeSettingId, AgentHostOTelCaptureContentSettingId, AgentHostOTelDbSpanExporterEnabledSettingId, AgentHostOTelEnabledSettingId, AgentHostOTelExporterTypeSettingId, AgentHostOTelOtlpEndpointSettingId, AgentHostOTelOutfileSettingId, buildAgentHostOTelEnv, buildAgentSdkEnv } from '../common/agentService.js';
-import { buildOpenPolvoEnv, OpenPolvoAgentEnabledSettingId, OpenPolvoApiBaseUrlSettingId, OpenPolvoApiTokenSettingId } from '../common/openpolvoConfiguration.js';
+import { buildOpenPolvoEnv, OpenPolvoAgentEnabledSettingId, OpenPolvoApiBaseUrlSettingId, OpenPolvoApiTokenSettingId, OpenPolvoDevWorkflowEnabledSettingId } from '../common/openpolvoConfiguration.js';
 import { deepClone } from '../../../base/common/objects.js';
 import '../common/agentHost.config.contribution.js';
 import '../common/agentHostStarter.config.contribution.js';
@@ -94,6 +94,7 @@ export class ElectronAgentHostStarter extends Disposable implements IAgentHostSt
 			enabled: this._configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId),
 			baseUrl: this._configurationService.getValue<string>(OpenPolvoApiBaseUrlSettingId),
 			token: this._configurationService.getValue<string>(OpenPolvoApiTokenSettingId),
+			devWorkflowEnabled: this._configurationService.getValue<boolean>(OpenPolvoDevWorkflowEnabledSettingId),
 		}, process.env);
 
 		const args = [

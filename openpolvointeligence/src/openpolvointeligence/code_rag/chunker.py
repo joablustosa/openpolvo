@@ -15,7 +15,9 @@ from openpolvointeligence.code_rag.types import (
     CodeChunk,
     LayerHint,
 )
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_context_manager import extract_file_structure
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_context_manager import (
+    extract_file_structure,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_state import content_sha256, infer_lang
 
 MAX_FILE_BYTES = 64_000

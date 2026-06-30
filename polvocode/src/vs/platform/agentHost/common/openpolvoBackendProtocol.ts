@@ -25,6 +25,7 @@ export const OfficialRoutes = {
 	conversations: '/v1/conversations',
 	conversationMessages: (id: string) => `/v1/conversations/${id}/messages`,
 	conversationStream: (id: string) => `/v1/conversations/${id}/messages/stream`,
+	conversationAgentMemory: (id: string) => `/v1/conversations/${id}/agent-memory`,
 	deskToolResult: (id: string) => `/v1/conversations/${id}/desk-tool-result`,
 	llmProfiles: '/v1/llm/profiles',
 	llmAgentPrefs: '/v1/llm/agent-prefs',
@@ -63,6 +64,13 @@ export interface IOpenPolvoAttachment {
 	data_base64: string;
 }
 
+export interface IOpenPolvoCodeReference {
+	path: string;
+	start_line: number;
+	end_line: number;
+	text: string;
+}
+
 export interface IOpenPolvoChatBody {
 	text: string;
 	model_provider?: OfficialModelProvider;
@@ -75,6 +83,7 @@ export interface IOpenPolvoChatBody {
 	dev_studio_context?: Record<string, unknown>;
 	compile_log?: string;
 	attachments?: IOpenPolvoAttachment[];
+	code_references?: IOpenPolvoCodeReference[];
 }
 
 export interface IOfficialMessage {
@@ -98,6 +107,7 @@ export interface INormalizedStreamEvent {
 	| 'progress'
 	| 'agent_event'
 	| 'file'
+	| 'file_edit'
 	| 'tool_call'
 	| 'messages_saved';
 	content?: string;
@@ -106,7 +116,14 @@ export interface INormalizedStreamEvent {
 	done?: boolean;
 	agentEventType?: string;
 	payload?: Record<string, unknown>;
-	file?: { path: string; language?: string; content: string };
+	file?: { path: string; language?: string; content?: string; op?: 'write' | 'mkdir' | 'delete' };
+	fileEdit?: {
+		path: string;
+		op?: 'write' | 'mkdir';
+		added?: number;
+		removed?: number;
+		uri?: string;
+	};
 	messages?: IOfficialMessage[];
 	metadata?: Record<string, unknown>;
 }
@@ -148,6 +165,7 @@ export interface IBuildChatBodyOptions {
 		'sandbox_project_id' | 'project_file_tree' | 'project_files' | 'preview_console_logs' | 'dev_studio_context' | 'compile_log'
 	>;
 	attachments?: IOpenPolvoAttachment[];
+	codeReferences?: IOpenPolvoCodeReference[];
 }
 
 export function buildChatBody(text: string, options: IBuildChatBodyOptions = {}): IOpenPolvoChatBody {
@@ -170,6 +188,9 @@ export function buildChatBody(text: string, options: IBuildChatBodyOptions = {})
 	}
 	if (options.attachments && options.attachments.length > 0) {
 		body.attachments = options.attachments;
+	}
+	if (options.codeReferences && options.codeReferences.length > 0) {
+		body.code_references = options.codeReferences;
 	}
 	return body;
 }
@@ -237,7 +258,8 @@ interface IRawOfficialEvent {
 	metadata?: Record<string, unknown>;
 	event_type?: string;
 	payload?: Record<string, unknown>;
-	file?: { path?: string; language?: string; content?: string };
+	file?: { path?: string; language?: string; content?: string; op?: 'write' | 'mkdir' };
+	file_edit?: { path?: string; op?: 'write' | 'mkdir'; added?: number; removed?: number; uri?: string };
 	messages?: IOfficialMessage[];
 	done?: boolean;
 }
@@ -305,10 +327,38 @@ export class BackendStreamNormalizer {
 			}
 			case 'file': {
 				const f = evt.file;
-				if (!f?.path || typeof f.content !== 'string') {
+				if (!f?.path) {
 					return [];
 				}
-				return [{ type: 'file', file: { path: f.path, language: f.language, content: f.content } }];
+				const op = f.op === 'mkdir' ? 'mkdir' : f.op === 'delete' ? 'delete' : 'write';
+				if (op === 'write' && typeof f.content !== 'string') {
+					return [];
+				}
+				return [{
+					type: 'file',
+					file: {
+						path: f.path,
+						language: f.language,
+						content: f.content ?? '',
+						op,
+					},
+				}];
+			}
+			case 'file_edit': {
+				const edit = evt.file_edit;
+				if (!edit?.path) {
+					return [];
+				}
+				return [{
+					type: 'file_edit',
+					fileEdit: {
+						path: edit.path,
+						op: edit.op,
+						added: typeof edit.added === 'number' ? edit.added : undefined,
+						removed: typeof edit.removed === 'number' ? edit.removed : undefined,
+						uri: typeof edit.uri === 'string' ? edit.uri : undefined,
+					},
+				}];
 			}
 			case 'messages_saved': {
 				return [{ type: 'messages_saved', messages: evt.messages ?? [] }];

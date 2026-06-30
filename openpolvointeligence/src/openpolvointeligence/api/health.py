@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-import httpx
 from fastapi import HTTPException
 
 from openpolvointeligence.core.config import get_settings
+from openpolvointeligence.core.ollama_health import is_ollama_reachable
 
 
 async def check_ollama_reachable(base_url: str) -> bool:
-    url = base_url.rstrip("/") + "/api/tags"
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            r = await client.get(url)
-            return r.status_code == 200
-    except httpx.HTTPError:
-        return False
+    return is_ollama_reachable(base_url, timeout_s=3.0)
 
 
 async def readyz_payload() -> dict[str, str]:

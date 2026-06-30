@@ -12,18 +12,25 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_code_rag import (
     retrieve_for_reviewer,
     stable_project_id,
 )
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_logic import resolve_codegen_operations
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_per_task import (
+    op_paths_from_ops,
+    plan_paths_from_plan,
+    run_codegen_per_task,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_orchestrator_logic import (
     build_orchestrator_human_suffix,
     normalize_build_tasks,
     validate_orchestration,
 )
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_prompt_enricher_logic import normalize_enriched_prompt
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_prompt_enricher_logic import (
+    normalize_enriched_prompt,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_review_logic import parse_review_response
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_team import run_team_review_loop
 from openpolvointeligence.graphs.models import get_chat_model
-from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import validate_polvo_code_operations
-from openpolvointeligence.graphs.dev_workflow.preview_source_sanitize import preview_source_has_forbidden_imports
+from openpolvointeligence.graphs.dev_workflow.preview_source_sanitize import (
+    preview_source_has_forbidden_imports,
+)
 
 
 def _strip_json_fence(s: str) -> str:
@@ -88,6 +95,15 @@ def gate_orchestration(
     return validate_orchestration(build_tasks, plan)
 
 
+def _norm_path(p: str) -> str:
+    return str(p).strip().replace("\\", "/").lstrip("/")
+
+
+def _is_backend_path(path: str) -> bool:
+    p = _norm_path(path)
+    return p.startswith("server/") or p.startswith("backend/")
+
+
 def gate_codegen_result(result: dict[str, Any], plan: dict[str, Any]) -> tuple[bool, list[str]]:
     errors: list[str] = []
     verr = result.get("validation_errors") or []
@@ -95,13 +111,12 @@ def gate_codegen_result(result: dict[str, Any], plan: dict[str, Any]) -> tuple[b
     valid = result.get("polvo_code_ops") or []
     if not valid:
         errors.append("nenhuma operação válida gerada")
-    plan_paths = set(
-        str(p).replace("\\", "/")
-        for p in (plan.get("files_to_create") or []) + (plan.get("files_to_modify") or [])
-        if p
-    )
+    plan_paths = plan_paths_from_plan(plan)
     if plan_paths:
-        op_paths = {str(o.get("path", "")).replace("\\", "/") for o in valid}
+        op_paths = op_paths_from_ops(valid)
+        missing = plan_paths - op_paths
+        if missing and not result.get("diff_mode"):
+            errors.append(f"paths em falta: {', '.join(sorted(missing)[:8])}")
         if not op_paths & plan_paths and not result.get("diff_mode"):
             errors.append("ops não cobrem ficheiros do plano")
     for o in valid:
@@ -262,12 +277,13 @@ async def run_backend_codegen_team(
     project_files: dict[str, str],
     plan: dict[str, Any],
     max_rounds: int,
+    stack: str | None = None,
 ) -> dict[str, Any]:
-    """Time dedicado a ficheiros server/* e schema Drizzle."""
+    """Time dedicado a ficheiros backend (server/* ou backend/*)."""
     backend_tasks = [
         t
         for t in (state.get("build_tasks") or [])
-        if str(t.get("path", "")).replace("\\", "/").startswith("server/")
+        if _is_backend_path(str(t.get("path", "")))
     ]
     if not backend_tasks:
         return {
@@ -292,14 +308,25 @@ async def run_backend_codegen_team(
     backend_state = dict(state)
     backend_state["build_tasks"] = backend_tasks
 
-    backend_human = (
-        human_base + "\n\n## Camada backend (OBRIGATÓRIO neste turno)\n"
-        "Gera ficheiros em server/* usando Hono + Drizzle + PGlite (já no scaffold).\n"
-        "Usa imports de drizzle-orm/pg-core, hono, @electric-sql/pglite.\n"
-        "Regista rotas em server/index.ts via app.route().\n"
-        f"api_endpoints: {json.dumps(plan.get('api_endpoints') or plan.get('backend_routes') or [], ensure_ascii=False)[:2000]}\n"
-        f"db_tables: {json.dumps(plan.get('db_tables') or [], ensure_ascii=False)[:2000]}\n"
-    )
+    if stack == "fullstack-react-go" or any(
+        str(t.get("path", "")).startswith("backend/") for t in backend_tasks
+    ):
+        backend_human = (
+            human_base + "\n\n## Camada backend Go (OBRIGATÓRIO neste turno)\n"
+            "Gera ficheiros em backend/internal/app/* seguindo hexagonal (domain/ports/application/adapters).\n"
+            "Regista rotas em backend/internal/transport/http/router.go via chi.\n"
+            "Não reescrevas backend/cmd/api/main.go nem middleware CORS base.\n"
+            f"api_endpoints: {json.dumps(plan.get('api_endpoints') or plan.get('backend_routes') or [], ensure_ascii=False)[:2000]}\n"
+        )
+    else:
+        backend_human = (
+            human_base + "\n\n## Camada backend (OBRIGATÓRIO neste turno)\n"
+            "Gera ficheiros em server/* usando Hono + Drizzle + PGlite (já no scaffold).\n"
+            "Usa imports de drizzle-orm/pg-core, hono, @electric-sql/pglite.\n"
+            "Regista rotas em server/index.ts via app.route().\n"
+            f"api_endpoints: {json.dumps(plan.get('api_endpoints') or plan.get('backend_routes') or [], ensure_ascii=False)[:2000]}\n"
+            f"db_tables: {json.dumps(plan.get('db_tables') or [], ensure_ascii=False)[:2000]}\n"
+        )
     return await run_codegen_team(
         settings,
         backend_state,
@@ -323,46 +350,28 @@ async def run_codegen_team(
     plan: dict[str, Any],
     max_rounds: int,
 ) -> dict[str, Any]:
-    chat = get_chat_model(
-        settings,
-        state.get("model_provider"),
-        json_mode=True,
-        max_tokens=16384,
-    )
     build_tasks = state.get("build_tasks") or []
     reviewer_ctx = await _reviewer_context(settings, state)
 
     async def worker(guidance: str | None) -> dict[str, Any]:
-        human = human_base
-        if build_tasks:
-            human += (
-                f"\n\n## Tarefas ordenadas (executar todas)\n"
-                f"{json.dumps(build_tasks, ensure_ascii=False)[:4000]}"
-            )
-        if guidance:
-            human += f"\n\n## Correcções do revisor de código\n{guidance[:2500]}"
-        resp = await chat.ainvoke(
-            [SystemMessage(content=codegen_sys), HumanMessage(content=human)],
+        per_task = await run_codegen_per_task(
+            settings,
+            state,
+            codegen_sys=codegen_sys,
+            human_base=human_base,
+            project_files=project_files,
+            plan=plan,
+            build_tasks=build_tasks,
+            parse_json=_parse_json_object,
+            guidance=guidance,
         )
-        data = _parse_json_object(str(resp.content))
-        ops_raw = data.get("operations")
-        if not isinstance(ops_raw, list):
-            ops_raw = []
-        resolved, resolve_errs = resolve_codegen_operations(ops_raw, project_files, plan)
-        if not resolved and plan.get("files_to_modify"):
-            resolved_loose, loose_errs = resolve_codegen_operations(ops_raw, project_files, {})
-            if len(resolved_loose) > len(resolved):
-                resolved = resolved_loose
-                resolve_errs = resolve_errs + loose_errs
-        valid, verr = validate_polvo_code_operations(resolved)
         return {
-            "data": data,
-            "polvo_code_ops": valid,
-            "pending_writes": [
-                {"op": o["op"], "path": o["path"], "content": o.get("content")} for o in valid
-            ],
-            "validation_errors": verr + resolve_errs,
-            "assistant_reply": str(data.get("assistant_reply") or "").strip(),
+            "data": per_task.get("data") or {},
+            "polvo_code_ops": per_task.get("polvo_code_ops") or [],
+            "pending_writes": per_task.get("pending_writes") or [],
+            "validation_errors": per_task.get("validation_errors") or [],
+            "assistant_reply": str(per_task.get("assistant_reply") or "").strip(),
+            "coverage": per_task.get("coverage"),
         }
 
     async def reviewer(result: dict[str, Any]) -> dict[str, Any]:
@@ -414,7 +423,8 @@ async def run_fullstack_codegen_team(
     plan: dict[str, Any],
     max_rounds: int,
 ) -> dict[str, Any]:
-    """Executa times backend (server/*) e frontend (src/*) e funde ops."""
+    """Executa times backend e frontend e funde ops."""
+    stack = str(plan.get("stack") or state.get("stack_hint") or "")
     backend_out = await run_backend_codegen_team(
         settings,
         state,
@@ -424,6 +434,7 @@ async def run_fullstack_codegen_team(
         project_files=project_files,
         plan=plan,
         max_rounds=max_rounds,
+        stack=stack,
     )
     # Claude Code-like: o frontend vê o backend já "escrito" neste turno.
     be_ops = list((backend_out.get("result") or {}).get("polvo_code_ops") or [])
@@ -440,9 +451,7 @@ async def run_fullstack_codegen_team(
 
     build_tasks = state.get("build_tasks") or []
     frontend_tasks = [
-        t
-        for t in build_tasks
-        if not str(t.get("path", "")).replace("\\", "/").startswith("server/")
+        t for t in build_tasks if not _is_backend_path(str(t.get("path", "")))
     ]
     fe_state = dict(state)
     fe_state["build_tasks"] = frontend_tasks
@@ -460,11 +469,21 @@ async def run_fullstack_codegen_team(
             "\n\n## Backend já gerado neste turno (consome via fetch /api/*)\n"
             + "\n".join(f"- {p}" for p in backend_summary_lines[:20])
         )
-    frontend_human = (
-        human_base + "\n\n## Camada frontend\n"
-        "Usa react-router-dom (BrowserRouter no main.tsx). Páginas em src/pages/*.\n"
-        "Consome API via src/lib/api.ts (fetch /api/*). Não reescrevas server/*.\n" + backend_block
-    )
+    if stack == "fullstack-react-go" or any(
+        str(t.get("path", "")).startswith("frontend/") for t in frontend_tasks
+    ):
+        frontend_human = (
+            human_base + "\n\n## Camada frontend\n"
+            "Usa react-router-dom (BrowserRouter no main.tsx). Páginas em frontend/src/pages/*.\n"
+            "Consome API via frontend/src/lib/api.ts (fetch /api/*). Não reescrevas backend/*.\n"
+            + backend_block
+        )
+    else:
+        frontend_human = (
+            human_base + "\n\n## Camada frontend\n"
+            "Usa react-router-dom (BrowserRouter no main.tsx). Páginas em src/pages/*.\n"
+            "Consome API via src/lib/api.ts (fetch /api/*). Não reescrevas server/*.\n" + backend_block
+        )
     frontend_out = await run_codegen_team(
         settings,
         fe_state,

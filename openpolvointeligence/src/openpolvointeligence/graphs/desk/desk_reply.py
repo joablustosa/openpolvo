@@ -6,19 +6,28 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator
 
-import httpx
-
 from openpolvointeligence.core.config import Settings
+from openpolvointeligence.core.ollama_health import is_ollama_reachable_async
 from openpolvointeligence.graphs.desk.desk_graph import build_desk_graph
 from openpolvointeligence.graphs.desk.desk_routing import (
     desk_conversation_id,
     desk_workspace_path,
 )
 from openpolvointeligence.graphs.desk.desk_state import initial_desk_state
-from openpolvointeligence.graphs.desk.desk_tool_bridge import DeskToolBridge, clear_bridge, set_bridge
-from openpolvointeligence.graphs.models import effective_provider, resolve_desk_reply_provider
+from openpolvointeligence.graphs.desk.desk_tool_bridge import (
+    DeskToolBridge,
+    clear_bridge,
+    set_bridge,
+)
+from openpolvointeligence.graphs.models import (
+    cloud_fallback_provider,
+    effective_provider,
+    resolve_desk_reply_provider,
+)
 from openpolvointeligence.graphs.agent_memory_utils import finalize_reply_metadata
-from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic import apply_rich_format_to_reply
+from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic import (
+    apply_rich_format_to_reply,
+)
 from openpolvointeligence.graphs.email.email_send_reply import try_apply_email_send_metadata
 from openpolvointeligence.graphs.message_utils import tail_messages
 
@@ -47,21 +56,11 @@ _CONNECTION_MARKERS = (
 
 
 async def _ollama_reachable(settings: Settings, timeout_s: float = 2.0) -> bool:
-    base = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
-    try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            r = await client.get(f"{base}/api/tags")
-            return r.status_code < 500
-    except Exception:  # noqa: BLE001
-        return False
+    return await is_ollama_reachable_async(settings.ollama_base_url, timeout_s=timeout_s)
 
 
 def _has_cloud_key(settings: Settings) -> str | None:
-    if (settings.openai_api_key or "").strip():
-        return "openai"
-    if (settings.google_api_key or "").strip():
-        return "google"
-    return None
+    return cloud_fallback_provider(settings)
 
 
 _AUTH_MARKERS = (

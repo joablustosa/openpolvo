@@ -10,7 +10,7 @@ from openpolvointeligence.graphs.dev_workflow.layout_scaffold_heal_logic import 
 )
 from openpolvointeligence.graphs.dev_workflow.shadcn_scaffold_exports import rewrite_shadcn_imports
 
-MAX_FULL_WRITE_LINES = 80
+MAX_FULL_WRITE_LINES = 150
 MAX_PATCHES_PER_FILE = 12
 
 

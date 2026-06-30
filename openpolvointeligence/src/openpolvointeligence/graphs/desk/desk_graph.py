@@ -15,7 +15,10 @@ from openpolvointeligence.graphs.agent_memory_utils import (
     truncate_memory_for_desk,
 )
 from openpolvointeligence.graphs.desk.desk_state import DeskAgentState, truncate_trace
-from openpolvointeligence.graphs.desk.desk_tool_logic import desk_langchain_tools, dispatch_tool_calls
+from openpolvointeligence.graphs.desk.desk_tool_logic import (
+    desk_langchain_tools,
+    dispatch_tool_calls,
+)
 from openpolvointeligence.graphs.message_utils import tail_messages
 from openpolvointeligence.graphs.email.email_send_reply import format_smtp_block_for_prompt
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model

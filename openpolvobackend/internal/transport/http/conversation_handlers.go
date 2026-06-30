@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	agentports "github.com/open-polvo/open-polvo/internal/agent/ports"
+	"github.com/open-polvo/open-polvo/internal/agent/adapters/polvointel"
 	"github.com/open-polvo/open-polvo/internal/conversations/application"
 	"github.com/open-polvo/open-polvo/internal/conversations/domain"
 	convports "github.com/open-polvo/open-polvo/internal/conversations/ports"
@@ -134,6 +136,7 @@ type postMessageRequest struct {
 	CompileLog         string            `json:"compile_log,omitempty"`
 	DeskContext        map[string]any    `json:"desk_context,omitempty"`
 	Attachments        []attachmentDTO   `json:"attachments,omitempty"`
+	CodeReferences     []codeReferenceDTO `json:"code_references,omitempty"`
 }
 
 type attachmentDTO struct {
@@ -398,6 +401,13 @@ func (h *ConversationHandlers) PostMessage(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, convports.ErrModelNotConfigured):
 			writeError(w, http.StatusServiceUnavailable, "no API key for the selected model provider")
 			return
+		case errors.Is(err, polvointel.ErrUnreachable):
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"Open Polvo Intelligence não está em execução. Inicie: cd openpolvointeligence && python -m openpolvointeligence.main",
+			)
+			return
 		}
 		slog.Error("send message", "err", err)
 		writeError(
@@ -547,11 +557,12 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusRequestEntityTooLarge, "attachment too large (max 8 MB per file)")
 		return
 	}
-	// Prepara: guarda mensagem do utilizador, abre stream Python.
+	enrichedText, userMeta := applyCodeReferences(req.Text, req.CodeReferences)
 	result, err := h.StreamMsg.Prepare(r.Context(), application.StreamMessageCommand{
 		UserID:             uid,
 		ConversationID:     cid,
-		Text:               req.Text,
+		Text:               enrichedText,
+		UserMessageMetadata: userMeta,
 		ModelProvider:      mp,
 		LLMProfileID:       profID,
 		SandboxProjectID:   req.SandboxProjectID,
@@ -574,6 +585,12 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 			writeError(w, http.StatusBadRequest, "text is required")
 		case errors.Is(err, convports.ErrAgentDisabled):
 			writeError(w, http.StatusServiceUnavailable, "agent not configured")
+		case errors.Is(err, polvointel.ErrUnreachable):
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"Open Polvo Intelligence não está em execução. Inicie: cd openpolvointeligence && python -m openpolvointeligence.main",
+			)
 		default:
 			slog.Error("stream message prepare", "err", err)
 			writeError(w, http.StatusBadGateway, "failed: "+truncateForClientErr(err.Error(), 300))
@@ -591,12 +608,32 @@ func (h *ConversationHandlers) StreamMessage(w http.ResponseWriter, r *http.Requ
 
 	flusher, canFlush := w.(http.Flusher)
 
+	var writeMu sync.Mutex
 	sendLine := func(line string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		fmt.Fprintf(w, "%s\n\n", line)
 		if canFlush {
 			flusher.Flush()
 		}
 	}
+
+	pingDone := make(chan struct{})
+	defer close(pingDone)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingDone:
+				return
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				sendLine(": ping")
+			}
+		}
+	}()
 
 	// Proxy linha a linha do stream Python.
 	var assistantText string

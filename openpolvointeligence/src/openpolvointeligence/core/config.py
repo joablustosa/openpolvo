@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     )
     port: int = Field(default=8090, validation_alias="PORT")
 
+    @field_validator("openai_api_key", "google_api_key", mode="before")
+    @classmethod
+    def _blank_api_key_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("serpapi_ddg_safe", mode="before")
     @classmethod
     def _coerce_serpapi_ddg_safe(cls, v: object) -> int:
@@ -99,12 +106,41 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEV_WORKFLOW_ERROR_MEMORY_ENABLED",
     )
+    dev_workflow_legacy_core: bool = Field(
+        default=False,
+        validation_alias="DEV_WORKFLOW_LEGACY_CORE",
+    )
+    dev_workflow_agent_loop_enabled: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_AGENT_LOOP_ENABLED",
+    )
+    dev_workflow_agent_loop_max_iterations: int = Field(
+        default=20,
+        validation_alias="DEV_WORKFLOW_AGENT_LOOP_MAX_ITERATIONS",
+    )
+    dev_workflow_auto_commit: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_AUTO_COMMIT",
+    )
+    dev_workflow_terminal_timeout_s: float = Field(
+        default=120.0,
+        validation_alias="DEV_WORKFLOW_TERMINAL_TIMEOUT_S",
+    )
+    dev_workflow_checkpoint_enabled: bool = Field(
+        default=False,
+        validation_alias="DEV_WORKFLOW_CHECKPOINT_ENABLED",
+    )
+    dev_workflow_checkpoint_path: str = Field(
+        default=".dev_workflow_checkpoints.sqlite",
+        validation_alias="DEV_WORKFLOW_CHECKPOINT_PATH",
+    )
     # Desk MVP — Ollama local + tools
     ollama_base_url: str = Field(
         default="http://127.0.0.1:11434",
         validation_alias="OLLAMA_BASE_URL",
     )
     ollama_model: str = Field(default="llama3.2", validation_alias="OLLAMA_MODEL")
+    ollama_enabled: bool = Field(default=True, validation_alias="OLLAMA_ENABLED")
     desk_default_provider: str = Field(default="ollama", validation_alias="DESK_DEFAULT_PROVIDER")
     desk_allow_cloud_providers: bool = Field(
         default=False,

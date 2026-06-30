@@ -20,7 +20,9 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_error_memory import (
     index_error_fix,
     recall_similar_errors,
 )
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import _stable_project_id_for_pipeline
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import (
+    _stable_project_id_for_pipeline,
+)
 
 AUTH_ROUTE = """\
 import { Hono } from 'hono';

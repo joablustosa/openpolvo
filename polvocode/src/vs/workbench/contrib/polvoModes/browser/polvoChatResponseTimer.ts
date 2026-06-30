@@ -23,7 +23,14 @@ export function isAssistantResponseLoading(
 	if (!isLast || message.role !== 'assistant' || message.responseTimeSeconds !== undefined) {
 		return false;
 	}
-	return isSending || !message.content || !!message.pdfGenerating || !!message.richFormatting;
+	return (
+		isSending && (
+			!message.content
+			|| !!message.pdfGenerating
+			|| !!message.richFormatting
+			|| (!!message.devFormatting && !message.devStepDone)
+		)
+	);
 }
 
 export function appendResponseTimerLabel(messageEl: HTMLElement, seconds: number, loading: boolean): void {

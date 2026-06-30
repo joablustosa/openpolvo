@@ -14,8 +14,13 @@ from langgraph.graph import END, START, StateGraph
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.message_utils import last_user_text
 from openpolvointeligence.graphs.models import get_chat_model
-from openpolvointeligence.graphs.web_research.site_research_subgraph import build_site_research_graph
-from openpolvointeligence.graphs.web_research.web_research_serpapi import fetch_organic_snippets, parse_plan_json
+from openpolvointeligence.graphs.web_research.site_research_subgraph import (
+    build_site_research_graph,
+)
+from openpolvointeligence.graphs.web_research.web_research_serpapi import (
+    fetch_organic_snippets,
+    parse_plan_json,
+)
 from openpolvointeligence.graphs.web_research.web_url_extract import pick_urls_for_deep_dive
 
 _logger = logging.getLogger(__name__)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.conversation.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation.conversation_reply_routing import (
+    should_use_conversation_workflow,
+)
 
 
 def test_routes_short_general_question() -> None:
@@ -15,3 +17,13 @@ def test_skips_pdf_requests() -> None:
 
 def test_skips_desk_tool_requests() -> None:
     assert not should_use_conversation_workflow("Corre no terminal npm test no workspace")
+
+
+def test_skips_casual_short_messages() -> None:
+    assert not should_use_conversation_workflow("olá")
+    assert not should_use_conversation_workflow("ola, tudo bem?")
+
+
+def test_routes_long_general_message() -> None:
+    long_msg = " ".join(["preciso de ajuda"] * 30)
+    assert should_use_conversation_workflow(long_msg)

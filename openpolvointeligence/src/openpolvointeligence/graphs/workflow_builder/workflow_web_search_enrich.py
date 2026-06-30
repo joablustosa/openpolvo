@@ -7,7 +7,9 @@ import logging
 from typing import Any
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.web_research.site_research_subgraph import build_site_research_graph
+from openpolvointeligence.graphs.web_research.site_research_subgraph import (
+    build_site_research_graph,
+)
 from openpolvointeligence.graphs.web_research.web_url_extract import pick_urls_for_deep_dive
 
 _logger = logging.getLogger(__name__)

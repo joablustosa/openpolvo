@@ -33,7 +33,7 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_state import (
     merge_manifest,
     truncate_trace,
 )
-from openpolvointeligence.graphs.message_utils import last_user_text, tail_messages
+from openpolvointeligence.graphs.message_utils import tail_messages
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
 from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
@@ -43,11 +43,17 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_architect_logic impor
     build_architect_human_suffix,
     normalize_architect_plan,
 )
+from openpolvointeligence.graphs.dev_workflow.agents.agent_context import (
+    build_agent_context_block,
+    merge_execution_plan_into_targets,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_router_logic import (
     build_router_human_suffix,
     parse_router_response,
 )
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_request_kind import create_project_for_kind
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_request_kind import (
+    create_project_for_kind,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_logic import (
     build_codegen_file_excerpts,
     resolve_codegen_operations,
@@ -90,7 +96,6 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_context_manager impor
     diff_instructions_to_writes,
     run_context_manager,
 )
-from openpolvointeligence.graphs.preview_console_context import merge_preview_console_block
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_static_verify import run_static_verify
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_orchestrator_logic import (
     build_tasks_from_plan,
@@ -110,6 +115,14 @@ DEFAULT_MAX_COMPILE_RETRIES = 2
 
 def _load_prompt(name: str) -> str:
     return (_PROMPTS / f"{name}.md").read_text(encoding="utf-8")
+
+
+def _with_dev_agent(prompt: str) -> str:
+    from openpolvointeligence.graphs.dev_workflow.core.dev_agent_prompts import (
+        inject_dev_agent_system,
+    )
+
+    return inject_dev_agent_system(prompt) if prompt else prompt
 
 
 def _strip_json_fence(s: str) -> str:
@@ -266,15 +279,23 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
     team_mode = bool(getattr(settings, "dev_workflow_team_mode", True))
     max_review_rounds = int(getattr(settings, "dev_workflow_max_review_rounds", 3) or 3)
 
-    router_sys = _load_prompt("dev_workflow_router_system")
-    architect_sys = _load_prompt("dev_workflow_architect_system")
-    codegen_sys = _load_prompt("dev_workflow_codegen_system")
-    style_sys = _load_prompt("dev_workflow_style_system")
-    enricher_sys = _load_prompt("dev_workflow_prompt_enricher_system")
-    prompt_reviewer_sys = _load_prompt("dev_workflow_prompt_reviewer_system") if team_mode else ""
-    plan_reviewer_sys = _load_prompt("dev_workflow_plan_reviewer_system") if team_mode else ""
-    orchestrator_sys = _load_prompt("dev_workflow_orchestrator_system") if team_mode else ""
-    code_reviewer_sys = _load_prompt("dev_workflow_code_reviewer_system") if team_mode else ""
+    router_sys = _with_dev_agent(_load_prompt("dev_workflow_router_system"))
+    architect_sys = _with_dev_agent(_load_prompt("dev_workflow_architect_system"))
+    codegen_sys = _with_dev_agent(_load_prompt("dev_workflow_codegen_system"))
+    style_sys = _with_dev_agent(_load_prompt("dev_workflow_style_system"))
+    enricher_sys = _with_dev_agent(_load_prompt("dev_workflow_prompt_enricher_system"))
+    prompt_reviewer_sys = (
+        _with_dev_agent(_load_prompt("dev_workflow_prompt_reviewer_system")) if team_mode else ""
+    )
+    plan_reviewer_sys = (
+        _with_dev_agent(_load_prompt("dev_workflow_plan_reviewer_system")) if team_mode else ""
+    )
+    orchestrator_sys = (
+        _with_dev_agent(_load_prompt("dev_workflow_orchestrator_system")) if team_mode else ""
+    )
+    code_reviewer_sys = (
+        _with_dev_agent(_load_prompt("dev_workflow_code_reviewer_system")) if team_mode else ""
+    )
 
     async def node_prompt_enricher(state: DevWorkflowState) -> dict[str, Any]:
         """Produtifica pedidos vagos/curtos sem bloquear alterações incrementais."""
@@ -488,6 +509,7 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             # LLM não os fornece (o LLM tem prioridade quando os define).
             if style_tokens and not data.get("design_tokens"):
                 data = {**data, "design_tokens": style_tokens}
+            data = merge_execution_plan_into_targets(dict(state), data)
             return normalize_architect_plan(
                 data,
                 affected_layers=layer,  # type: ignore[arg-type]
@@ -653,6 +675,7 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             _prompt_bundle(state)
             + kind_block
             + (f"\n\n{style_block}" if style_block else "")
+            + build_agent_context_block(dict(state))
             + f"\n\n## Plano (Architect — só estes ficheiros)\n"
             f"criar: {json.dumps(plan.get('files_to_create') or [], ensure_ascii=False)}\n"
             f"modificar: {json.dumps(plan.get('files_to_modify') or [], ensure_ascii=False)}\n"
@@ -692,6 +715,11 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
             ops_raw = data.get("operations")
             if not isinstance(ops_raw, list):
                 ops_raw = []
+            from openpolvointeligence.graphs.dev_workflow.tools.file_output_parser import (
+                ops_from_llm_output,
+            )
+
+            ops_raw = ops_from_llm_output(str(resp.content), ops_raw)
             plan_dict = plan if isinstance(plan, dict) else {}
             resolved, resolve_errs = resolve_codegen_operations(
                 ops_raw,
@@ -727,13 +755,27 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         )
         if not request_kind and not has_workspace and bool(data.get("create_project")):
             create_project_flag = True
+        plan_dict = plan if isinstance(plan, dict) else {}
+        existing_paths = (
+            {str(k).replace("\\", "/") for k in project_files}
+            if isinstance(project_files, dict)
+            else set()
+        )
         meta = build_polvo_code_ops_metadata(
             bool(valid),
             valid,
             verr,
             create_project=create_project_flag,
             project_title=str(data.get("project_title") or "").strip() or None,
-            npm_install=bool(data.get("npm_install")),
+            npm_install=bool(data.get("npm_install")) or create_project_flag,
+            has_workspace=has_workspace,
+            stack=str(plan_dict.get("stack") or state.get("stack_hint") or "") or None,
+            design_tokens=(
+                plan_dict.get("design_tokens")
+                if isinstance(plan_dict.get("design_tokens"), dict)
+                else None
+            ),
+            existing_paths=existing_paths,
         )
         # Deriva modo de edição a partir do que efectivamente foi escrito no projecto.
         created = 0
@@ -979,12 +1021,13 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
         trace = truncate_trace(list(state.get("trace") or []))
         chat = get_chat_model(settings, state.get("model_provider"), json_mode=False)
         human = _prompt_bundle(state) + "\n\nResponde à dúvida sem gerar ficheiros."
+        explain_sys = _with_dev_agent(
+            "És o assistente de desenvolvimento Open Polvo. Responde em pt-BR, "
+            "2–6 frases, sem código longo."
+        )
         resp = await chat.ainvoke(
             [
-                SystemMessage(
-                    content="És o assistente de desenvolvimento Open Polvo. Responde em pt-BR, "
-                    "2–6 frases, sem código longo.",
-                ),
+                SystemMessage(content=explain_sys),
                 HumanMessage(content=human),
             ],
         )
@@ -1118,212 +1161,23 @@ def reset_dev_workflow_graph_cache() -> None:
     _compiled_settings_key = None
 
 
-def _stable_project_id_for_pipeline(
-    conversation_id: str | None,
-    workspace_id: str | None,
-    prev_ctx: dict[str, Any],
-) -> str:
-    """ID estável de projecto: conversation_id → workspace_id → contexto anterior."""
-    for cand in (conversation_id, workspace_id, prev_ctx.get("project_id")):
-        if cand and str(cand).strip():
-            return str(cand).strip()
-    return "default-dev-studio-project"
+from openpolvointeligence.graphs.dev_workflow.core.dev_gateway_graph import (  # noqa: E402, F401
+    _merge_project_files_state,
+    _stable_project_id_for_pipeline,
+    run_dev_workflow_pipeline,
+    run_dev_workflow_stream,
+)
 
-
-async def run_dev_workflow_pipeline(
-    settings: Settings,
-    messages: list[dict[str, Any]],
-    model_provider: str | None,
-    *,
-    workspace_id: str | None = None,
-    conversation_id: str | None = None,
-    file_manifest: list[dict[str, Any]] | None = None,
-    project_digest: str | None = None,
-    preview_console_logs: list[dict[str, Any]] | None = None,
-    compile_log: str | None = None,
-    project_file_tree: list[str] | None = None,
-    project_files: dict[str, str] | None = None,
-    dev_studio_context: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any]]:
-    """Executa o pipeline completo de desenvolvimento."""
-    graph = get_dev_workflow_graph(settings)
-    preview_block = merge_preview_console_block(workspace_id, preview_console_logs)
-    if compile_log and compile_log.strip():
-        preview_block = (preview_block or "") + "\n\n### Build log\n" + compile_log[:8000]
-
-    prev_ctx = dev_studio_context if isinstance(dev_studio_context, dict) else {}
-    compact_prev = prev_ctx.get("compact_context_map")
-    if not isinstance(compact_prev, dict):
-        compact_prev = None
-
-    stable_pid = _stable_project_id_for_pipeline(conversation_id, workspace_id, prev_ctx)
-
-    out = await graph.ainvoke(
-        {
-            "messages": messages,
-            "model_provider": model_provider,
-            "workspace_id": workspace_id,
-            "conversation_id": conversation_id,
-            # project_id estável = chave do RAG (conversation_id quando houver).
-            "project_id": stable_pid,
-            "file_manifest": file_manifest or prev_ctx.get("file_manifest") or [],
-            "project_digest": project_digest or str(prev_ctx.get("project_digest") or ""),
-            "compact_context_map": compact_prev or {},
-            "project_file_tree": project_file_tree or prev_ctx.get("project_file_tree") or [],
-            "project_files": project_files or prev_ctx.get("project_files") or {},
-            "preview_console_block": preview_block,
-            "preview_console_logs": preview_console_logs,
-            "compile_attempt": 0,
-            "max_compile_retries": DEFAULT_MAX_COMPILE_RETRIES,
-            "trace": [],
-        },
-    )
-    text = str(out.get("assistant_text") or "").strip()
-    meta = out.get("metadata") or {}
-    if not isinstance(meta, dict):
-        meta = {}
-    mp = effective_provider(model_provider)
-    meta.setdefault("model_provider", mp)
-    meta.setdefault("routed_intent", "polvo_code_builder")
-
-    # Exporta brief do Prompt Enricher (transparente no UI).
-    dw_meta = meta.get("dev_workflow")
-    if not isinstance(dw_meta, dict):
-        dw_meta = {}
-    if out.get("enriched_brief") and isinstance(out.get("enriched_brief"), dict):
-        dw_meta.setdefault("enriched_brief", out.get("enriched_brief"))
-    if "enrichment_skipped" in out:
-        dw_meta.setdefault("prompt_enrichment_skipped", bool(out.get("enrichment_skipped")))
-    if out.get("team_traces"):
-        dw_meta["team_traces"] = out.get("team_traces")
-    if out.get("static_verify"):
-        dw_meta["static_verify"] = out.get("static_verify")
-    if out.get("build_tasks"):
-        dw_meta["build_tasks"] = out.get("build_tasks")
-    if out.get("orchestration"):
-        dw_meta["orchestration"] = out.get("orchestration")
-    dw_meta.setdefault("stack", out.get("stack_hint"))
-    dw_meta.setdefault("stack_source", out.get("stack_source"))
-    dw_meta.setdefault("stack_defaulted", bool(out.get("stack_defaulted")))
-    # Resultado do build sandbox real (portão anti-bug).
-    build_result = out.get("build_result")
-    if isinstance(build_result, dict) and build_result:
-        dw_meta["build_result"] = build_result
-    else:
-        dw_meta.setdefault(
-            "build_result",
-            {"ok": True, "ran": False, "tool": "tsc", "errors": []},
-        )
-    # Guia de estilo profissional (Style RAG).
-    style_guide = out.get("style_guide")
-    if isinstance(style_guide, dict) and style_guide:
-        dw_meta["style_guide"] = style_guide
-    dw_meta.setdefault("team_mode", bool(getattr(settings, "dev_workflow_team_mode", True)))
-    if dw_meta:
-        meta["dev_workflow"] = dw_meta
-
-    merged_project_files = _merge_project_files_state(
-        out,
-        project_files,
-        prev_ctx.get("project_files") if isinstance(prev_ctx, dict) else None,
-    )
-    meta["dev_studio_context"] = {
-        "compact_context_map": out.get("compact_context_map") or {},
-        "project_digest": out.get("project_digest") or "",
-        "file_manifest": out.get("file_manifest") or [],
-        "project_file_tree": out.get("project_file_tree") or project_file_tree or [],
-        "project_files": merged_project_files,
-        "rag_relevant_paths": out.get("rag_relevant_paths") or [],
-        # project_id estável (baseado no conversation_id quando houver).
-        "project_id": out.get("project_id") or stable_pid,
-    }
-    out_request_kind = str(out.get("request_kind") or "")
-    has_workspace = bool((workspace_id or "").strip())
-    fallback_create_project = (
-        create_project_for_kind(out_request_kind, has_workspace=has_workspace)
-        if out_request_kind
-        else not has_workspace
-    )
-    if not meta.get("polvo_code_ops_pending"):
-        pending = out.get("pending_writes") or out.get("polvo_code_ops") or []
-        if isinstance(pending, list) and pending:
-            valid, verr = validate_polvo_code_operations(pending)
-            if valid:
-                meta.update(
-                    build_polvo_code_ops_metadata(
-                        True,
-                        valid,
-                        verr,
-                        create_project=fallback_create_project,
-                        project_title=str(meta.get("polvo_code_project_title") or "").strip()
-                        or None,
-                        npm_install=True,
-                    ),
-                )
-        if not meta.get("polvo_code_ops_pending"):
-            from openpolvointeligence.graphs.dev_workflow.dev_workflow_routing import should_use_dev_workflow
-
-            user = last_user_text(messages)
-            if should_use_dev_workflow(
-                user,
-                sandbox_project_id=workspace_id,
-                project_files=merged_project_files,
-                dev_studio_context=meta.get("dev_studio_context")
-                if isinstance(meta.get("dev_studio_context"), dict)
-                else None,
-                preview_console_block=preview_block,
-                compile_log=compile_log,
-            ):
-                try:
-                    from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
-                        polvo_code_ops_metadata_for_reply,
-                    )
-
-                    supplemental = await polvo_code_ops_metadata_for_reply(
-                        settings,
-                        model_provider,
-                        text or user,
-                        messages,
-                    )
-                    if supplemental.get("polvo_code_ops_pending"):
-                        meta.update(supplemental)
-                except Exception as exc:
-                    _logger.warning("fallback polvo_code_ops após dev workflow: %s", exc)
-        if not meta.get("polvo_code_ops_pending") and merged_project_files:
-            file_ops = [
-                {"op": "write", "path": p, "content": c}
-                for p, c in merged_project_files.items()
-                if isinstance(p, str) and p.strip()
-            ]
-            valid, verr = validate_polvo_code_operations(file_ops[:100])
-            if valid:
-                meta.update(
-                    build_polvo_code_ops_metadata(
-                        True,
-                        valid,
-                        verr,
-                        create_project=fallback_create_project,
-                        npm_install=True,
-                    ),
-                )
-    return text, meta
-
-
-def _merge_project_files_state(
-    out: dict[str, Any],
-    incoming: dict[str, str] | None,
-    previous: dict[str, str] | None,
-) -> dict[str, str]:
-    """Funde ficheiros do turno anterior + entrada + writes gerados."""
-    merged: dict[str, str] = {}
-    if isinstance(previous, dict):
-        merged.update({str(k): str(v) for k, v in previous.items()})
-    if isinstance(incoming, dict):
-        merged.update({str(k): str(v) for k, v in incoming.items()})
-    state_files = out.get("project_files")
-    if isinstance(state_files, dict):
-        merged.update({str(k): str(v) for k, v in state_files.items()})
-    for w in out.get("pending_writes") or []:
-        if isinstance(w, dict) and w.get("op") == "write" and w.get("path"):
-            merged[str(w["path"])] = str(w.get("content") or "")
-    return merged
+__all__ = [
+    "build_dev_workflow_graph",
+    "get_dev_workflow_graph",
+    "reset_dev_workflow_graph_cache",
+    "route_after_router",
+    "route_after_compiler",
+    "route_after_build_sandbox",
+    "route_after_static_verify",
+    "run_dev_workflow_pipeline",
+    "run_dev_workflow_stream",
+    "_stable_project_id_for_pipeline",
+    "_merge_project_files_state",
+]

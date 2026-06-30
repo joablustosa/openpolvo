@@ -15,15 +15,22 @@ def _norm_path(p: str) -> str:
     return str(p).strip().replace("\\", "/").lstrip("/")
 
 
-def _path_from_import(spec: str) -> str | None:
+def _src_prefixes(known_paths: set[str]) -> list[str]:
+    if any(p.startswith("frontend/src/") for p in known_paths):
+        return ["frontend/src/"]
+    return ["src/"]
+
+
+def _path_from_import(spec: str, known_paths: set[str] | None = None) -> str | None:
     spec = spec.strip()
     if spec.startswith("@/"):
         rel = spec[2:]
-        if not rel.endswith((".tsx", ".ts", ".jsx", ".js")):
-            if "/components/" in rel or "/pages/" in rel or "/hooks/" in rel:
-                return f"src/{rel}.tsx"
-            return f"src/{rel}.tsx"
-        return f"src/{rel}"
+        prefixes = _src_prefixes(known_paths or set())
+        for prefix in prefixes:
+            base = f"{prefix}{rel}"
+            if not rel.endswith((".tsx", ".ts", ".jsx", ".js")):
+                return f"{base}.tsx"
+            return base
     if spec.startswith("./") or spec.startswith("../"):
         return None
     return None
@@ -42,11 +49,13 @@ def _extract_local_deps(content: str, known_paths: set[str]) -> list[str]:
 
 def _resolve_import_to_path(spec: str, known_paths: set[str]) -> str | None:
     if spec.startswith("@/"):
-        base = f"src/{spec[2:]}"
-        for cand in (base, f"{base}.tsx", f"{base}.ts", f"{base}/index.tsx"):
-            if cand in known_paths:
-                return cand
-        return _norm_path(f"{base}.tsx")
+        rel = spec[2:]
+        for prefix in _src_prefixes(known_paths):
+            base = f"{prefix}{rel}"
+            for cand in (base, f"{base}.tsx", f"{base}.ts", f"{base}/index.tsx"):
+                if cand in known_paths:
+                    return cand
+            return _norm_path(f"{base}.tsx")
     return None
 
 
@@ -101,7 +110,7 @@ def normalize_build_tasks(raw: Any, plan: dict[str, Any]) -> list[dict[str, Any]
         if p
     )
     tasks: list[dict[str, Any]] = []
-    for i, row in enumerate(raw[:12]):
+    for i, row in enumerate(raw[:20]):
         if not isinstance(row, dict):
             continue
         path = _norm_path(str(row.get("path") or ""))

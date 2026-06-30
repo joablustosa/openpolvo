@@ -118,10 +118,7 @@ def validate_shadcn_named_imports(
                 continue
             correct = find_shadcn_module_for_symbol(symbol)
             if correct:
-                msg = (
-                    f"'{symbol}' não é exportado por '{spec}' — "
-                    f"use `@/components/ui/{correct}`"
-                )
+                msg = f"'{symbol}' não é exportado por '{spec}' — use `@/components/ui/{correct}`"
             else:
                 msg = f"'{symbol}' não é exportado por '{spec}' (componente shadcn desconhecido)"
             errors.append(
@@ -190,7 +187,7 @@ def rewrite_shadcn_imports(content: str) -> tuple[str, bool]:
 
     # Insere imports corrigidos no topo (após outros imports existentes)
     import_lines = [
-        f"import {{ {', '.join(sorted(syms))} }} from \"{spec}\""
+        f'import {{ {", ".join(sorted(syms))} }} from "{spec}"'
         for spec, syms in sorted(fixed_by_spec.items())
         if syms
     ]

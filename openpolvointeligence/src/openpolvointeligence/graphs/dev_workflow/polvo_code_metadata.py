@@ -17,6 +17,14 @@ from openpolvointeligence.graphs.message_utils import (
 )
 from openpolvointeligence.graphs.models import get_chat_model
 from openpolvointeligence.graphs.dev_workflow.preview_source_sanitize import sanitize_write_op
+from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+    prefix_polvo_code_operations,
+    resolve_project_root_for_new_app,
+)
+from openpolvointeligence.graphs.dev_workflow.scaffold_ops import (
+    infer_dev_setup_command,
+    merge_scaffold_operations,
+)
 
 MAX_PATH_LEN = 512
 MAX_CONTENT_BYTES = 512 * 1024
@@ -30,7 +38,7 @@ _PROMPT_GENERATE_OPS = (
 class PolvoCodeOpModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["write", "mkdir"]
+    op: Literal["write", "mkdir", "delete"]
     path: str = Field(..., min_length=1)
     content: str | None = None
 
@@ -99,6 +107,9 @@ def validate_polvo_code_operations(raw_ops: list[Any]) -> tuple[list[dict[str, A
             if len(c.encode("utf-8")) > MAX_CONTENT_BYTES:
                 errors.append(f"op[{idx}] write: conteúdo > {MAX_CONTENT_BYTES} bytes")
                 continue
+        if m.op == "delete" and m.path.endswith("/"):
+            errors.append(f"op[{idx}] delete: path não pode terminar em /")
+            continue
         valid.append(m.to_api_dict())
 
     return valid, errors
@@ -136,21 +147,51 @@ def build_polvo_code_ops_metadata(
     create_project: bool = False,
     project_title: str | None = None,
     npm_install: bool = False,
+    has_workspace: bool = False,
+    stack: str | None = None,
+    design_tokens: dict[str, Any] | None = None,
+    existing_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     if not wants_apply:
         return {}
+    merged_ops = merge_scaffold_operations(
+        operations,
+        create_project=create_project,
+        stack=stack,
+        project_title=project_title,
+        design_tokens=design_tokens,
+        existing_paths=existing_paths,
+    )
+    if merged_ops and not npm_install:
+        npm_install = _infer_npm_install(merged_ops, create_project)
+    root = resolve_project_root_for_new_app(
+        create_project=create_project,
+        has_workspace=has_workspace,
+        project_title=project_title,
+        operations=merged_ops,
+    )
+    ops_out = prefix_polvo_code_operations(merged_ops, root) if root else merged_ops
+    dev_command = infer_dev_setup_command(stack, merged_ops)
+    run_dev = bool(create_project and dev_command)
     out: dict[str, Any] = {
-        "polvo_code_ops": operations,
+        "polvo_code_ops": ops_out,
         "polvo_code_create_project": bool(create_project),
         "polvo_code_project_title": (project_title or "").strip() or None,
         "polvo_code_npm_install": bool(npm_install),
+        "polvo_code_run_dev": run_dev,
     }
+    if dev_command:
+        out["polvo_code_dev_command"] = dev_command
+    if root:
+        out["polvo_code_project_root"] = root
+    if create_project:
+        out["polvo_code_open_workspace"] = True
     if validation_errors:
         out["polvo_code_ops_errors"] = validation_errors
     # Aplica ops válidas mesmo com avisos parciais; bloqueia só quando não há nada a aplicar.
-    blocked = not operations
+    blocked = not merged_ops
     out["polvo_code_ops_blocked"] = blocked
-    out["polvo_code_ops_pending"] = bool(operations)
+    out["polvo_code_ops_pending"] = bool(merged_ops)
     if out["polvo_code_ops_pending"]:
         out["native_plugin"] = {
             "id": "dev_studio",

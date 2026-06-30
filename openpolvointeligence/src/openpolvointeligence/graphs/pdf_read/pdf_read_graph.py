@@ -55,7 +55,9 @@ def _extract_documents(attachments: list[dict[str, Any]]) -> tuple[list[dict[str
         filename = str(att.get("name") or "documento.pdf")
         pdf_bytes = decode_attachment(att)
         if not pdf_bytes:
-            docs.append({"filename": filename, "error": "Anexo ilegível (base64 inválido).", "pages": []})
+            docs.append(
+                {"filename": filename, "error": "Anexo ilegível (base64 inválido).", "pages": []}
+            )
             continue
         content = extract_pdf_content_full(pdf_bytes, filename=filename)
         pages = content.get("pages") or []
@@ -301,9 +303,7 @@ async def run_pdf_read_stream(
         _logger.exception("pdf_read pipeline failed")
         yield {
             "type": "done",
-            "assistant_text": (
-                f"Não foi possível ler o PDF anexado. Detalhe: {str(exc)[:300]}"
-            ),
+            "assistant_text": (f"Não foi possível ler o PDF anexado. Detalhe: {str(exc)[:300]}"),
             "metadata": {
                 "intent": "leitura_pdf",
                 "error_kind": "pdf_read_pipeline_failed",

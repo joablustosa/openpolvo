@@ -141,7 +141,9 @@ def extract_pdf_content(pdf_bytes: bytes, *, filename: str = "documento.pdf") ->
     }
 
 
-def extract_pdf_content_full(pdf_bytes: bytes, *, filename: str = "documento.pdf") -> dict[str, Any]:
+def extract_pdf_content_full(
+    pdf_bytes: bytes, *, filename: str = "documento.pdf"
+) -> dict[str, Any]:
     """Extração completa: texto + imagens (PyMuPDF) e tabelas (pdfplumber)."""
     content = extract_pdf_content(pdf_bytes, filename=filename)
     content["tables"] = _extract_tables(pdf_bytes) if not content.get("error") else []

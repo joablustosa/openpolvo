@@ -93,13 +93,19 @@ def test_live_desk_reply_stream_events():
     body = {
         "messages": [{"role": "user", "content": "Responde apenas: pong"}],
         "model_provider": "ollama",
-        "desk_context": {"mode": "agent", "workspace_path": os.getcwd(), "conversation_id": "smoke-1"},
+        "desk_context": {
+            "mode": "agent",
+            "workspace_path": os.getcwd(),
+            "conversation_id": "smoke-1",
+        },
     }
     headers = {"X-Open-Polvo-Internal-Key": key.strip(), "Content-Type": "application/json"}
     events: list[dict[str, Any]] = []
     with httpx.Client(timeout=120.0) as client:
         try:
-            with client.stream("POST", f"{intel}/v1/reply/stream", json=body, headers=headers) as resp:
+            with client.stream(
+                "POST", f"{intel}/v1/reply/stream", json=body, headers=headers
+            ) as resp:
                 if resp.status_code == 503:
                     pytest.skip("intelligence not configured for LLM")
                 resp.raise_for_status()

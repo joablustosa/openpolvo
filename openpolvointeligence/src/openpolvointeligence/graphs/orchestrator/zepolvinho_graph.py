@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -19,16 +20,27 @@ from openpolvointeligence.graphs.message_utils import (
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
 from openpolvointeligence.graphs.orchestrator.native_plugins import match_native_plugin
 from openpolvointeligence.graphs.finance_context import format_finance_for_prompt
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_graph import run_dev_workflow_pipeline
+from openpolvointeligence.graphs.dev_workflow import (
+    run_dev_workflow_pipeline,
+    run_dev_workflow_stream,
+)
 from openpolvointeligence.graphs.pdf_study.pdf_study_graph import run_pdf_study_pipeline
-from openpolvointeligence.graphs.conversation.conversation_reply_routing import should_use_conversation_workflow
-from openpolvointeligence.graphs.conversation.conversation_reply_graph import run_conversation_reply_pipeline
-from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic import apply_rich_format_to_reply
+from openpolvointeligence.graphs.conversation.conversation_reply_routing import (
+    should_use_conversation_workflow,
+)
+from openpolvointeligence.graphs.conversation.conversation_reply_graph import (
+    run_conversation_reply_pipeline,
+)
+from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic import (
+    apply_rich_format_to_reply,
+)
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
     should_use_dev_workflow,
 )
-from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import polvo_code_ops_metadata_for_reply
+from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
+    polvo_code_ops_metadata_for_reply,
+)
 from openpolvointeligence.graphs.task_list_metadata import (
     format_task_lists_for_prompt,
     task_list_ops_metadata_for_reply,
@@ -1130,40 +1142,86 @@ async def run_reply_stream(
         }
         return
 
+    user_last_early = last_user_text(messages)
+    dev_stream_ctx = {
+        "sandbox_project_id": sandbox_project_id,
+        "project_files": project_files,
+        "dev_studio_context": dev_studio_context,
+        "preview_console_block": pcb_stream,
+        "compile_log": compile_log,
+    }
+
+    # ── Fast path: pedidos de código → dev workflow (omitir analisador LLM) ───
+    if should_use_dev_workflow(user_last_early, **dev_stream_ctx):
+        yield {
+            "type": "progress",
+            "step": "dev_start",
+            "label": "A iniciar agente de desenvolvimento…",
+        }
+        try:
+            async for event in run_dev_workflow_stream(
+                settings,
+                messages,
+                model_provider,
+                workspace_id=sandbox_project_id,
+                conversation_id=conversation_id,
+                preview_console_logs=preview_console_logs,
+                compile_log=compile_log,
+                project_file_tree=project_file_tree,
+                project_files=project_files,
+                dev_studio_context=dev_studio_context,
+            ):
+                yield event
+            return
+        except Exception as exc:
+            _log.warning("dev_workflow fast path falhou (%s) — fallback analisador", exc)
+
     # ── Análise de intenção (apenas este nó — rápido) ───────────────────────────
     yield {"type": "progress", "step": "analyze", "label": "A analisar o pedido..."}
 
+    def _default_analysis() -> dict[str, Any]:
+        return {
+            "intent": "geral",
+            "confidence": 0.3,
+            "reasoning": "",
+            "entities": {},
+        }
+
     try:
-        analyzer_system = _load_prompt("analyzer_system")
-        capped = tail_messages(messages)
-        summary = conversation_summary(capped)
-        mem_block = format_agent_memory_block(normalize_agent_memory(agent_memory))
-        sk = skills_block_for_prompt(settings)
-        pre_a: list[Any] = [SystemMessage(content=analyzer_system)]
-        if sk:
-            pre_a.append(SystemMessage(content=sk))
-        if mem_block:
-            pre_a.append(SystemMessage(content=mem_block))
-        if pcb_stream:
-            pre_a.append(
-                SystemMessage(
-                    content="## Logs do Preview (consola)\n\n" + pcb_stream,
-                ),
-            )
-        pre_a.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
-        chat_analyze = get_chat_model(settings, model_provider, json_mode=True)
-        resp = await chat_analyze.ainvoke([*pre_a, *_to_lc_messages(capped)])
-        raw = str(resp.content).strip()
-        analysis = (
-            _parse_analysis(raw)
-            if raw
-            else {
-                "intent": "geral",
-                "confidence": 0.3,
-                "reasoning": "",
-                "entities": {},
+        if len(user_last_early.strip()) < 80 and not should_use_conversation_workflow(
+            user_last_early
+        ):
+            analysis = {
+                **_default_analysis(),
+                "confidence": 0.5,
+                "reasoning": "pedido curto — analisador LLM omitido",
             }
-        )
+        else:
+            analyzer_system = _load_prompt("analyzer_system")
+            capped = tail_messages(messages)
+            summary = conversation_summary(capped)
+            mem_block = format_agent_memory_block(normalize_agent_memory(agent_memory))
+            sk = skills_block_for_prompt(settings)
+            pre_a: list[Any] = [SystemMessage(content=analyzer_system)]
+            if sk:
+                pre_a.append(SystemMessage(content=sk))
+            if mem_block:
+                pre_a.append(SystemMessage(content=mem_block))
+            if pcb_stream:
+                pre_a.append(
+                    SystemMessage(
+                        content="## Logs do Preview (consola)\n\n" + pcb_stream,
+                    ),
+                )
+            pre_a.append(SystemMessage(content="HISTÓRICO RECENTE DA CONVERSA:\n" + summary))
+            chat_analyze = get_chat_model(settings, model_provider, json_mode=True)
+            timeout_s = float(getattr(settings, "agent_llm_timeout_s", 120.0) or 120.0)
+            resp = await asyncio.wait_for(
+                chat_analyze.ainvoke([*pre_a, *_to_lc_messages(capped)]),
+                timeout=timeout_s,
+            )
+            raw = str(resp.content).strip()
+            analysis = _parse_analysis(raw) if raw else _default_analysis()
         analysis = boost_analysis_for_dev_workflow(
             analysis,
             user_prompt=last_user_text(messages),
@@ -1184,6 +1242,23 @@ async def run_reply_stream(
                     + " [roteamento: pedido de estudo com entrega explícita em PDF]"
                 ).strip()[:500],
             }
+    except asyncio.TimeoutError:
+        _log.warning("análise de intenção excedeu timeout — usando geral")
+        analysis = {
+            "intent": "geral",
+            "confidence": 0.3,
+            "reasoning": "timeout no analisador de intenção",
+            "entities": {},
+        }
+        analysis = boost_analysis_for_dev_workflow(
+            analysis,
+            user_prompt=last_user_text(messages),
+            sandbox_project_id=sandbox_project_id,
+            project_files=project_files,
+            dev_studio_context=dev_studio_context,
+            preview_console_block=pcb_stream,
+            compile_log=compile_log,
+        )
     except Exception as exc:
         _log.warning("análise de intenção falhou: %s — usando geral", exc)
         analysis = {"intent": "geral", "confidence": 0.3, "reasoning": "", "entities": {}}
@@ -1201,16 +1276,37 @@ async def run_reply_stream(
     routed = route_intent(
         str(analysis.get("intent", "geral")), float(analysis.get("confidence", 0))
     )
-    if routed == "polvo_code_builder":
-        yield {
-            "type": "progress",
-            "step": "dev_workflow",
-            "label": (
-                "A planear, orquestrar e construir (times de agentes)…"
-                if getattr(settings, "dev_workflow_team_mode", True)
-                else "A entender e produtificar o pedido…"
-            ),
-        }
+    # ── Dev workflow (stream com eventos de progresso e ficheiros) ───────────
+    user_last_stream = last_user_text(messages)
+    dev_stream_ctx = {
+        "sandbox_project_id": sandbox_project_id,
+        "project_files": project_files,
+        "dev_studio_context": dev_studio_context,
+        "preview_console_block": pcb_stream,
+        "compile_log": compile_log,
+    }
+    use_dev_stream = routed == "polvo_code_builder" or (
+        routed != "polvo_code_builder"
+        and should_use_dev_workflow(user_last_stream, **dev_stream_ctx)
+    )
+    if use_dev_stream:
+        try:
+            async for event in run_dev_workflow_stream(
+                settings,
+                messages,
+                model_provider,
+                workspace_id=sandbox_project_id,
+                conversation_id=conversation_id,
+                preview_console_logs=preview_console_logs,
+                compile_log=compile_log,
+                project_file_tree=project_file_tree,
+                project_files=project_files,
+                dev_studio_context=dev_studio_context,
+            ):
+                yield event
+            return
+        except Exception as exc:
+            _log.warning("run_dev_workflow_stream falhou (%s) — fallback run_reply", exc)
 
     if routed == "estudo_pdf_profissional":
         from openpolvointeligence.graphs.pdf_study.pdf_study_graph import run_pdf_study_stream

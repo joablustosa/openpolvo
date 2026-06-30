@@ -30,9 +30,15 @@ from openpolvointeligence.api.schemas import (
 from openpolvointeligence.core.config import get_settings
 from openpolvointeligence.graphs.social.social_generator import generate_social_post
 from openpolvointeligence.graphs.workflow_builder.workflow_llm import generate_text
-from openpolvointeligence.graphs.workflow_builder.workflow_specialist_graph import run_workflow_specialist
-from openpolvointeligence.graphs.workflow_builder.workflow_web_search_enrich import run_workflow_web_search_enrich
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_self_heal_logic import run_dev_workflow_self_heal
+from openpolvointeligence.graphs.workflow_builder.workflow_specialist_graph import (
+    run_workflow_specialist,
+)
+from openpolvointeligence.graphs.workflow_builder.workflow_web_search_enrich import (
+    run_workflow_web_search_enrich,
+)
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_self_heal_logic import (
+    run_dev_workflow_self_heal,
+)
 from openpolvointeligence.code_rag.indexer import index_project_files
 from openpolvointeligence.code_rag.retriever import build_rag_context_block, retrieve_for_router
 from openpolvointeligence.graphs.orchestrator.zepolvinho_graph import (
@@ -44,10 +50,19 @@ from openpolvointeligence.graphs.desk.desk_routing import should_use_desk_graph
 from openpolvointeligence.graphs.desk.desk_reply import run_desk_reply, run_desk_reply_stream
 from openpolvointeligence.graphs.desk.desk_tool_bridge import get_bridge
 from openpolvointeligence.graphs.message_utils import last_user_text
-from openpolvointeligence.graphs.pdf_read.pdf_read_graph import run_pdf_read_pipeline, run_pdf_read_stream
+from openpolvointeligence.graphs.pdf_read.pdf_read_graph import (
+    run_pdf_read_pipeline,
+    run_pdf_read_stream,
+)
 from openpolvointeligence.graphs.pdf_read.pdf_read_routing import should_use_pdf_read_workflow
-from openpolvointeligence.graphs.pdf_study.pdf_study_graph import run_pdf_study_pipeline, run_pdf_study_stream
-from openpolvointeligence.graphs.xlsx_full.xlsx_full_graph import run_xlsx_full_pipeline, run_xlsx_full_stream
+from openpolvointeligence.graphs.pdf_study.pdf_study_graph import (
+    run_pdf_study_pipeline,
+    run_pdf_study_stream,
+)
+from openpolvointeligence.graphs.xlsx_full.xlsx_full_graph import (
+    run_xlsx_full_pipeline,
+    run_xlsx_full_stream,
+)
 from openpolvointeligence.graphs.xlsx_full.xlsx_full_routing import should_use_xlsx_workflow
 from openpolvointeligence.graphs.documents_full.documents_full_graph import (
     run_documents_full_pipeline,
@@ -56,13 +71,19 @@ from openpolvointeligence.graphs.documents_full.documents_full_graph import (
 from openpolvointeligence.graphs.documents_full.documents_full_routing import (
     should_use_documents_workflow,
 )
-from openpolvointeligence.graphs.conversation.conversation_reply_routing import should_use_conversation_workflow
+from openpolvointeligence.graphs.conversation.conversation_reply_routing import (
+    should_use_conversation_workflow,
+)
 from openpolvointeligence.graphs.conversation.conversation_reply_graph import (
     run_conversation_reply_pipeline,
     run_conversation_reply_stream,
 )
+from openpolvointeligence.graphs.dev_workflow.api.routes_dev_agent import (
+    router as dev_agent_router,
+)
 
 router = APIRouter(prefix="/v1", tags=["v1"])
+router.include_router(dev_agent_router)
 
 
 @router.post("/reply", response_model=ReplyResponse)

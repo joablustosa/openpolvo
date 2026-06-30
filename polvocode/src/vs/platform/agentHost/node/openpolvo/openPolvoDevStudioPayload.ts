@@ -8,7 +8,11 @@ import * as path from 'path';
 import type { IBuildChatBodyOptions } from '../../common/openpolvoBackendProtocol.js';
 
 const MAX_FILES = 80;
-const MAX_BYTES_PER_FILE = 48_000;
+const MAX_BYTES_PER_FILE = 32_000;
+const MAX_TOTAL_BYTES = 512_000;
+const WORKSPACE_INDEX_TIMEOUT_MS = 3_000;
+
+const MONOREPO_ROOT_MARKERS = ['openpolvointeligence', 'openpolvobackend', 'polvocode'];
 
 const SKIP_DIRS = new Set([
 	'node_modules',
@@ -49,6 +53,19 @@ const PRIORITY_SUBSTRINGS = [
 	'auth',
 	'supabase',
 ];
+
+async function isOpenPolvoMonorepoRoot(workspacePath: string): Promise<boolean> {
+	let hits = 0;
+	for (const marker of MONOREPO_ROOT_MARKERS) {
+		try {
+			await fs.access(path.join(workspacePath, marker));
+			hits++;
+		} catch {
+			// not present
+		}
+	}
+	return hits >= 2;
+}
 
 function shouldIndexFile(relPath: string): boolean {
 	const p = relPath.replace(/\\/g, '/');
@@ -126,15 +143,43 @@ export async function collectWorkspaceProjectFiles(workspacePath: string | undef
 	tree.sort((a, b) => scorePath(b) - scorePath(a));
 	const selected = tree.slice(0, MAX_FILES);
 	const files: Record<string, string> = {};
+	let totalBytes = 0;
 	for (const rel of selected) {
+		if (totalBytes >= MAX_TOTAL_BYTES) {
+			break;
+		}
 		try {
 			const raw = await fs.readFile(path.join(wp, rel), 'utf8');
-			files[rel.replace(/\\/g, '/')] = trimFileContent(raw);
+			const trimmed = trimFileContent(raw);
+			totalBytes += Buffer.byteLength(trimmed, 'utf8');
+			files[rel.replace(/\\/g, '/')] = trimmed;
 		} catch {
 			// ignorar ficheiros ilegíveis
 		}
 	}
 	return files;
+}
+
+async function collectWorkspaceProjectFilesWithTimeout(
+	workspacePath: string | undefined,
+): Promise<Record<string, string>> {
+	const wp = (workspacePath ?? '').trim();
+	if (!wp) {
+		return {};
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			collectWorkspaceProjectFiles(wp),
+			new Promise<Record<string, string>>((resolve) => {
+				timer = setTimeout(() => resolve({}), WORKSPACE_INDEX_TIMEOUT_MS);
+			}),
+		]);
+	} finally {
+		if (timer !== undefined) {
+			clearTimeout(timer);
+		}
+	}
 }
 
 /** Monta payload Dev Studio para POST /v1/conversations/{id}/messages/stream (sem desk_context). */
@@ -143,7 +188,11 @@ export async function buildDevStudioStreamOptions(
 	conversationId: string,
 ): Promise<NonNullable<IBuildChatBodyOptions['devStudio']>> {
 	const wp = (workspacePath ?? '').trim();
-	const projectFiles = await collectWorkspaceProjectFiles(wp);
+	// Monorepo OpenPolvo: não enviar centenas de ficheiros — o agente cria subprojecto novo.
+	let projectFiles: Record<string, string> = {};
+	if (wp && !(await isOpenPolvoMonorepoRoot(wp))) {
+		projectFiles = await collectWorkspaceProjectFilesWithTimeout(wp);
+	}
 	const tree = Object.keys(projectFiles).sort((a, b) => scorePath(b) - scorePath(a));
 	const out: NonNullable<IBuildChatBodyOptions['devStudio']> = {};
 	if (wp) {

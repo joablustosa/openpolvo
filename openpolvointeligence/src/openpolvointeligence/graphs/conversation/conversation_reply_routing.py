@@ -33,6 +33,7 @@ def _wants_pdf_study_specialist(user_text: str) -> bool:
     has_study = any(k in txt for k in _STUDY_REQUEST_TERMS)
     return has_pdf and has_study
 
+
 _SPECIFIC_FORMAT_TERMS: tuple[str, ...] = (
     "em pdf",
     "gerar pdf",
@@ -127,7 +128,11 @@ def _looks_like_dev_builder_request(user_text: str) -> bool:
 
 
 def should_use_conversation_workflow(user_text: str) -> bool:
-    """Pedidos gerais no Agente → workflow rico (exceto formatos específicos e ferramentas desk)."""
+    """Pedidos gerais no Agente → workflow rico (exceto formatos específicos e ferramentas desk).
+
+      Mensagens curtas/casuais (ex.: «olá») ficam no fluxo rápido — o pipeline rico
+    exige termos de explicação/pesquisa ou pedido longo.
+    """
     txt = (user_text or "").strip()
     if len(txt) < 3:
         return False
@@ -137,4 +142,7 @@ def should_use_conversation_workflow(user_text: str) -> bool:
         return False
     if _looks_like_dev_builder_request(txt):
         return False
-    return True
+    pl = txt.lower()
+    if any(term in pl for term in _CONVERSATION_POSITIVE_TERMS):
+        return True
+    return len(txt) >= 120

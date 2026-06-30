@@ -19,11 +19,13 @@ import {
 	buildDeskContext,
 	type INormalizedStreamEvent,
 	type IOpenPolvoAttachment,
+	type IOpenPolvoCodeReference,
 	OFFICIAL_API_DEFAULT_BASE_URL,
 	OfficialRoutes,
 	parseSseBuffer,
 	resolveModelSelection,
 } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
+import type { IServerConversationDTO, IServerMessageDTO } from './polvoAgentHistoryMerge.js';
 import { IOpenPolvoSignInService } from './openPolvoAuth.js';
 
 export interface IOpenPolvoModel {
@@ -112,6 +114,27 @@ export interface IOpenPolvoSmtpInput {
 	readonly email_chat_skip_confirmation?: boolean;
 }
 
+export interface IOpenPolvoConversationRecord {
+	readonly id: string;
+	readonly title?: string;
+	readonly default_model_provider?: string;
+	readonly updated_at?: string;
+	readonly created_at?: string;
+}
+
+export interface IOpenPolvoServerMessage {
+	readonly id: string;
+	readonly role: string;
+	readonly content: string;
+	readonly metadata?: unknown;
+	readonly created_at?: string;
+}
+
+export interface IOpenPolvoAgentMemory {
+	readonly global?: string;
+	readonly builder?: string;
+}
+
 interface IOfficialLlmProfile {
 	id: string;
 	display_name: string;
@@ -152,6 +175,9 @@ export interface IOpenPolvoWorkbenchApiService {
 
 	listModels(): Promise<IOpenPolvoModel[]>;
 	createSession(title?: string, model?: string): Promise<string>;
+	listConversations(): Promise<IOpenPolvoConversationRecord[]>;
+	getMessages(sessionId: string): Promise<IOpenPolvoServerMessage[]>;
+	getAgentMemory(sessionId: string): Promise<IOpenPolvoAgentMemory | undefined>;
 	streamMessage(
 		sessionId: string,
 		content: string,
@@ -159,6 +185,7 @@ export interface IOpenPolvoWorkbenchApiService {
 		onEvent: (event: IOpenPolvoStreamEvent) => void,
 		signal?: AbortSignal,
 		attachments?: IOpenPolvoAttachment[],
+		codeReferences?: IOpenPolvoCodeReference[],
 	): Promise<void>;
 	login(email: string, password: string): Promise<void>;
 	register(email: string, password: string, name?: string): Promise<void>;
@@ -243,6 +270,48 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		return body.id;
 	}
 
+	async listConversations(): Promise<IOpenPolvoConversationRecord[]> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.conversations}`,
+			callSite: 'openPolvoWorkbenchApiService.listConversations',
+		});
+		const body = await asJson<IServerConversationDTO[]>(context);
+		return (body ?? []).map(row => ({
+			id: row.id,
+			title: row.title,
+			default_model_provider: row.default_model_provider,
+			updated_at: row.updated_at,
+			created_at: row.created_at,
+		}));
+	}
+
+	async getMessages(sessionId: string): Promise<IOpenPolvoServerMessage[]> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.conversationMessages(sessionId)}`,
+			callSite: 'openPolvoWorkbenchApiService.getMessages',
+		});
+		const body = await asJson<IServerMessageDTO[]>(context);
+		return (body ?? []).map(row => ({
+			id: row.id,
+			role: row.role,
+			content: row.content,
+			metadata: row.metadata,
+			created_at: row.created_at,
+		}));
+	}
+
+	async getAgentMemory(sessionId: string): Promise<IOpenPolvoAgentMemory | undefined> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.conversationAgentMemory(sessionId)}`,
+			callSite: 'openPolvoWorkbenchApiService.getAgentMemory',
+		});
+		const body = await asJson<IOpenPolvoAgentMemory>(context);
+		return body ?? undefined;
+	}
+
 	private resolveWorkspacePath(): string {
 		const folders = this.workspaceContextService.getWorkspace().folders;
 		if (folders.length > 0) {
@@ -258,10 +327,11 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		onEvent: (event: IOpenPolvoStreamEvent) => void,
 		signal?: AbortSignal,
 		attachments?: IOpenPolvoAttachment[],
+		codeReferences?: IOpenPolvoCodeReference[],
 	): Promise<void> {
 		await this.ensureAuth();
 		const deskContext = buildDeskContext(sessionId, this.resolveWorkspacePath(), 'agent', model);
-		const body = buildChatBody(content, { modelId: model, deskContext, attachments });
+		const body = buildChatBody(content, { modelId: model, deskContext, attachments, codeReferences });
 		const doFetch = async () => fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(sessionId)}`, {
 			method: 'POST',
 			headers: { ...this.authHeaders(), 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -282,6 +352,7 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		const decoder = new TextDecoder();
 		const normalizer = new BackendStreamNormalizer();
 		let buffer = '';
+		let sawTerminal = false;
 
 		while (true) {
 			const { done, value } = await reader.read();
@@ -295,10 +366,17 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 				for (const event of normalizer.normalize(raw)) {
 					onEvent(event);
 					if (event.done || event.type === 'error') {
+						sawTerminal = true;
 						return;
 					}
 				}
 			}
+		}
+		if (!sawTerminal) {
+			onEvent({
+				type: 'error',
+				error: 'Stream terminou sem resposta do servidor.',
+			});
 		}
 	}
 

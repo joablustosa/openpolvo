@@ -3,12 +3,18 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import type { IReference } from '../../../../base/common/lifecycle.js';
 import { observableValue } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
+import { IFileService } from '../../../files/common/files.js';
+import { IInstantiationService } from '../../../instantiation/common/instantiation.js';
 import { ILogService } from '../../../log/common/log.js';
 import {
 	AgentProvider,
@@ -23,25 +29,61 @@ import {
 	IAgentSessionConfigCompletionsParams,
 	IAgentSessionMetadata,
 } from '../../common/agentService.js';
-import { OPENPOLVO_AGENT_PROVIDER_ID, buildOpenPolvoProtectedResourceMetadata, getOpenPolvoApiBaseUrlFromEnv } from '../../common/openpolvoConfiguration.js';
-import { toToolCall } from '../../common/openpolvoBackendProtocol.js';
+import {
+	OPENPOLVO_AGENT_PROVIDER_ID,
+	buildOpenPolvoProtectedResourceMetadata,
+	getOpenPolvoApiBaseUrlFromEnv,
+	isOpenPolvoDevWorkflowEnabledFromEnv,
+} from '../../common/openpolvoConfiguration.js';
+import { toToolCall, type INormalizedStreamEvent } from '../../common/openpolvoBackendProtocol.js';
+import {
+	normalizeDevRelativePath,
+	prefixDevRelativePath,
+	readProjectRootFromMetadata,
+	readProjectRootFromProgressPayload,
+	slugifyProjectTitle,
+} from '../../common/openPolvoDevProject.js';
 import type { ProtectedResourceMetadata } from '../../common/state/protocol/state.js';
 import type { ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../../common/state/protocol/commands.js';
 import { ActionType, type ChatAction, type SessionAction } from '../../common/state/sessionActions.js';
-import { ResponsePartKind, type AgentSelection, type MessageAttachment, type ModelSelection, type PendingMessage } from '../../common/state/sessionState.js';
+import {
+	ResponsePartKind,
+	ToolCallConfirmationReason,
+	ToolResultContentType,
+	type AgentSelection,
+	type MessageAttachment,
+	type ModelSelection,
+	type PendingMessage,
+	type ToolResultContent,
+} from '../../common/state/sessionState.js';
 import type { ClientPluginCustomization, Customization } from '../../common/state/protocol/state.js';
+import { ChildCustomizationType, CustomizationLoadStatus, CustomizationType, type SkillCustomization } from '../../common/state/protocol/channels-session/state.js';
 import type { ISyncedCustomization } from '../../common/agentPluginManager.js';
+import { ISessionDataService, type ISessionDatabase } from '../../common/sessionDataService.js';
+import { FileEditTracker } from '../shared/fileEditTracker.js';
 import { OpenPolvoApiClient } from './openPolvoApiClient.js';
 import { buildDevStudioStreamOptions } from './openPolvoDevStudioPayload.js';
+import { readDevProjectSetup, runDevProjectPostSetup } from './openPolvoDevProjectRunner.js';
 import { buildOpenPolvoRequestContext, type IOpenPolvoRequestContext } from './openPolvoContext.js';
 import { runDeskTool } from './deskToolRunner.js';
+
+interface IOpenPolvoDevFileOp {
+	readonly path: string;
+	readonly content?: string;
+	readonly op?: 'write' | 'mkdir' | 'delete';
+}
 
 interface IOpenPolvoSessionState {
 	readonly session: URI;
 	apiSessionId: string;
 	modelId?: string;
 	workingDirectory?: string;
+	projectRootRel?: string;
+	projectRootResolved?: boolean;
+	projectRootSetup?: Promise<string | undefined>;
 	abortController?: AbortController;
+	editTracker?: FileEditTracker;
+	databaseRef?: IReference<ISessionDatabase>;
 }
 
 export class OpenPolvoAgent extends Disposable implements IAgent {
@@ -58,6 +100,9 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 
 	constructor(
 		@ILogService private readonly _logService: ILogService,
+		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+		@ISessionDataService private readonly _sessionDataService: ISessionDataService,
+		@IFileService private readonly _fileService: IFileService,
 	) {
 		super();
 		void this._refreshModels();
@@ -96,12 +141,17 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		const modelId = config?.model?.id ?? 'polvo';
 		const apiSession = await this._api.createSession(undefined, modelId);
 		const workingDirectory = config?.workingDirectory?.fsPath ?? process.cwd();
-		this._sessions.set(AgentSession.id(session), {
+		const databaseRef = this._sessionDataService.openDatabase(session);
+		const editTracker = this._instantiationService.createInstance(FileEditTracker, session.toString(), databaseRef.object);
+		const sessionState: IOpenPolvoSessionState = {
 			session,
 			apiSessionId: apiSession.id,
 			modelId,
 			workingDirectory,
-		});
+			editTracker,
+			databaseRef,
+		};
+		this._sessions.set(AgentSession.id(session), sessionState);
 		return {
 			session,
 			workingDirectory: config?.workingDirectory,
@@ -127,11 +177,11 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 
 		const requestContext = buildOpenPolvoRequestContext(attachments, state.workingDirectory);
 		const promptWithContext = appendSelectionContext(prompt, requestContext);
-		// Modo Code (chat nativo do VS Code): dev workflow via project_files — sem desk_context,
-		// para o Intelligence rotear para polvo_code_builder / dev_workflow e emitir eventos `file`.
 		const devStudio = await buildDevStudioStreamOptions(state.workingDirectory, state.apiSessionId);
 		let markdownPartId: string | undefined;
+		let lastDevWorkflowStepId: string | undefined;
 		const pendingTools: Promise<void>[] = [];
+		const appliedWritePaths = new Set<string>();
 
 		try {
 			await this._api.streamMessage(
@@ -141,10 +191,14 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 					modelId: state.modelId,
 					devStudio,
 				},
-				event => {
+				async event => {
 					switch (event.type) {
 						case 'thinking':
-							if (event.content) {
+							if (
+								event.content
+								&& event.agentEventType !== 'progress'
+								&& !this._isDevWorkflowProgressLabel(event.content, event.payload?.step)
+							) {
 								this._fire(session, {
 									type: ActionType.ChatResponsePart,
 									turnId: effectiveTurnId,
@@ -156,6 +210,20 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 								});
 							}
 							break;
+						case 'progress': {
+							const step = String(event.payload?.step ?? '');
+							if (step === 'dev_project_root') {
+								const root = readProjectRootFromProgressPayload(event.payload);
+								if (root) {
+									pendingTools.push(this._scheduleProjectRoot(state, root));
+								}
+							}
+							if (step.startsWith('dev_') && event.content && step !== lastDevWorkflowStepId) {
+								lastDevWorkflowStepId = step;
+								this._fireWorkflowStepTool(session, effectiveTurnId, event.content, step);
+							}
+							break;
+						}
 						case 'text_delta':
 							if (!event.delta) {
 								break;
@@ -180,19 +248,40 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 							this._surfaceAgentEvent(session, effectiveTurnId, event.agentEventType, event.payload);
 							break;
 						case 'tool_call':
-							pendingTools.push(this._handleToolCall(state, event.payload));
+							await this._handleToolCall(state, event.payload);
 							break;
 						case 'file':
-							pendingTools.push(this._applyFile(state, event.file));
+							if (event.file?.path) {
+								appliedWritePaths.add(event.file.path.replace(/\\/g, '/'));
+							}
+							pendingTools.push(this._applyFile(session, state, effectiveTurnId, event.file));
 							break;
+						case 'file_edit':
+							if (event.fileEdit?.path) {
+								appliedWritePaths.add(event.fileEdit.path.replace(/\\/g, '/'));
+							}
+							pendingTools.push(this._applyFile(session, state, effectiveTurnId, event.fileEdit));
+							break;
+						case 'done':
+							pendingTools.push((async () => {
+								await this._bootstrapProjectRootFromMetadata(state, event.metadata);
+								await this._applyPolvoCodeOpsFromMetadata(
+									session,
+									state,
+									effectiveTurnId,
+									event.metadata,
+									appliedWritePaths,
+								);
+								await this._postDevProjectSetup(session, state, effectiveTurnId, event.metadata);
+							})());
+							this._fire(session, { type: ActionType.ChatTurnComplete, turnId: effectiveTurnId });
+							return;
 						case 'error':
 							this._fire(session, {
 								type: ActionType.ChatError,
 								turnId: effectiveTurnId,
 								error: { errorType: 'OpenPolvoError', message: event.error ?? 'Unknown error' },
 							});
-							break;
-						case 'done':
 							this._fire(session, { type: ActionType.ChatTurnComplete, turnId: effectiveTurnId });
 							return;
 					}
@@ -201,8 +290,14 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 			);
 			await Promise.allSettled(pendingTools);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			this._logService.error(`[OpenPolvo] sendMessage failed: ${message}`);
+			const raw = err instanceof Error ? err.message : String(err);
+			const aborted = raw === 'terminated'
+				|| (err instanceof Error && err.name === 'AbortError')
+				|| raw.toLowerCase().includes('aborted');
+			const message = aborted
+				? 'O pedido foi interrompido (ligação SSE fechada ou cancelado). Se o workflow demorou muito, tente novamente — o servidor envia agora keepalive durante a geração.'
+				: raw;
+			this._logService.error(`[OpenPolvo] sendMessage failed: ${raw}`);
 			this._fire(session, {
 				type: ActionType.ChatError,
 				turnId: effectiveTurnId,
@@ -219,6 +314,8 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 	}
 
 	async disposeSession(session: URI): Promise<void> {
+		const state = this._sessions.get(AgentSession.id(session));
+		state?.databaseRef?.dispose();
 		this._sessions.delete(AgentSession.id(session));
 	}
 
@@ -246,7 +343,40 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 	}
 
 	getCustomizations(): Customization[] {
-		return [];
+		const skillsDir = path.join(process.cwd(), '.cursor', 'skills');
+		if (!fs.existsSync(skillsDir)) {
+			return [];
+		}
+		const children: SkillCustomization[] = [];
+		for (const ent of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+			if (!ent.isDirectory()) {
+				continue;
+			}
+			const skillMd = path.join(skillsDir, ent.name, 'SKILL.md');
+			if (!fs.existsSync(skillMd)) {
+				continue;
+			}
+			children.push({
+				type: CustomizationType.Skill,
+				id: `openpolvo-skill-${ent.name}`,
+				uri: URI.file(skillMd),
+				name: ent.name,
+			});
+		}
+		if (children.length === 0) {
+			return [];
+		}
+		return [{
+			type: CustomizationType.Directory,
+			id: 'openpolvo-dev-skills',
+			uri: URI.file(skillsDir),
+			name: 'OpenPolvo Dev Skills',
+			enabled: true,
+			load: { kind: CustomizationLoadStatus.Loaded },
+			contents: CustomizationType.Skill satisfies ChildCustomizationType,
+			writable: false,
+			children,
+		}];
 	}
 
 	async setClientCustomizations(_session: URI, _clientId: string, _customizations: ClientPluginCustomization[]): Promise<ISyncedCustomization[]> {
@@ -262,13 +392,70 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		this._onDidSessionProgress.fire({ kind: 'action', session, action });
 	}
 
+	private _isDevWorkflowProgressLabel(content: string, step: unknown): boolean {
+		if (typeof step === 'string' && step.startsWith('dev_')) {
+			return true;
+		}
+		return /^(A |Concluído:)/i.test(content.trim());
+	}
+
+	/** Cada passo do dev workflow aparece como tool call separado (estilo Cursor). */
+	private _fireWorkflowStepTool(session: URI, turnId: string, label: string, stepId: string): void {
+		const toolCallId = generateUuid();
+		const toolName = 'dev_workflow_step';
+		this._fire(session, {
+			type: ActionType.ChatToolCallStart,
+			turnId,
+			toolCallId,
+			toolName,
+			displayName: label,
+		});
+		this._fire(session, {
+			type: ActionType.ChatToolCallReady,
+			turnId,
+			toolCallId,
+			invocationMessage: label,
+			confirmed: ToolCallConfirmationReason.NotNeeded,
+		});
+		this._fire(session, {
+			type: ActionType.ChatToolCallComplete,
+			turnId,
+			toolCallId,
+			result: {
+				success: true,
+				pastTenseMessage: label,
+				content: [{ type: ToolResultContentType.Text, text: label }],
+			},
+			_meta: {
+				ui: {
+					toolName,
+					step: stepId,
+				},
+			},
+		});
+	}
+
 	/** Mostra eventos do grafo (tool_call/tool_result/observation) como passos de raciocínio. */
 	private _surfaceAgentEvent(session: URI, turnId: string, eventType: string | undefined, payload: Record<string, unknown> | undefined): void {
 		if (!eventType || eventType === 'thought' || eventType === 'final') {
 			return;
 		}
+		if (eventType === 'step_start' || eventType === 'step_complete') {
+			return;
+		}
+		const step = payload && typeof payload.step === 'string' ? payload.step : undefined;
+		const agent = payload && typeof payload.agent === 'string' ? payload.agent : undefined;
 		const tool = payload && typeof payload.tool === 'string' ? payload.tool : undefined;
-		const label = tool ? `${eventType}: ${tool}` : eventType;
+		let label: string;
+		if (eventType === 'step_start') {
+			label = step ?? agent ?? 'passo';
+		} else if (eventType === 'step_complete') {
+			label = `Concluído: ${step ?? agent ?? 'passo'}`;
+		} else if (eventType === 'pause_for_input') {
+			label = 'Aguardando confirmação…';
+		} else {
+			label = tool ? `${eventType}: ${tool}` : eventType;
+		}
 		this._fire(session, {
 			type: ActionType.ChatResponsePart,
 			turnId,
@@ -298,19 +485,339 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		}
 	}
 
-	/** Aplica um ficheiro emitido pelo dev workflow no workspace local. */
-	private async _applyFile(state: IOpenPolvoSessionState, file: { path: string; content: string } | undefined): Promise<void> {
+	private async _scheduleProjectRoot(state: IOpenPolvoSessionState, requestedRoot: string): Promise<void> {
+		if (!state.projectRootSetup) {
+			state.projectRootSetup = this._ensureProjectRoot(state, requestedRoot);
+		}
+		await state.projectRootSetup;
+	}
+
+	private async _awaitProjectRoot(state: IOpenPolvoSessionState): Promise<void> {
+		if (state.projectRootSetup) {
+			await state.projectRootSetup;
+		}
+	}
+
+	private async _bootstrapProjectRootFromMetadata(
+		state: IOpenPolvoSessionState,
+		metadata: Record<string, unknown> | undefined,
+	): Promise<void> {
+		const root = readProjectRootFromMetadata(metadata);
+		if (!root) {
+			return;
+		}
+		await this._scheduleProjectRoot(state, root);
+	}
+
+	private async _ensureProjectRoot(state: IOpenPolvoSessionState, requestedRoot: string): Promise<string | undefined> {
+		if (state.projectRootResolved && state.projectRootRel) {
+			return state.projectRootRel;
+		}
+		if (!state.workingDirectory) {
+			state.projectRootRel = normalizeDevRelativePath(requestedRoot);
+			state.projectRootResolved = true;
+			return state.projectRootRel;
+		}
+		const slug = slugifyProjectTitle(requestedRoot) || normalizeDevRelativePath(requestedRoot);
+		let candidate = slug;
+		let suffix = 0;
+		while (await this._pathExists(path.join(state.workingDirectory, candidate))) {
+			const pkgPath = path.join(state.workingDirectory, candidate, 'package.json');
+			const hasProject = await this._pathExists(pkgPath);
+			if (hasProject && suffix === 0) {
+				break;
+			}
+			suffix += 1;
+			candidate = `${slug}-${suffix}`;
+		}
+		state.projectRootRel = candidate;
+		state.projectRootResolved = true;
+		const absRoot = path.join(state.workingDirectory, candidate);
+		try {
+			await this._fileService.createFolder(URI.file(absRoot));
+		} catch (err) {
+			this._logService.warn(
+				`[OpenPolvo] failed to create project root ${candidate}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+		return candidate;
+	}
+
+	private async _pathExists(absPath: string): Promise<boolean> {
+		try {
+			await this._fileService.stat(URI.file(absPath));
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	private async _resolveDevRelativePath(
+		state: IOpenPolvoSessionState,
+		relPath: string,
+	): Promise<string> {
+		let normalized = normalizeDevRelativePath(relPath);
+		const segments = normalized.split('/').filter(Boolean);
+		const firstSeg = segments[0];
+		const reservedRoots = new Set(['src', 'server', 'public', 'package.json']);
+		const looksPrefixed = segments.length > 1 && firstSeg && !reservedRoots.has(firstSeg);
+
+		if (!state.projectRootResolved && looksPrefixed) {
+			const unique = await this._ensureProjectRoot(state, firstSeg);
+			if (unique !== firstSeg) {
+				normalized = [unique, ...segments.slice(1)].join('/');
+			}
+		} else if (
+			state.projectRootRel
+			&& normalized !== state.projectRootRel
+			&& !normalized.startsWith(`${state.projectRootRel}/`)
+		) {
+			normalized = prefixDevRelativePath(state.projectRootRel, normalized);
+		}
+		return normalized;
+	}
+
+	private async _applyPolvoCodeOpsFromMetadata(
+		session: URI,
+		state: IOpenPolvoSessionState,
+		turnId: string,
+		metadata: Record<string, unknown> | undefined,
+		appliedWritePaths: ReadonlySet<string>,
+	): Promise<void> {
+		const ops = metadata?.polvo_code_ops;
+		if (!Array.isArray(ops)) {
+			return;
+		}
+		for (const raw of ops) {
+			if (!raw || typeof raw !== 'object') {
+				continue;
+			}
+			const op = raw as Record<string, unknown>;
+			const relPath = String(op.path ?? '').trim().replace(/\\/g, '/');
+			if (!relPath) {
+				continue;
+			}
+			const kind = op.op === 'mkdir' ? 'mkdir' : op.op === 'delete' ? 'delete' : 'write';
+			if (kind === 'write') {
+				if (appliedWritePaths.has(relPath)) {
+					continue;
+				}
+				await this._applyFile(session, state, turnId, {
+					path: relPath,
+					content: String(op.content ?? ''),
+					op: 'write',
+				});
+				continue;
+			}
+			if (kind === 'delete') {
+				await this._applyFile(session, state, turnId, { path: relPath, op: 'delete' });
+				continue;
+			}
+			await this._applyFile(session, state, turnId, { path: relPath, op: 'mkdir' });
+		}
+	}
+
+	/**
+	 * Aplica um ficheiro ou mkdir emitido pelo dev workflow no workspace local,
+	 * com tracking before/after via {@link FileEditTracker} e sinalização
+	 * {@link ActionType.ChatToolCallComplete} para diffs no workbench.
+	 */
+	private async _applyFile(
+		session: URI,
+		state: IOpenPolvoSessionState,
+		turnId: string,
+		file: IOpenPolvoDevFileOp | INormalizedStreamEvent['fileEdit'] | undefined,
+	): Promise<void> {
+		if (!isOpenPolvoDevWorkflowEnabledFromEnv()) {
+			return;
+		}
 		if (!file?.path || !state.workingDirectory) {
 			return;
 		}
-		try {
-			await runDeskTool(
-				{ id: 'file-apply', tool: 'filesystem_write', args: { rel_path: file.path, content: file.content }, requiresClient: true },
-				state.workingDirectory,
-			);
-		} catch (err) {
-			this._logService.warn(`[OpenPolvo] failed to apply file ${file.path}: ${err instanceof Error ? err.message : String(err)}`);
+		await this._awaitProjectRoot(state);
+		const relPath = await this._resolveDevRelativePath(state, file.path);
+		const absPath = resolveWorkspaceFile(state.workingDirectory, relPath);
+		if (!absPath) {
+			this._logService.warn(`[OpenPolvo] rejected path outside workspace: ${file.path}`);
+			return;
 		}
+
+		const op = file.op === 'mkdir' ? 'mkdir' : file.op === 'delete' ? 'delete' : 'write';
+		const toolCallId = generateUuid();
+		const toolName = op === 'mkdir' ? 'dev_mkdir' : op === 'delete' ? 'dev_file_delete' : 'dev_file_write';
+		const displayName = op === 'mkdir'
+			? localize('openPolvoDevMkdir', "Created folder")
+			: op === 'delete'
+				? localize('openPolvoDevFileDelete', "Deleted file")
+				: localize('openPolvoDevFileWrite', "Applied file change");
+
+		this._fire(session, {
+			type: ActionType.ChatToolCallStart,
+			turnId,
+			toolCallId,
+			toolName,
+			displayName,
+		});
+		this._fire(session, {
+			type: ActionType.ChatToolCallReady,
+			turnId,
+			toolCallId,
+			invocationMessage: relPath,
+			confirmed: ToolCallConfirmationReason.NotNeeded,
+		});
+
+		try {
+			const tracker = state.editTracker;
+			if (tracker) {
+				await tracker.trackEditStart(absPath);
+			}
+
+			if (op === 'mkdir') {
+				await this._fileService.createFolder(URI.file(absPath));
+			} else if (op === 'delete') {
+				await this._fileService.del(URI.file(absPath), { recursive: true, useTrash: true });
+			} else {
+				await this._fileService.createFolder(URI.file(path.dirname(absPath)));
+				await this._fileService.writeFile(URI.file(absPath), VSBuffer.fromString(file.content ?? ''));
+			}
+
+			if (tracker) {
+				await tracker.completeEdit(absPath);
+			}
+
+			const content: ToolResultContent[] = [];
+			if (tracker) {
+				const fileEdit = await tracker.takeCompletedEdit(
+					turnId,
+					toolCallId,
+					absPath,
+					op === 'mkdir' ? 'dev_mkdir' : 'dev_file_write',
+					{ path: relPath, content: file.content },
+					state.modelId,
+				);
+				if (fileEdit) {
+					content.push(fileEdit);
+				}
+			}
+
+			this._fire(session, {
+				type: ActionType.ChatToolCallComplete,
+				turnId,
+				toolCallId,
+				result: {
+					success: true,
+					pastTenseMessage: `${displayName}: ${relPath}`,
+					content: content.length > 0 ? content : [{ type: ToolResultContentType.Text, text: relPath }],
+				},
+				_meta: {
+					ui: {
+						resourceUri: URI.file(absPath).toString(),
+						toolName,
+					},
+				},
+			});
+		} catch (err) {
+			this._logService.warn(`[OpenPolvo] failed to apply ${op} ${file.path}: ${err instanceof Error ? err.message : String(err)}`);
+			this._fire(session, {
+				type: ActionType.ChatToolCallComplete,
+				turnId,
+				toolCallId,
+				result: {
+					success: false,
+					pastTenseMessage: `${displayName} failed`,
+					error: { message: err instanceof Error ? err.message : String(err) },
+				},
+			});
+		}
+	}
+
+	private async _postDevProjectSetup(
+		session: URI,
+		state: IOpenPolvoSessionState,
+		turnId: string,
+		metadata: Record<string, unknown> | undefined,
+	): Promise<void> {
+		if (!isOpenPolvoDevWorkflowEnabledFromEnv() || !state.workingDirectory) {
+			return;
+		}
+		const setup = readDevProjectSetup(metadata);
+		if (setup.projectRootRel && !state.projectRootResolved) {
+			await this._scheduleProjectRoot(state, setup.projectRootRel);
+		}
+		const shouldOpenExplorer = setup.createProject || setup.openWorkspace;
+		try {
+			if (!setup.npmInstall && !setup.runDev) {
+				return;
+			}
+			const result = await runDevProjectPostSetup(state.workingDirectory, setup);
+			const messages: string[] = [];
+			if (setup.npmInstall) {
+				messages.push(localize('openPolvoDevNpmInstallDone', "Dependências instaladas com npm."));
+			}
+			if (result?.devStarted) {
+				messages.push(localize('openPolvoDevServerStarted', "Servidor de desenvolvimento iniciado ({0}).", setup.devCommand));
+			}
+			if (messages.length > 0) {
+				this._fireWorkflowStepTool(
+					session,
+					turnId,
+					messages.join(' '),
+					'dev_post_setup',
+				);
+			}
+		} catch (err) {
+			this._logService.warn(
+				`[OpenPolvo] post project setup failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		} finally {
+			if (shouldOpenExplorer && state.projectRootRel) {
+				await this._openProjectInExplorer(session, state, turnId, true);
+			}
+		}
+	}
+
+	private async _openProjectInExplorer(
+		session: URI,
+		state: IOpenPolvoSessionState,
+		turnId: string,
+		forceReveal = false,
+	): Promise<void> {
+		if (!state.workingDirectory) {
+			return;
+		}
+		const rel = state.projectRootRel;
+		const absPath = rel
+			? resolveWorkspaceFile(state.workingDirectory, rel)
+			: state.workingDirectory;
+		if (!absPath) {
+			return;
+		}
+		try {
+			await this._fileService.createFolder(URI.file(absPath));
+		} catch {
+			// pasta pode já existir
+		}
+		const toolCallId = generateUuid();
+		const toolName = 'dev_project_root';
+		this._fire(session, {
+			type: ActionType.ChatToolCallComplete,
+			turnId,
+			toolCallId,
+			result: {
+				success: true,
+				pastTenseMessage: localize('openPolvoDevProjectRoot', "Projecto criado em {0}", rel ?? '.'),
+				content: [{ type: ToolResultContentType.Text, text: rel ?? '.' }],
+			},
+			_meta: {
+				ui: {
+					resourceUri: URI.file(absPath).toString(),
+					toolName,
+					revealFolder: true,
+					addToWorkspace: true,
+					forceReveal,
+				},
+			},
+		});
 	}
 
 	private async _refreshModels(): Promise<void> {
@@ -335,6 +842,15 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 			}], undefined);
 		}
 	}
+}
+
+function resolveWorkspaceFile(workspacePath: string, relPath: string): string | undefined {
+	const target = path.resolve(workspacePath, relPath || '.');
+	const root = path.resolve(workspacePath);
+	if (target !== root && !target.startsWith(root + path.sep)) {
+		return undefined;
+	}
+	return target;
 }
 
 /**

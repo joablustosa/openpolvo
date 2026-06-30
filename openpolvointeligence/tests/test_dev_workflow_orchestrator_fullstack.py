@@ -8,6 +8,21 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_orchestrator_logic im
 )
 
 
+def test_build_tasks_includes_backend_and_frontend_paths():
+    plan = {
+        "files_to_create": [
+            "backend/internal/app/tasks/domain/task.go",
+            "frontend/src/pages/TasksPage.tsx",
+        ],
+        "files_to_modify": ["backend/internal/transport/http/router.go"],
+        "_project_files": {},
+    }
+    tasks = build_tasks_from_plan(plan)
+    paths = [t["path"] for t in tasks]
+    assert "backend/internal/app/tasks/domain/task.go" in paths
+    assert "frontend/src/pages/TasksPage.tsx" in paths
+
+
 def test_build_tasks_includes_server_paths():
     plan = {
         "files_to_create": [

@@ -9,7 +9,9 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from openpolvointeligence.core.config import Settings
-from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_logic import resolve_codegen_operations
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_codegen_logic import (
+    resolve_codegen_operations,
+)
 from openpolvointeligence.graphs.dev_workflow.layout_scaffold_heal_logic import (
     build_layout_scaffold_heal_ops,
 )
@@ -30,13 +32,16 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_error_memory import (
     index_error_fix,
     recall_similar_errors,
 )
+from openpolvointeligence.graphs.dev_workflow.core.dev_agent_prompts import inject_dev_agent_system
 from openpolvointeligence.graphs.models import get_chat_model
 from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
     validate_polvo_code_operations,
 )
 
-_PROMPT = Path(__file__).resolve().parent.parent.parent / "prompts" / "dev_workflow_compiler_system.md"
+_PROMPT = (
+    Path(__file__).resolve().parent.parent.parent / "prompts" / "dev_workflow_compiler_system.md"
+)
 
 
 def _load_prompt() -> str:
@@ -190,7 +195,10 @@ async def run_self_heal(
         human = f"{error_memory_block.strip()}\n\n{human}"
     chat = get_chat_model(settings, model_provider, json_mode=True, max_tokens=8192)
     resp = await chat.ainvoke(
-        [SystemMessage(content=_load_prompt()), HumanMessage(content=human)],
+        [
+            SystemMessage(content=inject_dev_agent_system(_load_prompt())),
+            HumanMessage(content=human),
+        ],
     )
     data = _parse_json_object(str(resp.content))
     ops_raw = data.get("operations")

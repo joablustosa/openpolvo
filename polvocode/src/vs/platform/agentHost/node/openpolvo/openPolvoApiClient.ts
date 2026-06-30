@@ -13,6 +13,10 @@ import {
 	parseSseBuffer,
 	performOpenPolvoLocalLogin,
 } from '../../common/openpolvoBackendProtocol.js';
+import { Agent, fetch as undiciFetch } from 'undici';
+
+/** Cliente HTTP sem timeout de body — streams dev podem durar vários minutos. */
+const longStreamAgent = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
 
 export interface IOpenPolvoApiModel {
 	id: string;
@@ -113,11 +117,11 @@ export class OpenPolvoApiClient {
 		conversationId: string,
 		content: string,
 		options: IBuildChatBodyOptions,
-		onEvent: (event: INormalizedStreamEvent) => void,
+		onEvent: (event: INormalizedStreamEvent) => void | Promise<void>,
 		signal?: AbortSignal,
 	): Promise<void> {
 		const body = buildChatBody(content, options);
-		const res = await this.fetchAuthorized(`${this.baseUrl}${OfficialRoutes.conversationStream(conversationId)}`, {
+		const res = await this.fetchAuthorizedStream(`${this.baseUrl}${OfficialRoutes.conversationStream(conversationId)}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
 			body: JSON.stringify(body),
@@ -132,6 +136,7 @@ export class OpenPolvoApiClient {
 		const decoder = new TextDecoder();
 		const normalizer = new BackendStreamNormalizer();
 		let buffer = '';
+		let sawTerminal = false;
 
 		while (true) {
 			const { done, value } = await reader.read();
@@ -143,13 +148,32 @@ export class OpenPolvoApiClient {
 			buffer = parsed.rest;
 			for (const raw of parsed.events) {
 				for (const event of normalizer.normalize(raw)) {
-					onEvent(event);
+					await onEvent(event);
 					if (event.type === 'done' || event.type === 'error') {
+						sawTerminal = true;
 						return;
 					}
 				}
 			}
 		}
+		if (!sawTerminal) {
+			onEvent({
+				type: 'error',
+				error: 'Stream terminou sem resposta do servidor. Verifique se o Intelligence (:8090) está activo.',
+			});
+		}
+	}
+
+	private async fetchAuthorizedStream(url: string, init: RequestInit): Promise<Response> {
+		await this.ensureAuth();
+		const headers = { ...init.headers as Record<string, string>, ...this._authHeaders() };
+		let res = await undiciFetch(url, { ...init, headers, dispatcher: longStreamAgent } as RequestInit);
+		if (res.status === 401) {
+			await this.refreshAuth();
+			const retryHeaders = { ...init.headers as Record<string, string>, ...this._authHeaders() };
+			res = await undiciFetch(url, { ...init, headers: retryHeaders, dispatcher: longStreamAgent } as RequestInit);
+		}
+		return res as unknown as Response;
 	}
 
 	/** Devolve o resultado de uma tool local ao backend (bridge Desk). */

@@ -10,19 +10,27 @@ import { Action } from '../../../../base/common/actions.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
+import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { readProjectRootFromMetadata } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
+import { IExplorerService } from '../../files/browser/files.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { PolvoAgentChatEditorInput } from './polvoAgentChatEditorInput.js';
-import { IPolvoAgentConversationsService, type IPolvoConversationMessage, type IPolvoMessageAttachment } from './polvoAgentConversationsService.js';
+import { IPolvoAgentConversationsService, type IPolvoConversationMessage, type IPolvoDevFileChange, type IPolvoMessageAttachment } from './polvoAgentConversationsService.js';
+import { IPolvoAgentChatContextService, type IPolvoCodeReferenceMeta } from './polvoAgentChatContextService.js';
 import { IOpenPolvoModel, IOpenPolvoWorkbenchApiService, type IOpenPolvoStreamEvent } from './openPolvoWorkbenchApiService.js';
-import type { IOpenPolvoAttachment } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
+import type { IOpenPolvoAttachment, IOpenPolvoCodeReference } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import { IOpenPolvoSignInService } from './openPolvoAuth.js';
 import { withOpenPolvoApiAuth } from './openPolvoApiAuthHelper.js';
 import { extractRichBlocks, markdownToRichBlocks, renderRichChatBlocks } from './polvoRichChatRenderer.js';
@@ -32,6 +40,9 @@ import {
 	PolvoChatResponseTimerController,
 	renderLoadingPlaceholder,
 } from './polvoChatResponseTimer.js';
+import { IWorkspaceEditingService } from '../../../services/workspaces/common/workspaceEditing.js';
+import { applyDevFileToWorkspaceFolder, openPolvoProjectFolderInExplorer, projectRootFromMetadata, shouldOpenPolvoProjectInExplorer } from './openPolvoDevWorkspaceFiles.js';
+import { IPolvoAgentHistorySyncService } from './polvoAgentHistorySyncService.js';
 
 const $ = dom.$;
 
@@ -59,6 +70,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 	private models: IOpenPolvoModel[] = [];
 	private isSending = false;
 	private abortController: AbortController | undefined;
+	private devProjectRootRel: string | undefined;
 	private readonly responseTimer = new PolvoChatResponseTimerController(() => this.renderMessages());
 
 	private readonly quickActions: IQuickAction[] = [
@@ -74,9 +86,16 @@ export class PolvoAgentChatEditor extends EditorPane {
 		@IThemeService themeService: IThemeService,
 		@IStorageService storageService: IStorageService,
 		@IPolvoAgentConversationsService private readonly conversationsService: IPolvoAgentConversationsService,
+		@IPolvoAgentChatContextService private readonly chatContextService: IPolvoAgentChatContextService,
+		@IPolvoAgentHistorySyncService private readonly historySyncService: IPolvoAgentHistorySyncService,
 		@IOpenPolvoWorkbenchApiService private readonly openPolvoApi: IOpenPolvoWorkbenchApiService,
 		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IFileService private readonly fileService: IFileService,
+		@IExplorerService private readonly explorerService: IExplorerService,
+		@IWorkspaceEditingService private readonly workspaceEditingService: IWorkspaceEditingService,
 	) {
 		super(PolvoAgentChatEditor.ID, group, telemetryService, themeService, storageService);
 		this._register(this.responseTimer);
@@ -152,6 +171,15 @@ export class PolvoAgentChatEditor extends EditorPane {
 			pill.appendChild(document.createTextNode(action.label));
 			quickActionsRow.appendChild(pill);
 			this._register(dom.addDisposableListener(pill, dom.EventType.CLICK, () => {
+				if (action.icon === Codicon.code) {
+					this.chatContextService.addFromEditorSelection();
+					this.renderComposerChips();
+					if (this.inputElement && !this.inputElement.value.trim()) {
+						this.inputElement.value = localize('polvoQuickCodePrompt', "Ajude-me com o código selecionado no workspace.");
+					}
+					this.inputElement?.focus();
+					return;
+				}
 				if (this.inputElement) {
 					this.inputElement.value = action.prompt;
 					this.inputElement.focus();
@@ -172,6 +200,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 			this.updateModelLabel();
 		}));
 		this._register(this.conversationsService.onDidChangeActiveConversation(() => this.renderMessages()));
+		this._register(this.chatContextService.onDidChangePendingReferences(() => this.renderComposerChips()));
 
 		void this.loadModels();
 	}
@@ -182,6 +211,10 @@ export class PolvoAgentChatEditor extends EditorPane {
 		this.conversationsService.setActiveConversation(this.conversationId);
 		await this.signInService.ensureSignedIn();
 		await this.ensureApiSession();
+		const conversation = this.conversationsService.getConversation(this.conversationId);
+		if (conversation?.apiSessionId && conversation.messages.length === 0) {
+			await this.historySyncService.syncConversationMessages(this.conversationId);
+		}
 		this.updateModelLabel();
 		this.renderMessages();
 		this.autoResizeInput();
@@ -272,7 +305,9 @@ export class PolvoAgentChatEditor extends EditorPane {
 		}
 		const rawText = this.inputElement.value.trim();
 		const files = [...this.pendingAttachments];
-		if (!rawText && files.length === 0) {
+		const codeRefs = this.chatContextService.consumePendingReferences();
+		const codeRefMeta: IPolvoCodeReferenceMeta[] = codeRefs.map(r => this.chatContextService.toMeta(r));
+		if (!rawText && files.length === 0 && codeRefs.length === 0) {
 			return;
 		}
 
@@ -294,17 +329,20 @@ export class PolvoAgentChatEditor extends EditorPane {
 			return;
 		}
 
-		// O agente de leitura precisa de um pedido; se o utilizador só anexou o PDF, assume análise.
-		const text = rawText || localize('polvoAttachDefaultPrompt', "Analise este documento e faça um resumo.");
+		// O agente de leitura precisa de um pedido; se o utilizador só anexou ficheiros/refs, assume análise.
+		const text = rawText || (codeRefs.length > 0
+			? localize('polvoCodeRefDefaultPrompt', "Analise o código referenciado.")
+			: localize('polvoAttachDefaultPrompt', "Analise este documento e faça um resumo."));
 		const attachmentMeta: IPolvoMessageAttachment[] = files.map(f => ({
 			name: f.name,
 			mimeType: f.type || 'application/pdf',
 			sizeBytes: f.size,
 		}));
 
-		this.conversationsService.addMessage(this.conversationId, 'user', text, attachmentMeta);
+		this.conversationsService.addMessage(this.conversationId, 'user', text, attachmentMeta, codeRefMeta);
 		this.inputElement.value = '';
 		this.clearPendingAttachments();
+		this.renderComposerChips();
 		this.autoResizeInput();
 		this.renderMessages();
 
@@ -321,30 +359,42 @@ export class PolvoAgentChatEditor extends EditorPane {
 					this.conversationsService.setApiSessionId(this.conversationId!, apiSessionId);
 				}
 
-				this.conversationsService.addMessage(this.conversationId!, 'assistant', '');
-				this.renderMessages();
-
 				let assistantText = '';
 				let assistantMetadata: Record<string, unknown> | undefined;
 				let pdfGenerating = false;
 				let pdfProgressLabel = '';
 				let richFormatting = false;
 				let richProgressLabel = '';
+				const devFileChanges: IPolvoDevFileChange[] = [];
+				let lastDevWorkflowStepId = '';
 
 				const handleStreamEvent = (event: IOpenPolvoStreamEvent): void => {
 				if (event.type === 'text_delta' && event.delta) {
 					assistantText += event.delta;
-					this.conversationsService.updateAssistantMessage(this.conversationId!, assistantText, {
+					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
 						pdfGenerating,
 						pdfProgressLabel,
 						richFormatting,
 						richProgressLabel,
+						devFileChanges,
 						metadata: assistantMetadata,
 					});
 					this.renderMessages();
 				} else if (event.type === 'progress') {
 					const step = String(event.payload?.step ?? '');
-					if (step.startsWith('doc_') || event.payload?.document_kind === 'docx_result' || event.payload?.document_kind === 'doc_read_result') {
+					if (step === 'dev_project_root') {
+						const root = event.payload?.project_root;
+						if (typeof root === 'string' && root.trim()) {
+							this.devProjectRootRel = root.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+						}
+					} else if (step.startsWith('dev_')) {
+						const label = event.content ?? event.payload?.label as string ?? '';
+						if (label && step !== lastDevWorkflowStepId) {
+							lastDevWorkflowStepId = step;
+							this.conversationsService.appendDevStepMessage(this.conversationId!, label);
+							this.renderMessages();
+						}
+					} else if (step.startsWith('doc_') || event.payload?.document_kind === 'docx_result' || event.payload?.document_kind === 'doc_read_result') {
 						richFormatting = true;
 						richProgressLabel = event.content ?? event.payload?.label as string ?? '';
 						this.conversationsService.updateAssistantMessage(
@@ -396,6 +446,47 @@ export class PolvoAgentChatEditor extends EditorPane {
 						});
 						this.renderMessages();
 					}
+				} else if (event.type === 'file' && event.file?.path) {
+					const change: IPolvoDevFileChange = {
+						path: event.file.path,
+						op: event.file.op ?? 'write',
+					};
+					devFileChanges.push(change);
+					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
+						devFileChanges: [...devFileChanges],
+						pdfGenerating,
+						pdfProgressLabel,
+						richFormatting,
+						richProgressLabel,
+						metadata: assistantMetadata,
+					});
+					this.renderMessages();
+					void this.persistDevFileAndReveal({
+						path: event.file.path,
+						content: event.file.content,
+						op: event.file.op ?? 'write',
+					});
+				} else if (event.type === 'file_edit' && event.fileEdit?.path) {
+					const change: IPolvoDevFileChange = {
+						path: event.fileEdit.path,
+						op: event.fileEdit.op ?? 'write',
+						added: event.fileEdit.added,
+						removed: event.fileEdit.removed,
+					};
+					devFileChanges.push(change);
+					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
+						devFileChanges: [...devFileChanges],
+						pdfGenerating,
+						pdfProgressLabel,
+						richFormatting,
+						richProgressLabel,
+						metadata: assistantMetadata,
+					});
+					this.renderMessages();
+					void this.persistDevFileAndReveal({
+						path: event.fileEdit.path,
+						op: event.fileEdit.op ?? 'write',
+					});
 				} else if (event.type === 'error') {
 					const errorMessage = event.error ?? localize('polvoAgentUnknownError', "Erro desconhecido");
 					this.conversationsService.updateAssistantMessage(this.conversationId!, errorMessage, {
@@ -414,17 +505,36 @@ export class PolvoAgentChatEditor extends EditorPane {
 					}
 					if (event.metadata) {
 						assistantMetadata = event.metadata;
+						const root = readProjectRootFromMetadata(event.metadata);
+						if (root) {
+							this.devProjectRootRel = root;
+						}
 					}
 					pdfGenerating = false;
 					richFormatting = false;
-					this.conversationsService.updateAssistantMessage(this.conversationId!, assistantText, {
+					this.conversationsService.finalizeLastDevStep(this.conversationId!);
+					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
 						metadata: assistantMetadata,
 						pdfGenerating: false,
 						richFormatting: false,
+						devFileChanges,
 					});
 					this.renderMessages();
+					void this.openCreatedProjectInExplorer(assistantMetadata);
+				} else if (event.type === 'messages_saved' && event.messages?.length) {
+					this.conversationsService.reconcileServerMessageIds(
+						this.conversationId!,
+						event.messages.map(m => ({ id: m.id, role: m.role })),
+					);
 				}
 			};
+
+			const apiCodeRefs: IOpenPolvoCodeReference[] = codeRefs.map(r => ({
+				path: r.relativePath,
+				start_line: r.startLine,
+				end_line: r.endLine,
+				text: r.text,
+			}));
 
 			await this.openPolvoApi.streamMessage(
 				apiSessionId!,
@@ -433,11 +543,14 @@ export class PolvoAgentChatEditor extends EditorPane {
 				handleStreamEvent,
 				this.abortController.signal,
 				attachments,
+				apiCodeRefs.length > 0 ? apiCodeRefs : undefined,
 			);
 
 			if (!assistantText) {
-				const last = this.conversationsService.getConversation(this.conversationId!)?.messages.at(-1);
-				if (last?.role === 'assistant' && !last.content) {
+				const conversation = this.conversationsService.getConversation(this.conversationId!);
+				const hasDevSteps = conversation?.messages.some(m => m.devFormatting || m.devStepDone);
+				const responseMsg = conversation?.messages.findLast(m => m.devResponse);
+				if (!hasDevSteps && responseMsg && !responseMsg.content) {
 					this.conversationsService.updateAssistantMessage(
 						this.conversationId!,
 						localize('polvoAgentEmptyResponse', "Sem resposta do servidor.")
@@ -458,14 +571,24 @@ export class PolvoAgentChatEditor extends EditorPane {
 			const responseTimeSeconds = this.responseTimer.stop();
 			if (responseTimeSeconds !== undefined && this.conversationId) {
 				const conversation = this.conversationsService.getConversation(this.conversationId);
-				const last = conversation?.messages.at(-1);
-				if (last?.role === 'assistant') {
-					this.conversationsService.updateAssistantMessage(this.conversationId, last.content, {
+				const last = conversation?.messages.findLast(m =>
+					m.role === 'assistant' && (m.devResponse || (!m.devFormatting && !m.devStepDone)),
+				);
+				if (last) {
+					const updater = last.devResponse
+						? this.conversationsService.updateDevResponseMessage.bind(this.conversationsService)
+						: this.conversationsService.updateAssistantMessage.bind(this.conversationsService);
+					updater(this.conversationId, last.content, {
 						metadata: last.metadata,
 						pdfGenerating: last.pdfGenerating,
 						pdfProgressLabel: last.pdfProgressLabel,
 						richFormatting: last.richFormatting,
 						richProgressLabel: last.richProgressLabel,
+						devFormatting: last.devFormatting,
+						devProgressLabel: last.devProgressLabel,
+						devStepDone: last.devStepDone,
+						devResponse: last.devResponse,
+						devFileChanges: last.devFileChanges,
 						responseTimeSeconds,
 					});
 					this.renderMessages();
@@ -549,6 +672,10 @@ export class PolvoAgentChatEditor extends EditorPane {
 
 	private clearPendingAttachments(): void {
 		this.pendingAttachments = [];
+		this.renderComposerChips();
+	}
+
+	private renderComposerChips(): void {
 		this.renderAttachmentChips();
 	}
 
@@ -557,11 +684,32 @@ export class PolvoAgentChatEditor extends EditorPane {
 			return;
 		}
 		dom.clearNode(this.attachmentsRow);
-		if (this.pendingAttachments.length === 0) {
+		const pendingRefs = this.chatContextService.pendingReferences;
+		if (this.pendingAttachments.length === 0 && pendingRefs.length === 0) {
 			this.attachmentsRow.style.display = 'none';
 			return;
 		}
 		this.attachmentsRow.style.display = 'flex';
+		for (let i = 0; i < pendingRefs.length; i++) {
+			const ref = pendingRefs[i];
+			const meta = this.chatContextService.toMeta(ref);
+			const chip = dom.append(this.attachmentsRow, $('.polvo-agent-chat-attachment-chip.polvo-agent-chat-code-ref-chip'));
+			chip.appendChild(renderIcon(Codicon.code));
+			const name = dom.append(chip, $('span.polvo-agent-chat-attachment-name'));
+			name.textContent = `${meta.path}:L${meta.startLine}-${meta.endLine}`;
+			name.title = meta.preview;
+			const remove = document.createElement('button');
+			remove.type = 'button';
+			remove.className = 'polvo-agent-chat-attachment-remove';
+			remove.title = localize('polvoCodeRefRemove', "Remover referência");
+			remove.appendChild(renderIcon(Codicon.close));
+			const index = i;
+			this._register(dom.addDisposableListener(remove, dom.EventType.CLICK, () => {
+				this.chatContextService.removeReference(index);
+				this.renderComposerChips();
+			}));
+			chip.appendChild(remove);
+		}
 		for (const file of this.pendingAttachments) {
 			const chip = dom.append(this.attachmentsRow, $('.polvo-agent-chat-attachment-chip'));
 			chip.appendChild(renderIcon(PolvoAgentChatEditor.iconForAttachment(file.name, file.type)));
@@ -662,6 +810,16 @@ export class PolvoAgentChatEditor extends EditorPane {
 	}
 
 	private renderUserBubble(bubble: HTMLElement, message: IPolvoConversationMessage): void {
+		if (message.codeReferences && message.codeReferences.length > 0) {
+			const row = dom.append(bubble, $('.polvo-agent-chat-message-attachments'));
+			for (const ref of message.codeReferences) {
+				const chip = dom.append(row, $('.polvo-agent-chat-attachment-chip.is-sent.polvo-agent-chat-code-ref-chip'));
+				chip.appendChild(renderIcon(Codicon.code));
+				const name = dom.append(chip, $('span.polvo-agent-chat-attachment-name'));
+				name.textContent = `${ref.path}:L${ref.startLine}-${ref.endLine}`;
+				name.title = ref.preview;
+			}
+		}
 		if (message.attachments && message.attachments.length > 0) {
 			const row = dom.append(bubble, $('.polvo-agent-chat-message-attachments'));
 			for (const att of message.attachments) {
@@ -685,12 +843,20 @@ export class PolvoAgentChatEditor extends EditorPane {
 		isLoading: boolean,
 		elapsedSeconds?: number,
 	): void {
-		if (isLoading && !message.content && !message.pdfGenerating && !message.richFormatting) {
+		if (isLoading && !message.content && !message.pdfGenerating && !message.richFormatting && !message.devFormatting) {
 			renderLoadingPlaceholder(bubble, elapsedSeconds ?? 0);
 			return;
 		}
 		if (message.pdfGenerating) {
 			this.renderPdfGeneratingCard(bubble, message.pdfProgressLabel);
+			return;
+		}
+		if (message.devStepDone) {
+			this.renderDevStepDoneCard(bubble, message.devProgressLabel ?? message.content);
+			return;
+		}
+		if (message.devFormatting) {
+			this.renderDevFormattingCard(bubble, message.devProgressLabel);
 			return;
 		}
 		if (message.richFormatting) {
@@ -744,6 +910,120 @@ export class PolvoAgentChatEditor extends EditorPane {
 		}
 		if (meta && meta.document_kind === 'doc_read_result') {
 			this.renderDocReadBadge(bubble, meta.documents_full as Record<string, unknown> | undefined);
+		}
+		if (message.devFileChanges && message.devFileChanges.length > 0) {
+			for (const change of message.devFileChanges) {
+				this.renderDevFileCard(bubble, change);
+			}
+		}
+	}
+
+	private renderDevFormattingCard(bubble: HTMLElement, label?: string): void {
+		const card = dom.append(bubble, $('.polvo-rich-formatting-card'));
+		const pulse = dom.append(card, $('.polvo-rich-formatting-pulse'));
+		pulse.appendChild(renderIcon(Codicon.code));
+		const status = dom.append(card, $('.polvo-rich-formatting-status'));
+		status.textContent = label || localize('polvoDevFormatting', "A gerar alterações no código…");
+	}
+
+	private renderDevStepDoneCard(bubble: HTMLElement, label?: string): void {
+		const card = dom.append(bubble, $('.polvo-rich-formatting-card.is-done'));
+		const icon = dom.append(card, $('.polvo-rich-formatting-pulse'));
+		icon.appendChild(renderIcon(Codicon.check));
+		const status = dom.append(card, $('.polvo-rich-formatting-status'));
+		status.textContent = label || localize('polvoDevStepDone', "Passo concluído");
+	}
+
+	private renderDevFileCard(bubble: HTMLElement, change: IPolvoDevFileChange): void {
+		const card = dom.append(bubble, $('.polvo-pdf-download-card'));
+		const iconWrap = dom.append(card, $('.polvo-pdf-download-icon'));
+		iconWrap.appendChild(renderIcon(change.op === 'mkdir' ? Codicon.folder : Codicon.fileCode));
+		const info = dom.append(card, $('.polvo-pdf-download-info'));
+		const nameEl = dom.append(info, $('.polvo-pdf-download-name'));
+		nameEl.textContent = change.path;
+		const sizeEl = dom.append(info, $('.polvo-pdf-download-size'));
+		if (change.op === 'mkdir') {
+			sizeEl.textContent = localize('polvoDevMkdirLabel', "Nova pasta");
+		} else if (change.added !== undefined || change.removed !== undefined) {
+			const parts: string[] = [];
+			if (change.added) {
+				parts.push(localize('polvoDevLinesAdded', "+{0}", String(change.added)));
+			}
+			if (change.removed) {
+				parts.push(localize('polvoDevLinesRemoved', "-{0}", String(change.removed)));
+			}
+			sizeEl.textContent = parts.join(' · ');
+		} else {
+			sizeEl.textContent = localize('polvoDevFileUpdated', "Ficheiro atualizado");
+		}
+		const openBtn = document.createElement('button');
+		openBtn.type = 'button';
+		openBtn.className = 'polvo-pdf-download-button';
+		openBtn.title = localize('polvoDevOpenFile', "Abrir ficheiro");
+		openBtn.appendChild(renderIcon(Codicon.goToFile));
+		openBtn.appendChild(document.createTextNode(localize('polvoDevOpenFile', "Abrir ficheiro")));
+		this._register(dom.addDisposableListener(openBtn, dom.EventType.CLICK, () => {
+			void this.openDevFileInEditor(change.path);
+		}));
+		card.appendChild(openBtn);
+	}
+
+	private async openCreatedProjectInExplorer(metadata: Record<string, unknown> | undefined): Promise<void> {
+		if (!shouldOpenPolvoProjectInExplorer(metadata)) {
+			return;
+		}
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			return;
+		}
+		const root = projectRootFromMetadata(metadata) ?? this.devProjectRootRel;
+		if (!root) {
+			return;
+		}
+		await openPolvoProjectFolderInExplorer(
+			this.fileService,
+			this.workspaceContextService,
+			this.workspaceEditingService,
+			this.explorerService,
+			folders[0].uri,
+			root,
+		);
+	}
+
+	private async persistDevFileAndReveal(file: { path: string; content?: string; op?: 'write' | 'mkdir' }): Promise<void> {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			return;
+		}
+		const resource = await applyDevFileToWorkspaceFolder(
+			this.fileService,
+			folders[0].uri,
+			file,
+			this.devProjectRootRel,
+		);
+		if (!resource) {
+			return;
+		}
+		try {
+			await this.explorerService.refresh();
+			await this.explorerService.select(resource, true);
+			await this.editorService.openEditor({ resource, options: { pinned: false } });
+		} catch {
+			// best-effort
+		}
+	}
+
+	private async openDevFileInEditor(relPath: string): Promise<void> {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			return;
+		}
+		const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+		const resource = URI.joinPath(folders[0].uri, ...normalized.split('/'));
+		try {
+			await this.editorService.openEditor({ resource, options: { pinned: false } });
+		} catch {
+			// best-effort
 		}
 	}
 

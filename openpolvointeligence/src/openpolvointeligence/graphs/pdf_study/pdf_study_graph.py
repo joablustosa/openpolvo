@@ -131,7 +131,9 @@ def build_pdf_study_graph(settings: Settings) -> Any:
             return {"research_dossier": note, "trace": trace}
 
         try:
-            from openpolvointeligence.graphs.web_research.web_research_serpapi import fetch_organic_snippets
+            from openpolvointeligence.graphs.web_research.web_research_serpapi import (
+                fetch_organic_snippets,
+            )
 
             snippets: list[str] = []
             for item in queries[:4]:

@@ -34,10 +34,7 @@ def normalize_agent_memory(raw: dict[str, Any] | None) -> dict[str, str]:
         return {"global": "", "builder": ""}
     g = str(raw.get("global") or raw.get("global_memory") or "").strip()
     b = str(
-        raw.get("builder")
-        or raw.get("workspace")
-        or raw.get("builder_memory")
-        or "",
+        raw.get("builder") or raw.get("workspace") or raw.get("builder_memory") or "",
     ).strip()
     return {"global": g[:_MAX_GLOBAL], "builder": b[:_MAX_BUILDER]}
 
@@ -45,7 +42,9 @@ def normalize_agent_memory(raw: dict[str, Any] | None) -> dict[str, str]:
 _DESK_MEMORY_MAX_CHARS = 4000
 
 
-def truncate_memory_for_desk(mem: dict[str, str] | None, max_chars: int = _DESK_MEMORY_MAX_CHARS) -> dict[str, str]:
+def truncate_memory_for_desk(
+    mem: dict[str, str] | None, max_chars: int = _DESK_MEMORY_MAX_CHARS
+) -> dict[str, str]:
     """Limita o bloco combinado de memória injectado no prompt Desk (~4k chars)."""
     m = normalize_agent_memory(mem)
     combined = (m.get("global") or "") + "\n" + (m.get("builder") or "")
