@@ -82,16 +82,27 @@ async def run_type_check_agent(settings: Settings, state: DevWorkflowState) -> d
 
 
 async def run_lint_fix_agent(settings: Settings, state: DevWorkflowState) -> dict[str, Any]:
+    from openpolvointeligence.graphs.dev_workflow.tools.node_env import has_local_package
+
     port = _port(settings, state)
     files = _merged_files(state)
     pending = list(state.get("pending_writes") or [])
-    eslint = await port.run("npx eslint src --ext .ts,.tsx --fix 2>&1 | head -50")
     static = run_linter(files, pending_writes=pending)
-    result = {
-        "ok": bool(static.get("ok")) and eslint.ok,
-        "eslint": eslint.output()[:2000],
-        "static_verify": static,
-    }
+    result: dict[str, Any] = {"ok": bool(static.get("ok")), "static_verify": static}
+    # eslint só quando instalado no workspace — `npx eslint` sem node_modules
+    # descarrega pacotes da rede e congela o workflow.
+    run_eslint = port.mode == "bridge" or (
+        port.mode == "sandbox" and has_local_package(port.workspace_path, "eslint")
+    )
+    if run_eslint:
+        cmd = (
+            "npx --no-install eslint src --ext .ts,.tsx --fix"
+            if port.mode == "sandbox"
+            else "npx eslint src --ext .ts,.tsx --fix 2>&1 | head -50"
+        )
+        eslint = await port.run(cmd)
+        result["ok"] = result["ok"] and eslint.ok
+        result["eslint"] = eslint.output()[:2000]
     return step_patch(state, "lint_fix", {"lint_result": result}, agent="lint_fix")
 
 

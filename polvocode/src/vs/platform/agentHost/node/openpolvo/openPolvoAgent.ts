@@ -479,6 +479,9 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 			label = `Concluído: ${step ?? agent ?? 'passo'}`;
 		} else if (eventType === 'pause_for_input') {
 			label = 'Aguardando confirmação…';
+		} else if (eventType === 'workflow_error') {
+			const detail = payload && typeof payload.detail === 'string' ? payload.detail : '';
+			label = detail ? `⚠️ Erro no workflow: ${detail}` : '⚠️ Erro no workflow de desenvolvimento.';
 		} else {
 			label = tool ? `${eventType}: ${tool}` : eventType;
 		}

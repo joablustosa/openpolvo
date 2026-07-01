@@ -1142,6 +1142,8 @@ async def run_dev_workflow_stream(
         )
         port_token = set_terminal_port(port)
 
+        exec_error: dict[str, str] = {}
+
         async def run_execution() -> None:
             try:
                 lg_config = session_config(str(merged.get("thread_id") or ""))
@@ -1158,6 +1160,14 @@ async def run_dev_workflow_stream(
                     subgraphs=True,
                 ):
                     await exec_q.put(("chunk", chunk))
+            except Exception as exc:  # noqa: BLE001 — erro tem de chegar ao utilizador
+                _logger.exception("dev workflow execution falhou")
+                exec_error["detail"] = str(exc)[:400]
+                await exec_q.put(
+                    _agent_event_for_sse(
+                        {"type": "workflow_error", "detail": exec_error["detail"]},
+                    ),
+                )
             finally:
                 await exec_q.put(None)
 
@@ -1211,6 +1221,7 @@ async def run_dev_workflow_stream(
         finally:
             if not exec_task.done():
                 exec_task.cancel()
+            await asyncio.gather(exec_task, return_exceptions=True)
             if cid:
                 clear_bridge(cid)
             reset_terminal_port(port_token)
@@ -1234,6 +1245,15 @@ async def run_dev_workflow_stream(
             compile_log=compile_log,
             messages=messages,
         )
+        if exec_error.get("detail") and not (
+            isinstance(meta, dict) and meta.get("polvo_code_ops")
+        ):
+            detail = exec_error["detail"]
+            text = (
+                (text + "\n\n") if text.strip() else ""
+            ) + f"⚠️ O workflow de desenvolvimento falhou antes de gerar ficheiros: {detail}"
+            if isinstance(meta, dict):
+                meta["error_kind"] = "dev_workflow_execution_failed"
         ops = meta.get("polvo_code_ops") if isinstance(meta, dict) else None
         if isinstance(ops, list):
             for ev in _file_events_from_ops(ops):

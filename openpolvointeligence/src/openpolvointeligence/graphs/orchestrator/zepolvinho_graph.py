@@ -36,6 +36,7 @@ from openpolvointeligence.graphs.conversation.conversation_reply_blocks_logic im
 )
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_routing import (
     boost_analysis_for_dev_workflow,
+    is_dev_studio_code_mode,
     should_use_dev_workflow,
 )
 from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
@@ -510,7 +511,9 @@ def build_zepolvinho_graph(settings: Settings):
             compile_log=state.get("compile_log"),
         )
         user_last = last_user_text(msgs)
-        if wants_pdf_study_specialist(user_last):
+        if wants_pdf_study_specialist(user_last) and not is_dev_studio_code_mode(
+            state.get("dev_studio_context")
+        ):
             analysis = {
                 **analysis,
                 "intent": "estudo_pdf_profissional",
@@ -1126,8 +1129,9 @@ async def run_reply_stream(
     pcb_stream = merge_preview_console_block(sandbox_project_id, preview_console_logs)
 
     # ── Plugins nativos (resposta instantânea) ──────────────────────────────────
+    # Aba de desenvolvimento (mode='code'): nunca desviar para plugins nativos.
     last = last_user_text(messages, 2000)
-    hit = match_native_plugin(last)
+    hit = None if is_dev_studio_code_mode(dev_studio_context) else match_native_plugin(last)
     if hit:
         pid, url, label = hit
         yield {
@@ -1232,7 +1236,9 @@ async def run_reply_stream(
             compile_log=compile_log,
         )
         user_last = last_user_text(messages)
-        if wants_pdf_study_specialist(user_last):
+        if wants_pdf_study_specialist(user_last) and not is_dev_studio_code_mode(
+            dev_studio_context
+        ):
             analysis = {
                 **analysis,
                 "intent": "estudo_pdf_profissional",

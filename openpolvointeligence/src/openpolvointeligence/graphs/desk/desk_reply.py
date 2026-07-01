@@ -11,6 +11,7 @@ from openpolvointeligence.core.ollama_health import is_ollama_reachable_async
 from openpolvointeligence.graphs.desk.desk_graph import build_desk_graph
 from openpolvointeligence.graphs.desk.desk_routing import (
     desk_conversation_id,
+    desk_prefers_local_tools,
     desk_workspace_path,
 )
 from openpolvointeligence.graphs.desk.desk_state import initial_desk_state
@@ -152,7 +153,11 @@ async def run_desk_reply_stream(
     mp = resolve_desk_reply_provider(model_provider, desk_context, settings)
     wp = desk_workspace_path(desk_context)
     cid = desk_conversation_id(desk_context)
-    local_tools = settings.desk_tools_local if use_local_tools is None else use_local_tools
+    local_tools = (
+        use_local_tools
+        if use_local_tools is not None
+        else (settings.desk_tools_local or desk_prefers_local_tools(desk_context))
+    )
 
     out_q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 

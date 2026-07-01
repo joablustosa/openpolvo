@@ -63,13 +63,20 @@ from openpolvointeligence.graphs.xlsx_full.xlsx_full_graph import (
     run_xlsx_full_pipeline,
     run_xlsx_full_stream,
 )
-from openpolvointeligence.graphs.xlsx_full.xlsx_full_routing import should_use_xlsx_workflow
+from openpolvointeligence.graphs.xlsx_full.xlsx_full_routing import (
+    has_xlsx_attachment,
+    should_use_xlsx_workflow,
+)
 from openpolvointeligence.graphs.documents_full.documents_full_graph import (
     run_documents_full_pipeline,
     run_documents_full_stream,
 )
 from openpolvointeligence.graphs.documents_full.documents_full_routing import (
+    has_word_attachment,
     should_use_documents_workflow,
+)
+from openpolvointeligence.graphs.dev_workflow.dev_workflow_routing import (
+    has_dev_studio_context,
 )
 from openpolvointeligence.graphs.conversation.conversation_reply_routing import (
     should_use_conversation_workflow,
@@ -130,6 +137,13 @@ async def post_reply(
         if contacts_ctx is not None and not isinstance(contacts_ctx, list):
             contacts_ctx = None
         attachments = [a.model_dump() for a in body.attachments] if body.attachments else []
+        # Aba de desenvolvimento (dev studio): heurísticas de texto puro nunca desviam
+        # o pedido para workflows de documentos/conversa — só anexos reais mudam o fluxo.
+        dev_ctx = has_dev_studio_context(
+            sandbox_project_id=body.sandbox_project_id,
+            project_files=pf,
+            dev_studio_context=dsc,
+        )
         if should_use_pdf_read_workflow(last_user_text(msgs), attachments):
             text, meta = await run_pdf_read_pipeline(
                 eff,
@@ -139,7 +153,9 @@ async def post_reply(
                 agent_memory=body.agent_memory,
             )
             return ReplyResponse(assistant_text=text, metadata=meta)
-        if should_use_xlsx_workflow(last_user_text(msgs), attachments):
+        if (not dev_ctx or has_xlsx_attachment(attachments)) and should_use_xlsx_workflow(
+            last_user_text(msgs), attachments
+        ):
             text, meta = await run_xlsx_full_pipeline(
                 eff,
                 msgs,
@@ -148,7 +164,9 @@ async def post_reply(
                 agent_memory=body.agent_memory,
             )
             return ReplyResponse(assistant_text=text, metadata=meta)
-        if should_use_documents_workflow(last_user_text(msgs), attachments):
+        if (not dev_ctx or has_word_attachment(attachments)) and should_use_documents_workflow(
+            last_user_text(msgs), attachments
+        ):
             text, meta = await run_documents_full_pipeline(
                 eff,
                 msgs,
@@ -157,7 +175,7 @@ async def post_reply(
                 agent_memory=body.agent_memory,
             )
             return ReplyResponse(assistant_text=text, metadata=meta)
-        if wants_pdf_study_specialist(last_user_text(msgs)):
+        if not dev_ctx and wants_pdf_study_specialist(last_user_text(msgs)):
             text, meta = await run_pdf_study_pipeline(
                 eff,
                 msgs,
@@ -165,7 +183,7 @@ async def post_reply(
                 agent_memory=body.agent_memory,
             )
             return ReplyResponse(assistant_text=text, metadata=meta)
-        if should_use_conversation_workflow(last_user_text(msgs)):
+        if not dev_ctx and should_use_conversation_workflow(last_user_text(msgs)):
             text, meta = await run_conversation_reply_pipeline(
                 eff,
                 msgs,
@@ -356,6 +374,13 @@ async def post_reply_stream(
     if contacts_ctx is not None and not isinstance(contacts_ctx, list):
         contacts_ctx = None
     attachments = [a.model_dump() for a in body.attachments] if body.attachments else []
+    # Aba de desenvolvimento (dev studio): heurísticas de texto puro nunca desviam
+    # o pedido para workflows de documentos/conversa — só anexos reais mudam o fluxo.
+    dev_ctx = has_dev_studio_context(
+        sandbox_project_id=body.sandbox_project_id,
+        project_files=pf,
+        dev_studio_context=dsc,
+    )
 
     async def event_gen():
         try:
@@ -369,7 +394,9 @@ async def post_reply_stream(
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
-            if should_use_xlsx_workflow(last_user_text(msgs), attachments):
+            if (not dev_ctx or has_xlsx_attachment(attachments)) and should_use_xlsx_workflow(
+                last_user_text(msgs), attachments
+            ):
                 async for event in run_xlsx_full_stream(
                     eff,
                     msgs,
@@ -379,7 +406,9 @@ async def post_reply_stream(
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
-            if should_use_documents_workflow(last_user_text(msgs), attachments):
+            if (
+                not dev_ctx or has_word_attachment(attachments)
+            ) and should_use_documents_workflow(last_user_text(msgs), attachments):
                 async for event in run_documents_full_stream(
                     eff,
                     msgs,
@@ -389,7 +418,7 @@ async def post_reply_stream(
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
-            if wants_pdf_study_specialist(last_user_text(msgs)):
+            if not dev_ctx and wants_pdf_study_specialist(last_user_text(msgs)):
                 async for event in run_pdf_study_stream(
                     eff,
                     msgs,
@@ -398,7 +427,7 @@ async def post_reply_stream(
                 ):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 return
-            if should_use_conversation_workflow(last_user_text(msgs)):
+            if not dev_ctx and should_use_conversation_workflow(last_user_text(msgs)):
                 async for event in run_conversation_reply_stream(
                     eff,
                     msgs,

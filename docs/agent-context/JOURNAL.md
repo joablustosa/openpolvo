@@ -3,6 +3,96 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Roteamento por aba: dev/agent/workflow cada uma no workflow certo
+
+**Sintoma:** mensagens da aba de desenvolvimento podiam ser "sequestradas" por
+heurísticas de texto puro e cair em workflows errados; e o chat do Agent mode
+pendurava 60s por tool_call (sem runner no cliente).
+
+**Mapa das abas (verificado end-to-end):**
+- **Dev (janela sessions)** → `openPolvoAgent.ts` envia `dev_studio_context.mode='code'`
+  + `sandbox_project_id` (+ project_files) → Go passa integral (sem desk_context) →
+  `/v1/reply/stream` → zepolvinho → fast-path dev workflow (gateway classifica
+  explain/abort internamente).
+- **Agent (polvoModes)** → `openPolvoWorkbenchApiService` envia `desk_context.mode='agent'`
+  → Go faz `StripLegacyContextsForDesk` → desk graph (ReAct + tools); perguntas gerais
+  de pesquisa/estudo continuam a ir para o conversation-rich (por design).
+- **Workflow (automações)** → `/v1/workflows/generate` (workflow specialist);
+  fallback de chat cai no desk.
+
+**Bugs corrigidos:**
+1. `routes.py` (`/reply` e `/reply/stream`): com contexto dev presente
+   (`has_dev_studio_context`), os atalhos por texto (conversation-rich, pdf-study,
+   criação xlsx/docx) deixam de desviar o pedido — só anexos reais mudam o fluxo.
+   Ex.: "sistema de estoque com relatórios" caía no conversation-rich e nunca gerava
+   o projeto; "exportação para planilha" caía no workflow de Excel.
+2. `dev_workflow_routing.py`: novos `is_dev_studio_code_mode` + `has_dev_studio_context`;
+   `should_use_dev_workflow` retorna True sempre que `mode='code'` (aba dev nunca
+   depende de keywords). zepolvinho: plugins nativos e override pdf-study também
+   respeitam o modo code.
+3. **Agent mode sem runner de tools:** o chat polvoModes não trata eventos `tool_call`
+   — cada tool do desk bloqueava 60s no bridge e falhava. Novo marcador
+   `desk_context.tool_runner='server'` (front) + `desk_prefers_local_tools`
+   (intelligence) → tools executam localmente no Intelligence (mesma máquina,
+   sandbox/deny-patterns/gates de escrita mantidos).
+4. `openPolvoAgent.ts` (aba dev): evento `workflow_error` agora aparece como
+   "⚠️ Erro no workflow: …" no chat.
+
+**Arquivos:** `api/routes.py`, `graphs/dev_workflow/core/dev_workflow_routing.py`,
+`graphs/orchestrator/zepolvinho_graph.py`, `graphs/desk/desk_routing.py`,
+`graphs/desk/desk_reply.py`; front: `openpolvoBackendProtocol.ts`,
+`openPolvoWorkbenchApiService.ts`, `openPolvoAgent.ts`.
+
+**Portão:** `pytest -m "not integration"` = 458 passed; smoke de roteamento via
+TestClient com 7 cenários (dev/agent/sem-contexto/anexo) todos OK.
+
+**Follow-ups:** considerar runner de tool_call no chat polvoModes (aprovação de
+escritas na UI, como na janela sessions); testes API de roteamento permanentes.
+
+## 2026-07-01 — Fix: criação de projeto no develop travava em "A carregar contexto do projecto…"
+
+**Sintoma:** criar projeto no chat de develop (novo ou com repositório selecionado) só
+criava a pasta e congelava em "A carregar contexto do projecto…"; erros do workflow
+nunca chegavam ao chat.
+
+**Causas (verificadas com repro):**
+1. Terminal sandbox usava `subprocess.run` **síncrono dentro do event loop** — congelava
+   todo o SSE/heartbeat do Intelligence (medido: 17,5s bloqueado só no context_loader).
+2. `npx tsc`/`npx eslint` sem `node_modules` descarregam pacotes da rede (minutos) dentro
+   desse bloqueio.
+3. No Windows, timeout do `subprocess.run(shell=True)` mata só o `cmd.exe`; os filhos
+   (node/npm) seguram os pipes e o `communicate()` pendura **para sempre** → travamento.
+4. `context_loader` usava `find/cat/head` (inexistentes no Windows cmd).
+5. Exceções dentro de `execution_graph.astream` eram engolidas em `run_execution`
+   (task nunca awaited) → workflow "terminava" silencioso só com a pasta criada.
+
+**Fixes (openpolvointeligence):**
+- `desk/desk_tool_logic.py` — `_terminal_run_local` reescrito com `Popen` + kill de
+  árvore de processos no timeout (`taskkill /F /T` no Windows, killpg no POSIX),
+  `stdin=DEVNULL` (npx não fica à espera de input) e timeout configurável via
+  `DEV_WORKFLOW_TERMINAL_TIMEOUT_S` (antes fixo em 60s — matava `npm install` a meio).
+- `dev_workflow/tools/terminal_port.py` — `_run_local` via `asyncio.to_thread` (loop
+  nunca bloqueia); idem `desk_tool_logic.dispatch_tool_calls` e `vcs/runner.py`.
+- `dev_workflow/agents/context_loader.py` — contexto sandbox lido directamente do disco
+  em Python (`_build_context_from_disk`, cross-platform, sem shell); enrichment git só
+  com `.git` presente; tsc só com typescript em `node_modules` e com `npx --no-install`.
+- NOVO `dev_workflow/tools/node_env.py` — `has_local_package` (guarda anti-download npx).
+- `dev_workflow/tools/type_checker.py` + `agents/terminal_agents.py` (lint) — mesmos
+  guards `--no-install`/node_modules em sandbox.
+- `dev_workflow/core/dev_gateway_graph.py` — exceções do workflow agora emitem
+  `workflow_error` (agent_event) e o `done` traz "⚠️ O workflow de desenvolvimento
+  falhou…" + `metadata.error_kind=dev_workflow_execution_failed`; exec_task awaited.
+- `dev_workflow/agents/base.py` — `invoke_json_agent` com timeout (`AGENT_LLM_TIMEOUT_S`,
+  120s) — provider pendurado já não trava o workflow para sempre.
+
+**Portão:** `pytest -m "not integration"` = 454 passed, 2 skipped (5 testes novos em
+`tests/test_dev_workflow_terminal.py`: disco/kill-tree/guards). Smoke do stream new_app
+com LLM off: contexto em ~0s, erro claro no chat, done em 8,8s (antes: travava).
+
+**Follow-ups:** avaliar retry/fallback de provider nos agentes JSON (requirements/stack)
+em vez de falhar o workflow; `npm install` do dependency agent respeita o timeout de
+120s — projetos grandes dependem do post-setup do frontend (terminal real).
+
 ## 2026-07-01 — Streaming: front verificado (P1) + loop de dev (P2)
 
 **P1 — Render do `delta` no frontend (verificado por inspeção, sem mudança):**

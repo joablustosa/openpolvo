@@ -7,6 +7,7 @@ from typing import Any
 
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.dev_workflow.dev_workflow_build_sandbox import run_build_sandbox
+from openpolvointeligence.graphs.dev_workflow.tools.node_env import has_local_package
 from openpolvointeligence.graphs.dev_workflow.tools.terminal_port import DevTerminalPort
 
 
@@ -34,16 +35,27 @@ async def run_type_check(
     port: DevTerminalPort | None = None,
 ) -> dict[str, Any]:
     if port and port.mode in ("bridge", "sandbox") and port.workspace_path:
-        result = await port.run("npx tsc --noEmit 2>&1")
-        errors = _parse_errors(result.stdout)
-        ok = result.ok and not errors and "error TS" not in result.stdout
-        return {
-            "ok": ok,
-            "ran": True,
-            "output": result.output()[:4000],
-            "errors": errors,
-            "mode": port.mode,
-        }
+        # Em sandbox, só corre tsc com typescript instalado no workspace — `npx tsc`
+        # sem node_modules descarrega pacotes da rede e congela o workflow.
+        use_terminal = port.mode == "bridge" or has_local_package(
+            port.workspace_path, "typescript"
+        )
+        if use_terminal:
+            cmd = (
+                "npx --no-install tsc --noEmit"
+                if port.mode == "sandbox"
+                else "npx tsc --noEmit 2>&1"
+            )
+            result = await port.run(cmd)
+            errors = _parse_errors(result.stdout)
+            ok = result.ok and not errors and "error TS" not in result.stdout
+            return {
+                "ok": ok,
+                "ran": True,
+                "output": result.output()[:4000],
+                "errors": errors,
+                "mode": port.mode,
+            }
     if "package.json" not in project_files and not any(
         p.endswith((".ts", ".tsx")) for p in project_files
     ):

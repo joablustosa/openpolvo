@@ -1,6 +1,7 @@
 """Testes desk_routing (M1 CORE-4.1)."""
 
 from openpolvointeligence.graphs.desk.desk_routing import (
+    desk_prefers_local_tools,
     desk_workspace_path,
     should_use_desk_graph,
 )
@@ -18,3 +19,12 @@ def test_should_use_desk_graph_false():
 
 def test_desk_workspace_path():
     assert desk_workspace_path({"workspace_path": "  /repo  "}) == "/repo"
+
+
+def test_desk_prefers_local_tools():
+    """Clientes sem runner de tool_call pedem execução server-side."""
+    assert desk_prefers_local_tools({"mode": "agent", "tool_runner": "server"})
+    assert desk_prefers_local_tools({"tool_runner": "SERVER"})
+    assert not desk_prefers_local_tools({"mode": "agent"})
+    assert not desk_prefers_local_tools({"tool_runner": "client"})
+    assert not desk_prefers_local_tools(None)

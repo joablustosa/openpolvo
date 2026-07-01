@@ -177,6 +177,73 @@ async def test_load_project_context_memory():
 
 
 @pytest.mark.asyncio
+async def test_load_project_context_sandbox_reads_disk(tmp_path):
+    """Sandbox usa leitura directa de disco — sem find/cat via shell (Windows-safe)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "package.json").write_text('{"name":"x","dependencies":{"vite":"^5"}}')
+    (tmp_path / "src" / "a.ts").write_text("export const a = 1;")
+    settings = Settings()
+    port = DevTerminalPort(
+        settings=settings,
+        workspace_path=str(tmp_path),
+        conversation_id="conv-1",
+        project_files={},
+        mode="sandbox",
+    )
+    state = {"request_kind": "feature", "workspace_path": str(tmp_path), "project_files": {}}
+    ctx = await load_project_context(settings, state, port)
+    assert "package.json" in (ctx.get("file_tree") or "")
+    assert "vite" in (ctx.get("package_json") or "")
+    assert ctx.get("stack_detected") == "vite"
+    # sem node_modules → nunca corre npx tsc (evita download da rede)
+    assert not ctx.get("ts_baseline")
+
+
+def test_has_local_package(tmp_path):
+    from openpolvointeligence.graphs.dev_workflow.tools.node_env import has_local_package
+
+    assert has_local_package(str(tmp_path), "typescript") is False
+    pkg = tmp_path / "node_modules" / "typescript"
+    pkg.mkdir(parents=True)
+    (pkg / "package.json").write_text("{}")
+    assert has_local_package(str(tmp_path), "typescript") is True
+
+
+def test_terminal_run_local_kills_process_tree(tmp_path):
+    """Timeout mata a árvore inteira — neto segurando o pipe não pendura o communicate."""
+    import sys
+    import time
+
+    from openpolvointeligence.graphs.desk.desk_tool_logic import _terminal_run_local
+
+    py = sys.executable
+    cmd = (
+        f'"{py}" -c "import subprocess,sys,time; '
+        f"subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)']); "
+        f'time.sleep(30)"'
+    )
+    start = time.monotonic()
+    result = _terminal_run_local(str(tmp_path), cmd, timeout_s=2.0)
+    elapsed = time.monotonic() - start
+    assert result == {"ok": False, "error": "timeout"}
+    assert elapsed < 20
+
+
+@pytest.mark.asyncio
+async def test_run_type_check_sandbox_without_node_modules_skips_npx(tmp_path):
+    from openpolvointeligence.graphs.dev_workflow.tools.type_checker import run_type_check
+
+    settings = Settings()
+    port = MagicMock()
+    port.mode = "sandbox"
+    port.workspace_path = str(tmp_path)
+    port.run = AsyncMock()
+    result = await run_type_check(settings, {}, port=port)
+    port.run.assert_not_called()
+    assert result.get("ok") is True
+
+
+@pytest.mark.asyncio
 async def test_delivery_gate_delete_passes_tsc_skip():
     settings = Settings()
     port = MagicMock()
