@@ -10,6 +10,7 @@ tocar em git/gh reais.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -130,7 +131,9 @@ async def run_vcs_local(
             return {"ok": False, "error": "bad_args", "hint": err}
         # clone corre no diretório-pai para não exigir workspace existente.
         clone_cwd = str(Path(cwd).parent) if name == "git_clone" and Path(cwd).name else cwd
-        return _run_command(argv, cwd=clone_cwd if name == "git_clone" else cwd)
+        return await asyncio.to_thread(
+            _run_command, argv, cwd=clone_cwd if name == "git_clone" else cwd
+        )
 
     if name == "github":
         if not bool(getattr(settings, "github_tools_enabled", True)):
@@ -141,6 +144,6 @@ async def run_vcs_local(
         )
         if gate is not None:
             return gate
-        return _run_command(["gh", *access.argv], cwd=cwd)
+        return await asyncio.to_thread(_run_command, ["gh", *access.argv], cwd=cwd)
 
     return {"ok": False, "error": f"unknown_vcs_tool:{name}"}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -132,7 +133,36 @@ def _terminal_denied(command: str) -> bool:
     return any(p.search(command) for p in TERMINAL_DENY_PATTERNS)
 
 
-def _terminal_run_local(workspace_path: str, command: str) -> dict[str, Any]:
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Mata o processo e todos os descendentes.
+
+    `Popen.kill()` só mata a shell; no Windows os filhos (node/npm/npx) ficam
+    vivos segurando os pipes e o `communicate()` bloqueia para sempre.
+    """
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        else:
+            import signal
+
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:  # noqa: BLE001
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _terminal_run_local(
+    workspace_path: str,
+    command: str,
+    timeout_s: float = TERMINAL_TIMEOUT_S,
+) -> dict[str, Any]:
     cmd = command.strip()
     if not cmd:
         return {"ok": False, "error": "empty_command"}
@@ -141,29 +171,44 @@ def _terminal_run_local(workspace_path: str, command: str) -> dict[str, Any]:
     root = Path(workspace_path).resolve()
     if not root.is_dir():
         return {"ok": False, "error": "workspace_not_found"}
+    popen_kwargs: dict[str, Any] = {}
+    if os.name != "nt":
+        popen_kwargs["start_new_session"] = True
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=True,
             cwd=str(root),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             text=True,
-            timeout=TERMINAL_TIMEOUT_S,
             encoding="utf-8",
             errors="replace",
+            **popen_kwargs,
         )
-        out = (proc.stdout or "") + (proc.stderr or "")
-        if len(out) > 32_000:
-            out = out[:32_000] + "\n… (truncado)"
-        return {
-            "ok": proc.returncode == 0,
-            "exit_code": proc.returncode,
-            "output": out.strip(),
-        }
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "timeout"}
     except OSError as exc:
         return {"ok": False, "error": str(exc)}
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        try:
+            proc.communicate(timeout=5)
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": False, "error": "timeout"}
+    except OSError as exc:
+        _kill_process_tree(proc)
+        return {"ok": False, "error": str(exc)}
+    out = (stdout or "") + (stderr or "")
+    if len(out) > 32_000:
+        out = out[:32_000] + "\n… (truncado)"
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        "output": out.strip(),
+    }
 
 
 def _git_run(workspace_path: str, args: list[str]) -> dict[str, Any]:
@@ -214,7 +259,10 @@ def execute_tool_local(
         content = str(args.get("content") or "")
         return _write_file_local(wp, rel, content)
     if name == "terminal_run":
-        return _terminal_run_local(wp, str(args.get("command") or ""))
+        timeout_s = float(
+            getattr(settings, "dev_workflow_terminal_timeout_s", 0) or TERMINAL_TIMEOUT_S,
+        )
+        return _terminal_run_local(wp, str(args.get("command") or ""), timeout_s=timeout_s)
     if name == "git_status":
         return _git_run(wp, ["status", "--short", "--branch"])
     if name == "git_diff":
@@ -541,8 +589,13 @@ async def dispatch_tool_calls(
                     TERMINAL_TIMEOUT_S,
                 )
         elif use_local or settings.desk_tools_local:
-            result = execute_tool_local(
-                settings, tool_name=name, args=args, workspace_path=workspace_path
+            # subprocess síncrono num thread — não bloquear o event loop (SSE).
+            result = await asyncio.to_thread(
+                execute_tool_local,
+                settings,
+                tool_name=name,
+                args=args,
+                workspace_path=workspace_path,
             )
         else:
             result = await bridge_wait(

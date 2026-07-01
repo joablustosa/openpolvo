@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -60,7 +61,16 @@ async def invoke_json_agent(
 
     provider = resolve_model_for_node(state.get("model_provider"), agent_name)
     chat = get_chat_model(settings, provider, json_mode=True)
-    resp = await chat.ainvoke([SystemMessage(content=sys), HumanMessage(content=human_with_ctx)])
+    timeout_s = float(getattr(settings, "agent_llm_timeout_s", 120.0) or 120.0)
+    try:
+        resp = await asyncio.wait_for(
+            chat.ainvoke([SystemMessage(content=sys), HumanMessage(content=human_with_ctx)]),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"agente '{agent_name}' excedeu {timeout_s:.0f}s à espera do LLM ({provider})"
+        ) from exc
     return parse_json_object(str(resp.content))
 
 

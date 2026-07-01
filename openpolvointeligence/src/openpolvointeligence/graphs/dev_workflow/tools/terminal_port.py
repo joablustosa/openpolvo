@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from contextvars import ContextVar, Token
@@ -55,10 +56,9 @@ class DevTerminalPort:
         wp = cwd or self.workspace_path
         if self.mode == "bridge" and self.bridge_wait and self.conversation_id and wp:
             return await self._run_bridge("terminal_run", {"command": cmd}, wp)
-        if self.settings.desk_tools_local and wp:
-            return self._run_local(cmd, wp)
-        if self.mode == "sandbox" and wp:
-            return self._run_local(cmd, wp)
+        if wp and (self.settings.desk_tools_local or self.mode == "sandbox"):
+            # subprocess síncrono num thread — nunca bloquear o event loop (SSE/heartbeat).
+            return await asyncio.to_thread(self._run_local, cmd, wp)
         return self._run_memory_command(cmd)
 
     async def git_status(self) -> TerminalResult:

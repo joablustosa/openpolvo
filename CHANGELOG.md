@@ -4,6 +4,18 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Criação de projeto no develop já não trava em "A carregar contexto do projecto…"** —
+  o terminal sandbox do workflow de desenvolvimento deixou de bloquear o event loop do
+  Intelligence (comandos correm em thread), o timeout mata a árvore inteira de processos
+  no Windows (npx/npm órfãos penduravam o serviço para sempre), o contexto do projeto é
+  lido directamente do disco (sem `find/cat`, que não existem no Windows) e `npx tsc`/
+  `npx eslint` só correm com os pacotes já instalados (`--no-install`) — antes tentavam
+  descarregar da rede a meio do workflow. Erros do workflow passam a aparecer no chat
+  ("⚠️ O workflow de desenvolvimento falhou…") em vez de terminar em silêncio só com a
+  pasta criada; chamadas LLM dos agentes têm timeout (`AGENT_LLM_TIMEOUT_S`).
+
 ### Added
 
 - **Resposta do agente em streaming token-a-token** — o agente Agent/Code Mode e o loop
