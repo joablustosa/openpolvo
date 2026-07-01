@@ -14,6 +14,24 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from openpolvointeligence.core.config import Settings
+from openpolvointeligence.graphs.vcs import policy as vcs_policy
+from openpolvointeligence.graphs.vcs.runner import run_vcs_local
+from openpolvointeligence.graphs.web_research.web_tools import WEB_TOOL_NAMES, run_web_tool
+
+# Tools VCS novas roteadas pelo dispatcher dedicado (git_status/diff/commit legados
+# mantêm o fluxo antigo em execute_tool_local, para não alterar comportamento).
+VCS_DISPATCH_TOOLS = frozenset(
+    {
+        "git_log",
+        "git_branch",
+        "git_checkout",
+        "git_pull",
+        "git_push",
+        "git_add",
+        "git_clone",
+        "github",
+    }
+)
 
 MAX_READ_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 512 * 1024
@@ -258,13 +276,76 @@ class GitCommitArgs(BaseModel):
     message: str = Field(description="Mensagem de commit")
 
 
+class WebSearchArgs(BaseModel):
+    query: str = Field(description="Termos de pesquisa (linguagem natural)")
+    max_results: int = Field(default=5, description="Nº de resultados (1-10)")
+
+
+class WebFetchArgs(BaseModel):
+    url: str = Field(description="URL http(s) pública a ler")
+
+
+class GitLogArgs(BaseModel):
+    max: int = Field(default=20, description="Nº de commits a mostrar (1-100)")
+
+
+class GitBranchArgs(BaseModel):
+    name: str = Field(default="", description="Sem nome: lista branches. Com nome: cria a branch")
+
+
+class GitCheckoutArgs(BaseModel):
+    ref: str = Field(description="Branch/commit para mudar (git checkout)")
+
+
+class GitPushArgs(BaseModel):
+    set_upstream: bool = Field(
+        default=False, description="Definir upstream (-u origin) no primeiro push"
+    )
+    branch: str = Field(default="", description="Branch a publicar (default: HEAD)")
+
+
+class GitAddArgs(BaseModel):
+    paths: str = Field(
+        default="", description="Ficheiros a stage separados por espaço (vazio = tudo)"
+    )
+
+
+class GitCloneArgs(BaseModel):
+    repo: str = Field(description="URL ou owner/repo a clonar")
+    dir: str = Field(default="", description="Diretório de destino (opcional)")
+
+
+class GithubArgs(BaseModel):
+    command: str = Field(
+        description=(
+            "Comando gh sem o 'gh' inicial, ex.: \"pr create --title 'x' --body 'y'\", "
+            '"pr list", "issue view 12", "pr checks". Ações de escrita requerem aprovação.'
+        )
+    )
+
+
+def classify_vcs(name: str, args: dict[str, Any]) -> vcs_policy.Access:
+    """Classifica uma VCS tool (git por nome, github por comando)."""
+    if name == "github":
+        return vcs_policy.classify_gh(str((args or {}).get("command") or ""))
+    return vcs_policy.classify_git(name, args or {})
+
+
 def _stub_tool(name: str, **_kwargs: Any) -> str:
     return f"[{name}] delegado ao cliente"
 
 
-def desk_langchain_tools() -> list[StructuredTool]:
-    """Tools expostas ao LLM — execução real no nó `tools`."""
-    return [
+def _web_stub(name: str, **_kwargs: Any) -> str:
+    return f"[{name}] executado no servidor"
+
+
+def desk_langchain_tools(settings: Settings | None = None) -> list[StructuredTool]:
+    """Tools expostas ao LLM — execução real no nó `tools`.
+
+    As tools de web (`web_search`/`web_fetch`) executam server-side em
+    ``dispatch_tool_calls`` (não passam pelo bridge do cliente).
+    """
+    tools: list[StructuredTool] = [
         StructuredTool.from_function(
             func=lambda rel_path="": _stub_tool("filesystem_list", rel_path=rel_path),
             name="filesystem_list",
@@ -312,6 +393,98 @@ def desk_langchain_tools() -> list[StructuredTool]:
         ),
     ]
 
+    if settings is None or bool(getattr(settings, "web_tools_enabled", True)):
+        tools.extend(
+            [
+                StructuredTool.from_function(
+                    func=lambda query, max_results=5: _web_stub(
+                        "web_search", query=query, max_results=max_results
+                    ),
+                    name="web_search",
+                    description=(
+                        "Pesquisa na web (motor de busca) e devolve títulos, URLs e resumos. "
+                        "Usa quando precisas de documentação, versões de libs, mensagens de erro "
+                        "ou factos que não estão no workspace. Precisa de SERPAPI_API_KEY."
+                    ),
+                    args_schema=WebSearchArgs,
+                ),
+                StructuredTool.from_function(
+                    func=lambda url: _web_stub("web_fetch", url=url),
+                    name="web_fetch",
+                    description=(
+                        "Lê o conteúdo textual de uma página web pública (http/https). "
+                        "Usa depois de web_search para abrir uma URL específica, ou quando o "
+                        "utilizador indica um link."
+                    ),
+                    args_schema=WebFetchArgs,
+                ),
+            ]
+        )
+
+    tools.extend(
+        [
+            StructuredTool.from_function(
+                func=lambda max=20: _stub_tool("git_log", max=max),
+                name="git_log",
+                description="Mostra os últimos commits (git log --oneline).",
+                args_schema=GitLogArgs,
+            ),
+            StructuredTool.from_function(
+                func=lambda name="": _stub_tool("git_branch", name=name),
+                name="git_branch",
+                description="Lista branches (sem nome) ou cria uma nova branch (com nome, requer aprovação).",
+                args_schema=GitBranchArgs,
+            ),
+            StructuredTool.from_function(
+                func=lambda ref: _stub_tool("git_checkout", ref=ref),
+                name="git_checkout",
+                description="Muda para outra branch/commit (git checkout). Requer aprovação.",
+                args_schema=GitCheckoutArgs,
+            ),
+            StructuredTool.from_function(
+                func=lambda: _stub_tool("git_pull"),
+                name="git_pull",
+                description="Actualiza a branch a partir do remoto (git pull --ff-only). Requer aprovação.",
+            ),
+            StructuredTool.from_function(
+                func=lambda set_upstream=False, branch="": _stub_tool(
+                    "git_push", set_upstream=set_upstream, branch=branch
+                ),
+                name="git_push",
+                description="Publica commits no remoto (git push). Requer aprovação. --force é bloqueado.",
+                args_schema=GitPushArgs,
+            ),
+            StructuredTool.from_function(
+                func=lambda paths="": _stub_tool("git_add", paths=paths),
+                name="git_add",
+                description="Faz stage de ficheiros (git add). Requer aprovação.",
+                args_schema=GitAddArgs,
+            ),
+            StructuredTool.from_function(
+                func=lambda repo, dir="": _stub_tool("git_clone", repo=repo, dir=dir),
+                name="git_clone",
+                description="Clona um repositório (git clone). Requer aprovação.",
+                args_schema=GitCloneArgs,
+            ),
+        ]
+    )
+
+    if settings is None or bool(getattr(settings, "github_tools_enabled", True)):
+        tools.append(
+            StructuredTool.from_function(
+                func=lambda command: _stub_tool("github", command=command),
+                name="github",
+                description=(
+                    "GitHub CLI (gh): PRs, issues, checks e repositórios. Passa o comando sem "
+                    "o 'gh', ex.: \"pr create --title 'x' --body 'y'\", \"pr list\", "
+                    '"pr checks", "issue view 12". Leituras são automáticas; ações de '
+                    "escrita (create/merge/close/comment…) requerem aprovação."
+                ),
+                args_schema=GithubArgs,
+            )
+        )
+    return tools
+
 
 ToolEventEmitter = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
@@ -334,11 +507,40 @@ async def dispatch_tool_calls(
         raw_args = tc.get("args") or {}
         args = raw_args if isinstance(raw_args, dict) else {}
 
+        vcs_access = classify_vcs(name, args) if name in VCS_DISPATCH_TOOLS else None
+
         payload = {"id": call_id, "tool": name, "name": name, "args": args}
+        if vcs_access is not None and vcs_access.allowed and vcs_access.is_write:
+            payload["requires_approval"] = True
         if emit:
             await emit("tool_call", payload)
 
-        if use_local or settings.desk_tools_local:
+        if name in WEB_TOOL_NAMES:
+            # Tools de web executam server-side (têm a key/httpx no Intelligence);
+            # não passam pelo bridge do cliente.
+            result = await run_web_tool(settings, name=name, args=args)
+        elif vcs_access is not None:
+            if vcs_access.blocked:
+                # Bloqueio server-side — nunca chega ao cliente nem executa.
+                result = {
+                    "ok": False,
+                    "error": "vcs_blocked",
+                    "hint": vcs_access.reason,
+                    "blocked": True,
+                }
+            elif use_local or settings.desk_tools_local:
+                result = await run_vcs_local(
+                    settings, name=name, args=args, workspace_path=workspace_path
+                )
+            else:
+                # Cliente executa (git/gh reais + UI de aprovação); sinalizamos requires_approval.
+                result = await bridge_wait(
+                    conversation_id,
+                    call_id,
+                    {"tool": name, "args": args, "requires_approval": bool(vcs_access.is_write)},
+                    TERMINAL_TIMEOUT_S,
+                )
+        elif use_local or settings.desk_tools_local:
             result = execute_tool_local(
                 settings, tool_name=name, args=args, workspace_path=workspace_path
             )

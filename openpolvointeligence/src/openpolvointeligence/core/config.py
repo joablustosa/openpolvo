@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     polvo_internal_key: str = Field(default="", validation_alias="POLVO_INTERNAL_KEY")
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
     web_fetch_use_trafilatura: bool = Field(
         default=True, validation_alias="WEB_FETCH_USE_TRAFILATURA"
     )
+    # Web tools (web_search + web_fetch) expostas ao agente de código. web_search
+    # precisa de SERPAPI_API_KEY; web_fetch não precisa de chave.
+    web_tools_enabled: bool = Field(default=True, validation_alias="OP_WEB_TOOLS_ENABLED")
+    web_search_max_results: int = Field(default=5, validation_alias="WEB_SEARCH_MAX_RESULTS")
     port: int = Field(default=8090, validation_alias="PORT")
 
     @field_validator("openai_api_key", "google_api_key", "anthropic_api_key", mode="before")
@@ -108,6 +113,12 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEV_WORKFLOW_ERROR_MEMORY_ENABLED",
     )
+    # Bug-fix team: incluir build no verify do workflow debug (só corre se houver script
+    # `build` no package.json — projetos sem build não são penalizados).
+    dev_workflow_debug_build_check: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_DEBUG_BUILD_CHECK",
+    )
     dev_workflow_legacy_core: bool = Field(
         default=False,
         validation_alias="DEV_WORKFLOW_LEGACY_CORE",
@@ -170,6 +181,11 @@ class Settings(BaseSettings):
     )
     desk_tools_local: bool = Field(default=False, validation_alias="DESK_TOOLS_LOCAL")
     desk_git_allow_commit: bool = Field(default=False, validation_alias="DESK_GIT_ALLOW_COMMIT")
+    # VCS tools (git + gh). github_tools_enabled expõe a tool `github`. vcs_allow_write
+    # permite ações de escrita no caminho local/headless sem UI de aprovação (default
+    # False = escrita bloqueada até aprovação; no fluxo bridge o cliente é quem aprova).
+    github_tools_enabled: bool = Field(default=True, validation_alias="OP_GITHUB_TOOLS_ENABLED")
+    vcs_allow_write: bool = Field(default=False, validation_alias="VCS_ALLOW_WRITE")
 
     @property
     def has_any_llm_key(self) -> bool:

@@ -12,6 +12,7 @@ from openpolvointeligence.graphs.dev_workflow.agents.agent_context import (
     build_agent_context_block,
 )
 from openpolvointeligence.graphs.dev_workflow.agents.base import invoke_json_agent, step_patch
+from openpolvointeligence.graphs.dev_workflow.agents.bugfix_triage import run_bugfix_triage_agent
 from openpolvointeligence.graphs.dev_workflow.agents.context_loader import run_context_loader_agent
 from openpolvointeligence.graphs.dev_workflow.agents.corrective_agent import run_corrective_agent
 from openpolvointeligence.graphs.dev_workflow.agents.terminal_agents import (
@@ -249,6 +250,7 @@ async def run_api_design_agent(settings: Settings, state: DevWorkflowState) -> d
 
 
 AGENT_RUNNERS: dict[str, Any] = {
+    "triage": run_bugfix_triage_agent,
     "context_loader": run_context_loader_agent,
     "requirements": run_requirements_agent,
     "stack_selector": run_stack_selector_agent,

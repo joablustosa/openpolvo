@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import shlex
 from typing import Any
 
 from openpolvointeligence.core.config import Settings
@@ -42,7 +43,11 @@ def _glob_in_memory(files: dict[str, str], pattern: str, *, limit: int = 200) ->
     simple = pat.replace("**/", "*/").replace("**", "*")
     out: list[str] = []
     for p in sorted(files):
-        if fnmatch.fnmatch(p, simple) or fnmatch.fnmatch(p, pat) or ("**" in pat and _match_recursive(p, pat)):
+        if (
+            fnmatch.fnmatch(p, simple)
+            or fnmatch.fnmatch(p, pat)
+            or ("**" in pat and _match_recursive(p, pat))
+        ):
             out.append(p)
             if len(out) >= limit:
                 break
@@ -208,6 +213,59 @@ async def execute_agent_tool(
             return "Erro: command vazio", files, ops
         if not port:
             return "Erro: terminal não disponível neste ambiente", files, ops
+        result = await port.run(cmd)
+        out = result.output()[:MAX_TOOL_OUTPUT]
+        status = "OK" if result.ok else "FAIL"
+        return f"[{status}] $ {cmd}\n{out}", files, ops
+
+    if name == "web_search":
+        from openpolvointeligence.graphs.web_research.web_tools import run_web_search
+
+        res = await run_web_search(
+            settings,
+            str(a.get("query") or a.get("q") or ""),
+            max_results=a.get("max_results") if isinstance(a.get("max_results"), int) else None,
+        )
+        if not res.get("ok"):
+            hint = res.get("hint")
+            return (
+                f"Erro web_search: {res.get('error')}" + (f" — {hint}" if hint else ""),
+                files,
+                ops,
+            )
+        return str(res.get("content") or "")[:MAX_TOOL_OUTPUT], files, ops
+
+    if name == "web_fetch":
+        from openpolvointeligence.graphs.web_research.web_tools import run_web_fetch
+
+        res = await run_web_fetch(settings, str(a.get("url") or ""))
+        if not res.get("ok"):
+            hint = res.get("hint")
+            return (
+                f"Erro web_fetch: {res.get('error')}" + (f" — {hint}" if hint else ""),
+                files,
+                ops,
+            )
+        return str(res.get("content") or "")[:MAX_TOOL_OUTPUT], files, ops
+
+    if name == "github":
+        from openpolvointeligence.graphs.vcs import policy as vcs_policy
+
+        if not bool(getattr(settings, "github_tools_enabled", True)):
+            return "Erro github: tool desativada (OP_GITHUB_TOOLS_ENABLED)", files, ops
+        access = vcs_policy.classify_gh(str(a.get("command") or ""))
+        gate = vcs_policy.enforce(
+            access, write_allowed=bool(getattr(settings, "vcs_allow_write", False))
+        )
+        if gate is not None:
+            return (
+                f"github: {gate['error']}" + (f" — {gate.get('hint')}" if gate.get("hint") else ""),
+                files,
+                ops,
+            )
+        if not port:
+            return "Erro github: terminal não disponível neste ambiente", files, ops
+        cmd = "gh " + " ".join(shlex.quote(t) for t in access.argv)
         result = await port.run(cmd)
         out = result.output()[:MAX_TOOL_OUTPUT]
         status = "OK" if result.ok else "FAIL"

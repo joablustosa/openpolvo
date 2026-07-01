@@ -30,6 +30,17 @@ async def _check_build(port: DevTerminalPort) -> tuple[bool, str]:
     return ok, "build" if ok else f"build failed: {out[:200]}"
 
 
+def _has_build_script(files: dict[str, Any], port: DevTerminalPort) -> bool:
+    """True se package.json declara um script `build` (evita falhar projetos sem build)."""
+    import json
+
+    raw = files.get("package.json") or port.read("package.json") or ""
+    try:
+        return "build" in ((json.loads(raw) or {}).get("scripts") or {})
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return False
+
+
 async def run_delivery_gate_checks(
     settings: Settings,
     state: dict[str, Any],
@@ -75,6 +86,11 @@ async def run_delivery_gate_checks(
     elif workflow_id == "debug":
         await run_check("tsc", lambda: _check_tsc(port))
         await run_check("tests", lambda: _check_tests(port))
+        # Verify reforçado: build só quando existe script (não penaliza projetos sem build).
+        if bool(getattr(settings, "dev_workflow_debug_build_check", True)) and _has_build_script(
+            files, port
+        ):
+            await run_check("build", lambda: _check_build(port))
     elif workflow_id == "delete":
         await run_check("tsc", lambda: _check_tsc(port))
     else:

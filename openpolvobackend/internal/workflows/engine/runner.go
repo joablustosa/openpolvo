@@ -34,9 +34,9 @@ type RunnerConfig struct {
 	AutomationOff    bool
 	DefaultTimeoutMs int
 	// SerpApi (duckduckgo | google) para nós "web_search".
-	SerpAPIKey   string
-	SerpDdgKl    string // default se node.data.kl vazio
-	SerpDdgSafe  int    // default se node.data.safe == 0
+	SerpAPIKey  string
+	SerpDdgKl   string // default se node.data.kl vazio
+	SerpDdgSafe int    // default se node.data.safe == 0
 }
 
 func buildPredecessors(g domain.GraphJSON) map[string][]string {
@@ -277,7 +277,10 @@ func RunGraph(
 				logs = append(logs, step)
 				return logs, fmt.Errorf("nó %s: llm indisponível", id)
 			}
-			prompt := strings.TrimSpace(n.Data.Prompt)
+			// Expande {{previous}} / {{output:ID}} no prompt (como em send_email), para
+			// um nó llm poder resumir/transformar a saída de nós anteriores
+			// (ex.: web_search → llm de resumo → send_email).
+			prompt := strings.TrimSpace(expandEmailTemplates(n.Data.Prompt, id, order, outputs, preds))
 			if prompt == "" {
 				step.Message = "prompt vazio"
 				step.OK = false

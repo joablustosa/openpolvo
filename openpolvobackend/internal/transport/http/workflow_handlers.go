@@ -33,16 +33,16 @@ type WorkflowHandlers struct {
 }
 
 type workflowDTO struct {
-	ID                    string             `json:"id"`
-	Title                 string             `json:"title"`
-	Graph                 wfdomain.GraphJSON `json:"graph"`
-	PinnedAt              *string            `json:"pinned_at,omitempty"`
-	ScheduleCron          *string            `json:"schedule_cron,omitempty"`
-	ScheduleTimezone      string             `json:"schedule_timezone,omitempty"`
-	ScheduleEnabled       bool               `json:"schedule_enabled"`
-	ScheduleLastFiredAt   *string            `json:"schedule_last_fired_at,omitempty"`
-	CreatedAt             string             `json:"created_at"`
-	UpdatedAt             string             `json:"updated_at"`
+	ID                  string             `json:"id"`
+	Title               string             `json:"title"`
+	Graph               wfdomain.GraphJSON `json:"graph"`
+	PinnedAt            *string            `json:"pinned_at,omitempty"`
+	ScheduleCron        *string            `json:"schedule_cron,omitempty"`
+	ScheduleTimezone    string             `json:"schedule_timezone,omitempty"`
+	ScheduleEnabled     bool               `json:"schedule_enabled"`
+	ScheduleLastFiredAt *string            `json:"schedule_last_fired_at,omitempty"`
+	CreatedAt           string             `json:"created_at"`
+	UpdatedAt           string             `json:"updated_at"`
 }
 
 type runDTO struct {
@@ -136,6 +136,11 @@ func (h *WorkflowHandlers) PostWorkflow(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, toWorkflowDTO(wf))
+}
+
+// GetWorkflowTemplates devolve os presets prontos (1 clique), ex.: "Pesquisa → E-mail".
+func (h *WorkflowHandlers) GetWorkflowTemplates(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, wfdomain.AllTemplates())
 }
 
 func (h *WorkflowHandlers) GetWorkflow(w http.ResponseWriter, r *http.Request) {

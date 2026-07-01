@@ -148,6 +148,7 @@ func NewRouter(d Deps) http.Handler {
 			if d.Workflows != nil {
 				r.Get("/workflows", d.Workflows.GetWorkflows)
 				r.Post("/workflows", d.Workflows.PostWorkflow)
+				r.Get("/workflows/templates", d.Workflows.GetWorkflowTemplates)
 				r.Post("/workflows/generate", d.Workflows.PostWorkflowGenerate)
 				r.Get("/workflows/{id}", d.Workflows.GetWorkflow)
 				r.Patch("/workflows/{id}", d.Workflows.PatchWorkflow)

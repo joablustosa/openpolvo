@@ -20,11 +20,22 @@ WRITE_TOOLS = frozenset({"write_file", "edit", "multi_edit", "search_replace"})
 
 # Ferramentas apenas de leitura/inspecção — seguras e baratas.
 READ_TOOLS = frozenset(
-    {"read_file", "grep", "glob", "list_files", "semantic_search"},
+    {
+        "read_file",
+        "grep",
+        "glob",
+        "list_files",
+        "semantic_search",
+        "web_search",
+        "web_fetch",
+        "github",
+    },
 )
 
 
-def _fn(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+def _fn(
+    name: str, description: str, properties: dict[str, Any], required: list[str]
+) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
@@ -80,6 +91,32 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "Busca semântica (code-RAG) por trechos relevantes a uma pergunta em linguagem natural.",
         {"query": {**_STR, "description": "Pergunta/descrição do que procuras"}},
         ["query"],
+    ),
+    _fn(
+        "web_search",
+        "Pesquisa na web e devolve títulos, URLs e resumos. Usa quando precisas de "
+        "documentação, versões de libs, APIs ou mensagens de erro que não estão no projecto. "
+        "Precisa de SERPAPI_API_KEY configurada.",
+        {
+            "query": {**_STR, "description": "Termos de pesquisa em linguagem natural"},
+            "max_results": {"type": "integer", "description": "Nº de resultados (1-10, default 5)"},
+        },
+        ["query"],
+    ),
+    _fn(
+        "web_fetch",
+        "Lê o conteúdo textual de uma página web pública (http/https). Usa depois de "
+        "web_search para abrir uma URL específica, ou quando o utilizador indica um link.",
+        {"url": {**_STR, "description": "URL http(s) pública a ler"}},
+        ["url"],
+    ),
+    _fn(
+        "github",
+        "GitHub CLI (gh): PRs, issues, checks, repos. Passa o comando sem o 'gh', "
+        'ex.: "pr create --title \'x\' --body \'y\'", "pr list", "pr checks", '
+        '"issue view 12". Leituras são automáticas; escrita requer aprovação.',
+        {"command": {**_STR, "description": "Comando gh sem o 'gh' inicial"}},
+        ["command"],
     ),
     _fn(
         "write_file",
@@ -187,8 +224,6 @@ def render_tool_catalog() -> str:
         fn = t["function"]
         params = fn["parameters"]["properties"]
         req = set(fn["parameters"].get("required") or [])
-        arg_desc = ", ".join(
-            f"{k}{'' if k in req else '?'}" for k in params
-        )
+        arg_desc = ", ".join(f"{k}{'' if k in req else '?'}" for k in params)
         lines.append(f"- `{fn['name']}({arg_desc})` — {fn['description']}")
     return "\n".join(lines)
