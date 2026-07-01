@@ -58,6 +58,31 @@ _OPENPOLVO_APP_MARKERS = (
 )
 
 
+def is_dev_studio_code_mode(dev_studio_context: dict | None) -> bool:
+    """True quando o pedido vem da aba de desenvolvimento (sessions, mode='code').
+
+    A aba dev marca o payload com ``dev_studio_context.mode = 'code'`` — nesse caso
+    TODA a mensagem pertence ao dev workflow (o gateway classifica explain/abort
+    internamente); heurísticas de texto não devem desviar para outros fluxos.
+    """
+    return (
+        isinstance(dev_studio_context, dict)
+        and str(dev_studio_context.get("mode") or "").strip().lower() == "code"
+    )
+
+
+def has_dev_studio_context(
+    *,
+    sandbox_project_id: str | None = None,
+    project_files: dict[str, str] | None = None,
+    dev_studio_context: dict | None = None,
+) -> bool:
+    """True quando há contexto de projeto dev no pedido (qualquer marcador)."""
+    return bool(str(sandbox_project_id or "").strip()) or bool(project_files) or bool(
+        dev_studio_context if isinstance(dev_studio_context, dict) else None
+    )
+
+
 def _has_active_dev_project(
     *,
     sandbox_project_id: str | None,
@@ -95,6 +120,10 @@ def should_use_dev_workflow(
     p = (user_prompt or "").strip()
     if not p:
         return False
+
+    # Aba de desenvolvimento: sempre dev workflow — o gateway trata explain/abort.
+    if is_dev_studio_code_mode(dev_studio_context):
+        return True
 
     has_project = _has_active_dev_project(
         sandbox_project_id=sandbox_project_id,

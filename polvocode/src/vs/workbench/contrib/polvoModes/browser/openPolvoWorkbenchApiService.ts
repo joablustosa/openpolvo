@@ -334,7 +334,12 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		codeReferences?: IOpenPolvoCodeReference[],
 	): Promise<void> {
 		await this.ensureAuth();
-		const deskContext = buildDeskContext(sessionId, this.resolveWorkspacePath(), 'agent', model);
+		// Este chat não executa tool_calls (sem runner local) — o Intelligence executa
+		// as tools do Desk server-side em vez de esperar pelo bridge do cliente.
+		const deskContext = {
+			...buildDeskContext(sessionId, this.resolveWorkspacePath(), 'agent', model),
+			tool_runner: 'server' as const,
+		};
 		const body = buildChatBody(content, { modelId: model, deskContext, attachments, codeReferences });
 		const doFetch = async () => fetch(`${this.baseUrl}${OfficialRoutes.conversationStream(sessionId)}`, {
 			method: 'POST',

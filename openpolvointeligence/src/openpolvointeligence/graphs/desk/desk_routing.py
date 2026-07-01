@@ -24,3 +24,15 @@ def desk_conversation_id(desk_context: dict[str, Any] | None) -> str:
     if not desk_context:
         return ""
     return str(desk_context.get("conversation_id") or "").strip()
+
+
+def desk_prefers_local_tools(desk_context: dict[str, Any] | None) -> bool:
+    """True quando o cliente pediu execução server-side das tools (sem runner local).
+
+    Clientes sem handler de `tool_call` (ex.: chat do Agent mode) marcam o
+    desk_context com ``tool_runner: 'server'`` — senão cada tool bloquearia no
+    bridge à espera de um resultado que nunca chega.
+    """
+    if not desk_context:
+        return False
+    return str(desk_context.get("tool_runner") or "").strip().lower() == "server"

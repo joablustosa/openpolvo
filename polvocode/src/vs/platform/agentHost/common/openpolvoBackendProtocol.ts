@@ -50,6 +50,13 @@ export interface IOpenPolvoDeskContext {
 	workspace_path: string;
 	conversation_id: string;
 	model_provider?: string;
+	/**
+	 * Quem executa as tool_calls do agente Desk:
+	 * - 'client' — o cliente executa e devolve via bridge (ex.: janela sessions);
+	 * - 'server' — o Intelligence executa localmente (clientes sem runner de tools,
+	 *   como o chat do Agent mode, que não trata eventos tool_call).
+	 */
+	tool_runner?: 'client' | 'server';
 }
 
 export interface IOpenPolvoConsoleLog {

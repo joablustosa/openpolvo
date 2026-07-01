@@ -3,6 +3,52 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Roteamento por aba: dev/agent/workflow cada uma no workflow certo
+
+**Sintoma:** mensagens da aba de desenvolvimento podiam ser "sequestradas" por
+heurísticas de texto puro e cair em workflows errados; e o chat do Agent mode
+pendurava 60s por tool_call (sem runner no cliente).
+
+**Mapa das abas (verificado end-to-end):**
+- **Dev (janela sessions)** → `openPolvoAgent.ts` envia `dev_studio_context.mode='code'`
+  + `sandbox_project_id` (+ project_files) → Go passa integral (sem desk_context) →
+  `/v1/reply/stream` → zepolvinho → fast-path dev workflow (gateway classifica
+  explain/abort internamente).
+- **Agent (polvoModes)** → `openPolvoWorkbenchApiService` envia `desk_context.mode='agent'`
+  → Go faz `StripLegacyContextsForDesk` → desk graph (ReAct + tools); perguntas gerais
+  de pesquisa/estudo continuam a ir para o conversation-rich (por design).
+- **Workflow (automações)** → `/v1/workflows/generate` (workflow specialist);
+  fallback de chat cai no desk.
+
+**Bugs corrigidos:**
+1. `routes.py` (`/reply` e `/reply/stream`): com contexto dev presente
+   (`has_dev_studio_context`), os atalhos por texto (conversation-rich, pdf-study,
+   criação xlsx/docx) deixam de desviar o pedido — só anexos reais mudam o fluxo.
+   Ex.: "sistema de estoque com relatórios" caía no conversation-rich e nunca gerava
+   o projeto; "exportação para planilha" caía no workflow de Excel.
+2. `dev_workflow_routing.py`: novos `is_dev_studio_code_mode` + `has_dev_studio_context`;
+   `should_use_dev_workflow` retorna True sempre que `mode='code'` (aba dev nunca
+   depende de keywords). zepolvinho: plugins nativos e override pdf-study também
+   respeitam o modo code.
+3. **Agent mode sem runner de tools:** o chat polvoModes não trata eventos `tool_call`
+   — cada tool do desk bloqueava 60s no bridge e falhava. Novo marcador
+   `desk_context.tool_runner='server'` (front) + `desk_prefers_local_tools`
+   (intelligence) → tools executam localmente no Intelligence (mesma máquina,
+   sandbox/deny-patterns/gates de escrita mantidos).
+4. `openPolvoAgent.ts` (aba dev): evento `workflow_error` agora aparece como
+   "⚠️ Erro no workflow: …" no chat.
+
+**Arquivos:** `api/routes.py`, `graphs/dev_workflow/core/dev_workflow_routing.py`,
+`graphs/orchestrator/zepolvinho_graph.py`, `graphs/desk/desk_routing.py`,
+`graphs/desk/desk_reply.py`; front: `openpolvoBackendProtocol.ts`,
+`openPolvoWorkbenchApiService.ts`, `openPolvoAgent.ts`.
+
+**Portão:** `pytest -m "not integration"` = 458 passed; smoke de roteamento via
+TestClient com 7 cenários (dev/agent/sem-contexto/anexo) todos OK.
+
+**Follow-ups:** considerar runner de tool_call no chat polvoModes (aprovação de
+escritas na UI, como na janela sessions); testes API de roteamento permanentes.
+
 ## 2026-07-01 — Fix: criação de projeto no develop travava em "A carregar contexto do projecto…"
 
 **Sintoma:** criar projeto no chat de develop (novo ou com repositório selecionado) só

@@ -6,6 +6,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Cada aba fala com o workflow certo** — mensagens da aba de desenvolvimento deixam
+  de ser desviadas por palavras como "estudo", "relatório" ou "planilha" para os
+  workflows de conversa/documentos: com contexto de projeto dev presente, todo o
+  pedido vai para o agente de desenvolvimento (que responde dúvidas sem gerar código
+  quando for o caso); anexos reais (xlsx/docx/pdf) continuam a activar os fluxos de
+  documentos. No Agent mode, as ferramentas do agente (ficheiros, terminal, git) agora
+  executam de imediato no serviço local em vez de esperar 60s por um cliente que não
+  responde; e erros do workflow de desenvolvimento aparecem no chat da aba dev.
+
 - **Criação de projeto no develop já não trava em "A carregar contexto do projecto…"** —
   o terminal sandbox do workflow de desenvolvimento deixou de bloquear o event loop do
   Intelligence (comandos correm em thread), o timeout mata a árvore inteira de processos
