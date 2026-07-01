@@ -195,6 +195,8 @@ def resolve_terminal_mode(
 ) -> TerminalMode:
     if settings.desk_tools_local and workspace_path:
         return "sandbox"
+    if getattr(settings, "dev_workflow_terminal_local", True) and workspace_path:
+        return "sandbox"
     if conversation_id and workspace_path:
         return "bridge"
     return "memory"

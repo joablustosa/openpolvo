@@ -165,6 +165,12 @@ class Settings(BaseSettings):
         default=120.0,
         validation_alias="DEV_WORKFLOW_TERMINAL_TIMEOUT_S",
     )
+    # Executa terminal/git no processo Intelligence (workspace local) em vez de
+    # bloquear no bridge SSE à espera do cliente Electron responder tool_call.
+    dev_workflow_terminal_local: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_TERMINAL_LOCAL",
+    )
     dev_workflow_checkpoint_enabled: bool = Field(
         default=False,
         validation_alias="DEV_WORKFLOW_CHECKPOINT_ENABLED",

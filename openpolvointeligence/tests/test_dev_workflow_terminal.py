@@ -112,8 +112,15 @@ def test_flatten_stream_chunk_nested_subgraph_tuple():
 def test_resolve_terminal_mode_bridge():
     from openpolvointeligence.core.config import get_settings
 
-    s = get_settings().model_copy(update={"desk_tools_local": False})
+    s = get_settings().model_copy(update={"desk_tools_local": False, "dev_workflow_terminal_local": False})
     assert resolve_terminal_mode(s, workspace_path="/tmp/ws", conversation_id="cid") == "bridge"
+
+
+def test_resolve_terminal_mode_dev_workflow_local_sandbox():
+    from openpolvointeligence.core.config import get_settings
+
+    s = get_settings().model_copy(update={"desk_tools_local": False, "dev_workflow_terminal_local": True})
+    assert resolve_terminal_mode(s, workspace_path="/tmp/ws", conversation_id="cid") == "sandbox"
 
 
 def test_route_after_type_check_corrective():
@@ -124,6 +131,31 @@ def test_route_after_type_check_corrective():
 def test_route_after_type_check_continue():
     state = {"compile_ok": True, "corrective_attempts": 0}
     assert route_after_type_check(state) == "continue"
+
+
+@pytest.mark.asyncio
+async def test_load_project_context_greenfield_new_app_uses_memory():
+    from unittest.mock import AsyncMock
+
+    settings = Settings()
+    bridge_wait = AsyncMock()
+    port = DevTerminalPort(
+        settings=settings,
+        workspace_path="/tmp/ws",
+        conversation_id="conv-1",
+        project_files={},
+        bridge_wait=bridge_wait,
+        mode="bridge",
+    )
+    state = {
+        "request_kind": "new_app",
+        "workspace_path": "/tmp/ws",
+        "workspace_id": "/tmp/ws",
+        "project_files": {},
+    }
+    ctx = await load_project_context(settings, state, port)
+    assert ctx.get("stack_detected")
+    bridge_wait.assert_not_called()
 
 
 @pytest.mark.asyncio
