@@ -9,6 +9,8 @@ import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { BrowserViewCommandId } from '../../../../platform/browserView/common/browserView.js';
 import {
 	normalizeDevRelativePath,
 	prefixDevRelativePath,
@@ -243,4 +245,55 @@ export async function runPolvoProjectPostSetupInTerminal(
 	await terminalService.focusInstance(instance);
 	await instance.sendText(commands.join('\n'), true);
 	return true;
+}
+
+const DEV_PREVIEW_PORTS = [5173, 3000, 4173, 4321, 8080];
+const DEV_PREVIEW_WAIT_MS = 45_000;
+
+function inferDevPreviewPorts(devCommand: string): number[] {
+	const match = devCommand.match(/--port[=\s]+(\d{2,5})/);
+	if (match) {
+		return [Number(match[1])];
+	}
+	return DEV_PREVIEW_PORTS;
+}
+
+async function isDevServerReachable(port: number): Promise<boolean> {
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}/`, {
+			method: 'GET',
+			signal: AbortSignal.timeout(2000),
+		});
+		return response.ok || response.status < 500;
+	} catch {
+		return false;
+	}
+}
+
+/** Aguarda o dev server e abre o browser integrado só quando a URL responde (evita crash do renderer). */
+export async function tryOpenDevPreviewWhenReady(
+	commandService: ICommandService,
+	_projectRootUri: URI,
+	devCommand: string,
+): Promise<void> {
+	const ports = inferDevPreviewPorts(devCommand);
+	const deadline = Date.now() + DEV_PREVIEW_WAIT_MS;
+	while (Date.now() < deadline) {
+		for (const port of ports) {
+			if (await isDevServerReachable(port)) {
+				const url = `http://localhost:${port}`;
+				try {
+					await commandService.executeCommand(BrowserViewCommandId.Open, {
+						url,
+						reuseUrlFilter: `http://localhost:${port}`,
+						openToSide: true,
+					});
+				} catch {
+					// browser integrado indisponível — best-effort
+				}
+				return;
+			}
+		}
+		await new Promise(resolve => setTimeout(resolve, 1000));
+	}
 }

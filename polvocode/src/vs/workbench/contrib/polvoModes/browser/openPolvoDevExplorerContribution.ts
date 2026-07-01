@@ -88,19 +88,27 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 	 * vivo sem abrir novos separadores.
 	 */
 	private _openPreview(url: string): void {
-		if (this._lastPreviewUrl === url) {
+		const trimmed = url.trim();
+		if (!trimmed) {
 			return;
 		}
-		this._lastPreviewUrl = url;
+		let parsed: URL;
 		try {
-			let authorityFilter = 'http://localhost';
-			try {
-				authorityFilter = new URL(url).origin;
-			} catch {
-				// mantém o filtro por omissão
-			}
+			parsed = new URL(trimmed);
+		} catch {
+			return;
+		}
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+			return;
+		}
+		if (this._lastPreviewUrl === trimmed) {
+			return;
+		}
+		this._lastPreviewUrl = trimmed;
+		try {
+			let authorityFilter = parsed.origin;
 			void this.commandService.executeCommand(BrowserViewCommandId.Open, {
-				url,
+				url: trimmed,
 				reuseUrlFilter: authorityFilter,
 				openToSide: true,
 			});

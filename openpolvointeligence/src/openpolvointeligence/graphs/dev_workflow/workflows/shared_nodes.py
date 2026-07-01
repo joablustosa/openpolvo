@@ -34,6 +34,9 @@ from openpolvointeligence.graphs.dev_workflow.engines.planner.dag import (
 from openpolvointeligence.graphs.dev_workflow.engines.patch.ops import (
     normalize_and_validate_ops,
 )
+from openpolvointeligence.graphs.dev_workflow.workflows.workflow_progress import (
+    emit_workflow_step_start,
+)
 
 AgentFn = Callable[[Settings, DevWorkflowState], Awaitable[dict[str, Any]]]
 
@@ -49,6 +52,7 @@ def make_parallel_node(settings: Settings, agent_keys: list[str]) -> AgentFn:
         events = list(state.get("agent_events") or [])
         for key in agent_keys:
             events.append({"type": "step_start", "step": key, "agent": key})
+            await emit_workflow_step_start(key)
 
         async def _run_one(key: str) -> dict[str, Any]:
             runner = AGENT_RUNNERS[key]
@@ -86,6 +90,7 @@ def make_agent_node(settings: Settings, agent_key: str) -> AgentFn:
     runner = AGENT_RUNNERS[agent_key]
 
     async def node(state: DevWorkflowState) -> dict[str, Any]:
+        await emit_workflow_step_start(agent_key)
         events = list(state.get("agent_events") or [])
         events.append({"type": "step_start", "step": agent_key, "agent": agent_key})
         st: DevWorkflowState = {**state, "agent_events": events}

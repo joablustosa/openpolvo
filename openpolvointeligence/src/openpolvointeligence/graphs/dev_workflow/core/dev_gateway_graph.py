@@ -1125,6 +1125,12 @@ async def run_dev_workflow_stream(
             # eventos vão embrulhados como agent_event.
             if kind == "text_delta":
                 await exec_q.put({"type": "text_delta", "delta": str(payload.get("delta") or "")})
+            elif kind == "workflow_step":
+                step_key = str(payload.get("step") or "").strip()
+                if step_key in progress_labels:
+                    await exec_q.put(_progress_event(step_key, progress_labels))
+                elif step_key in _CORE_PROGRESS:
+                    await exec_q.put(_progress_event(step_key, _CORE_PROGRESS))
             else:
                 await exec_q.put(_agent_event_for_sse({"type": kind, **payload}))
 
