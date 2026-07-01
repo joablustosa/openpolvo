@@ -8,6 +8,9 @@
 
 ### Núcleo agentico
 - Agente ReAct local (Agent/Code Mode) via `desk_graph` com tool-bridge para o cliente.
+  ✅ **Transparência (2026-07-01):** emite `graph_step` + `thought` (raciocínio visível) e
+  tem **guarda de loop improdutivo** (corta tool+args repetida 3× seguidas). Falta só
+  streaming token-a-token (`delta`).
 - Loop agentico nativo (`engines/agent_loop/`) com limite de iterações.
 - Orquestrador de intenção (`orchestrator/zepolvinho_graph.py`) → subgrafos de domínio.
 

@@ -6,6 +6,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Loop ReAct do agente — raciocínio visível e guarda de loop** — o agente Agent/Code Mode
+  passa a emitir eventos `graph_step` e `thought` (o raciocínio entre chamadas de ferramenta
+  fica visível em tempo real) e a cortar loops improdutivos (mesma ferramenta+argumentos
+  repetida seguidamente).
 - **Automações: template "Pesquisa → E-mail" em 1 clique** — preset pronto (pesquisa web
   com enriquecimento → e-mail, agendado diariamente) criável pelo botão de exemplo no
   painel Automações e via `GET /v1/workflows/templates`. Configuração de SMTP pelo comando

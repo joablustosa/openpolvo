@@ -3,6 +3,31 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Agente Geral: loop ReAct — transparência (thought/graph_step) + guarda de loop
+
+**Contexto:** O loop agentico ReAct com tool-calling **já existia e estava completo** no
+agente Desk (`graphs/desk/desk_graph.py`): load_context → agent (bind_tools) → tools ↔
+agent → finalize, com limite de iterações e streaming de tool_call/tool_result/final/done.
+Só implementei os gaps para paridade Claude, reusando o `emit` existente.
+
+**Adicionado (só o que faltava):**
+- **Eventos `graph_step` e `thought`** emitidos pelo nó `agent` — o raciocínio intermédio
+  (texto que acompanha as tool_calls) fica visível no SSE. `thought` só quando há tool_calls
+  (senão o texto é a resposta final, já emitida como `final`). O driver `desk_reply.py`
+  embrulha qualquer `emit(kind,payload)` em `agent_event`, então flui sem mudança no driver.
+- **Guarda de loop improdutivo**: `tool_calls_signature` + `is_unproductive_loop` +
+  `tool_signatures` no state; se a mesma tool+args se repete 3 rondas seguidas,
+  `should_continue_tools` finaliza (evita loop preso a gastar tokens).
+
+**Arquivos:** `graphs/desk/desk_graph.py`, `graphs/desk/desk_state.py`,
+NOVO `tests/test_desk_react_events.py` (8 testes, sem LLM real).
+
+**Portão:** ruff check+format OK; `pytest -m "not integration"` = 439 passed, 2 skipped.
+Sem regressões (testes desk existentes verdes).
+
+**Follow-up:** streaming token-a-token (`delta`) do texto do agente — não existe (usa
+`ainvoke`); é mudança maior (astream_events) e ficou fora deste escopo.
+
 ## 2026-07-01 — Automações: template Pesquisa→E-mail 1 clique + polimento
 
 **Contexto:** Descoberto que a automação já existe **end-to-end** (backend `internal/workflows`

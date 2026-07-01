@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -44,6 +45,43 @@ def _to_lc_messages(raw: list[dict[str, Any]]) -> list[Any]:
     return out
 
 
+# Nº de rondas de tool-calls idênticas consecutivas que caracterizam um loop preso.
+_LOOP_REPEAT_LIMIT = 3
+
+
+async def _emit_event(emit, kind: str, payload: dict[str, Any]) -> None:
+    """Emite um evento tolerando emit síncrono, assíncrono ou ausente."""
+    if emit is None:
+        return
+    r = emit(kind, payload)
+    if hasattr(r, "__await__"):
+        await r
+
+
+def tool_calls_signature(resp: Any) -> str:
+    """Assinatura estável (nome+args) das tool_calls de um AIMessage; '' se não houver."""
+    if not (isinstance(resp, AIMessage) and resp.tool_calls):
+        return ""
+    parts: list[str] = []
+    for tc in resp.tool_calls:
+        name = str(tc.get("name") or "")
+        args = tc.get("args") or {}
+        try:
+            a = json.dumps(args, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError):
+            a = str(args)
+        parts.append(f"{name}:{a}")
+    return "|".join(sorted(parts))
+
+
+def is_unproductive_loop(signatures: list[str]) -> bool:
+    """True se as últimas N rondas repetiram exatamente a mesma tool_call (loop preso)."""
+    if len(signatures) < _LOOP_REPEAT_LIMIT:
+        return False
+    last = signatures[-_LOOP_REPEAT_LIMIT:]
+    return bool(last[0]) and all(s == last[0] for s in last)
+
+
 def should_continue_tools(state: DeskAgentState) -> Literal["tools", "finalize"]:
     iteration = int(state.get("iteration") or 0)
     max_it = int(state.get("max_iterations") or 8)
@@ -54,6 +92,9 @@ def should_continue_tools(state: DeskAgentState) -> Literal["tools", "finalize"]
         return "finalize"
     last = msgs[-1]
     if isinstance(last, AIMessage) and last.tool_calls:
+        # Guarda contra loop improdutivo: mesma tool+args repetida sem progresso.
+        if is_unproductive_loop(list(state.get("tool_signatures") or [])):
+            return "finalize"
         return "tools"
     return "finalize"
 
@@ -91,7 +132,18 @@ def make_load_context_node(settings: Settings):
     return load_context
 
 
-def make_agent_node(settings: Settings):
+def _thought_text(resp: Any) -> str:
+    """Texto de raciocínio de um AIMessage (string ou blocos de texto)."""
+    raw = getattr(resp, "content", "")
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list):
+        parts = [p.get("text", "") for p in raw if isinstance(p, dict) and p.get("type") == "text"]
+        return "".join(parts).strip()
+    return ""
+
+
+def make_agent_node(settings: Settings, *, emit=None):
     tools = desk_langchain_tools(settings)
 
     async def agent(state: DeskAgentState) -> dict[str, Any]:
@@ -99,11 +151,12 @@ def make_agent_node(settings: Settings):
         # Usar effective_provider (não desk_effective_provider) para não voltar a
         # bloquear cloud quando o utilizador escolheu um perfil com chave.
         mp = effective_provider(str(state.get("model_provider") or ""))
+        iteration = int(state.get("iteration") or 0) + 1
+        await _emit_event(emit, "graph_step", {"step": "agent", "iteration": iteration})
         chat = get_chat_model(settings, mp)
         bound = chat.bind_tools(tools)
         msgs = list(state.get("messages") or [])
         resp = await bound.ainvoke(msgs)
-        iteration = int(state.get("iteration") or 0) + 1
         trace = truncate_trace(list(state.get("trace") or []) + ["agent"])
         pending: list[dict[str, Any]] = []
         if isinstance(resp, AIMessage) and resp.tool_calls:
@@ -115,6 +168,14 @@ def make_agent_node(settings: Settings):
                         "args": tc.get("args") or {},
                     },
                 )
+        # Raciocínio intermédio (texto que acompanha tool_calls) → evento `thought`.
+        # Quando NÃO há tool_calls, o texto é a resposta final (emitida como `final`).
+        if pending:
+            thought = _thought_text(resp)
+            if thought:
+                await _emit_event(emit, "thought", {"text": thought[:2000]})
+        signatures = list(state.get("tool_signatures") or [])
+        signatures.append(tool_calls_signature(resp))
         return {
             # Mantém histórico completo; se sobrescrever com [resp], o próximo
             # passo pode começar em ToolMessage e quebrar o contrato OpenAI.
@@ -122,6 +183,7 @@ def make_agent_node(settings: Settings):
             "iteration": iteration,
             "trace": trace,
             "pending_tool_calls": pending,
+            "tool_signatures": signatures[-8:],
         }
 
     return agent
@@ -213,7 +275,7 @@ def build_desk_graph(
 ):
     g = StateGraph(DeskAgentState)
     g.add_node("load_context", make_load_context_node(settings))
-    g.add_node("agent", make_agent_node(settings))
+    g.add_node("agent", make_agent_node(settings, emit=emit))
     g.add_node(
         "tools",
         make_tools_node(settings, bridge_wait=bridge_wait, emit=emit, use_local=use_local),
