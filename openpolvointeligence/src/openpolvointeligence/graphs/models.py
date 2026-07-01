@@ -4,13 +4,12 @@ from typing import Any, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.core.ollama_health import is_ollama_usable
 
-ModelProvider = Literal["openai", "google", "ollama"]
+ModelProvider = Literal["openai", "google", "anthropic", "ollama"]
 
 
 def cloud_fallback_provider(settings: Settings) -> ModelProvider | None:
@@ -18,6 +17,8 @@ def cloud_fallback_provider(settings: Settings) -> ModelProvider | None:
         return "openai"
     if (settings.google_api_key or "").strip():
         return "google"
+    if (settings.anthropic_api_key or "").strip():
+        return "anthropic"
     return None
 
 
@@ -51,12 +52,15 @@ def resolve_chat_provider(settings: Settings, provider: str | None) -> ModelProv
     raw = str(provider or "").strip().lower()
     has_openai = bool((settings.openai_api_key or "").strip())
     has_google = bool((settings.google_api_key or "").strip())
+    has_anthropic = bool((settings.anthropic_api_key or "").strip())
 
     if raw in ("", "auto"):
         if has_openai:
             return "openai"
         if has_google:
             return "google"
+        if has_anthropic:
+            return "anthropic"
         return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "openai":
@@ -64,6 +68,8 @@ def resolve_chat_provider(settings: Settings, provider: str | None) -> ModelProv
             return "openai"
         if has_google:
             return "google"
+        if has_anthropic:
+            return "anthropic"
         return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "google":
@@ -71,6 +77,17 @@ def resolve_chat_provider(settings: Settings, provider: str | None) -> ModelProv
             return "google"
         if has_openai:
             return "openai"
+        if has_anthropic:
+            return "anthropic"
+        return _fallback_if_ollama_unusable(settings, "ollama")
+
+    if raw == "anthropic":
+        if has_anthropic:
+            return "anthropic"
+        if has_openai:
+            return "openai"
+        if has_google:
+            return "google"
         return _fallback_if_ollama_unusable(settings, "ollama")
 
     if raw == "ollama":
@@ -146,6 +163,23 @@ def resolve_desk_reply_provider(
     return resolved
 
 
+def supports_native_tools(settings: Settings, provider: str | None) -> bool:
+    """True → o provider resolvido suporta tool-calling nativo com fiabilidade.
+
+    OpenAI e Gemini suportam sempre. Ollama depende do modelo, por isso fica atrás
+    de flags (``dev_workflow_native_tools`` master + ``dev_workflow_ollama_native_tools``)
+    e cai no fallback modo-JSON por omissão — garantindo que o uso local nunca quebra.
+    """
+    if not bool(getattr(settings, "dev_workflow_native_tools", True)):
+        return False
+    ep = _fallback_if_ollama_unusable(settings, resolve_chat_provider(settings, provider))
+    if ep in ("openai", "google", "anthropic"):
+        return True
+    if ep == "ollama":
+        return bool(getattr(settings, "dev_workflow_ollama_native_tools", False))
+    return False
+
+
 def get_chat_model(
     settings: Settings,
     provider: str | None,
@@ -157,6 +191,8 @@ def get_chat_model(
     ep = _fallback_if_ollama_unusable(settings, resolve_chat_provider(settings, provider))
     timeout = settings.agent_llm_timeout_s
     if ep == "ollama":
+        from langchain_ollama import ChatOllama  # import tardio: opcional em cloud-only
+
         kw_ollama: dict[str, Any] = {
             "model": settings.ollama_model,
             "base_url": settings.ollama_base_url.rstrip("/"),
@@ -179,6 +215,21 @@ def get_chat_model(
         if max_tokens is not None and max_tokens > 0:
             kw["max_tokens"] = max_tokens
         return ChatOpenAI(**kw)
+    if ep == "anthropic":
+        if not settings.anthropic_api_key:
+            raise RuntimeError("anthropic: no API key configured")
+        from langchain_anthropic import ChatAnthropic  # import tardio: opcional
+
+        # Anthropic exige max_tokens; usa um default generoso para codegen.
+        kw_anthropic: dict[str, Any] = {
+            "model": settings.anthropic_model,
+            "api_key": settings.anthropic_api_key,
+            "timeout": timeout,
+            "max_retries": 1,
+            "temperature": 0.1,
+            "max_tokens": max_tokens if max_tokens and max_tokens > 0 else 4096,
+        }
+        return ChatAnthropic(**kw_anthropic)
     if not settings.google_api_key:
         raise RuntimeError("google: no API key configured")
     kw_google: dict[str, Any] = {

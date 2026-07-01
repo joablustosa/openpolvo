@@ -18,8 +18,10 @@ class Settings(BaseSettings):
     polvo_internal_key: str = Field(default="", validation_alias="POLVO_INTERNAL_KEY")
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     google_api_key: str | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
+    anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
     google_model: str = Field(default="gemini-2.0-flash", validation_alias="GOOGLE_MODEL")
+    anthropic_model: str = Field(default="claude-sonnet-5", validation_alias="ANTHROPIC_MODEL")
     agent_llm_timeout_s: float = Field(default=120.0, validation_alias="AGENT_LLM_TIMEOUT_S")
     # SerpAPI — mesmo nome que na API Go (`SERPAPI_*`); activa o sub-grafo multi-etapas de pesquisa web no Zé Polvinho.
     serpapi_api_key: str | None = Field(default=None, validation_alias="SERPAPI_API_KEY")
@@ -42,7 +44,7 @@ class Settings(BaseSettings):
     )
     port: int = Field(default=8090, validation_alias="PORT")
 
-    @field_validator("openai_api_key", "google_api_key", mode="before")
+    @field_validator("openai_api_key", "google_api_key", "anthropic_api_key", mode="before")
     @classmethod
     def _blank_api_key_to_none(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip():
@@ -118,6 +120,26 @@ class Settings(BaseSettings):
         default=20,
         validation_alias="DEV_WORKFLOW_AGENT_LOOP_MAX_ITERATIONS",
     )
+    dev_workflow_native_tools: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_NATIVE_TOOLS",
+    )
+    dev_workflow_ollama_native_tools: bool = Field(
+        default=False,
+        validation_alias="DEV_WORKFLOW_OLLAMA_NATIVE_TOOLS",
+    )
+    dev_workflow_subagents_enabled: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_SUBAGENTS_ENABLED",
+    )
+    dev_workflow_subagent_max_iterations: int = Field(
+        default=12,
+        validation_alias="DEV_WORKFLOW_SUBAGENT_MAX_ITERATIONS",
+    )
+    dev_workflow_stream_preview: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_STREAM_PREVIEW",
+    )
     dev_workflow_auto_commit: bool = Field(
         default=True,
         validation_alias="DEV_WORKFLOW_AUTO_COMMIT",
@@ -154,6 +176,7 @@ class Settings(BaseSettings):
         return (
             bool((self.openai_api_key or "").strip())
             or bool((self.google_api_key or "").strip())
+            or bool((self.anthropic_api_key or "").strip())
             or bool((self.ollama_base_url or "").strip())
         )
 

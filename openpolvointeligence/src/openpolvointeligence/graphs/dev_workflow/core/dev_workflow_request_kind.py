@@ -129,6 +129,9 @@ _NEW_APP_KEYWORDS = (
     "cria uma aplicacao",
     "cria um site",
     "criar um site",
+    "cria um sistema",
+    "criar um sistema",
+    "crie um sistema",
     "cria uma landing",
     "cria uma landing page",
     "landing page",
@@ -140,6 +143,7 @@ _NEW_APP_KEYWORDS = (
     "do zero",
     "novo projeto",
     "novo projecto",
+    "novo sistema",
     "nova aplicação",
     "nova aplicacao",
     "scaffold",
@@ -151,9 +155,31 @@ _NEW_APP_KEYWORDS = (
     "app para",
     "dashboard para",
     "sistema para",
+    "sistema de",
     "website",
     "fullstack",
     "frontend e backend",
+    "front e back",
+)
+
+# Frases que indicam app/sistema novo mesmo com workspace aberto (subpasta dedicada).
+_STRONG_NEW_APP_PHRASES = (
+    "do zero",
+    "novo projeto",
+    "novo projecto",
+    "novo sistema",
+    "cria um sistema",
+    "criar um sistema",
+    "crie um sistema",
+    "cria uma app",
+    "criar uma app",
+    "cria um app",
+    "cria um site",
+    "criar um site",
+    "scaffold",
+    "monta um site",
+    "monta uma app",
+    "landing page",
 )
 
 _REFACTOR_KEYWORDS = (
@@ -303,6 +329,10 @@ def _count_hits(prompt: str, keywords: tuple[str, ...]) -> int:
     return sum(1 for k in keywords if k in prompt)
 
 
+def _has_strong_new_app_intent(prompt: str) -> bool:
+    return any(phrase in prompt for phrase in _STRONG_NEW_APP_PHRASES)
+
+
 def classify_request_kind(
     user_prompt: str,
     *,
@@ -361,6 +391,10 @@ def classify_request_kind(
     if refactor_score and not bug_score and refactor_score >= feature_score:
         return "refactor"
 
+    # Workspace aberto: pedidos de sistema/app novo → new_app (pasta própria), não feature.
+    if _has_strong_new_app_intent(p) or (new_app_score > feature_score and new_app_score > 0):
+        return "new_app"
+
     if bug_score and not feature_score:
         return "bug_fix"
     if feature_score and not bug_score:
@@ -371,6 +405,7 @@ def classify_request_kind(
         return "bug_fix" if bug_score >= feature_score else "feature"
 
     if hint in (
+        "new_app",
         "bug_fix",
         "feature",
         "refactor",
@@ -381,8 +416,8 @@ def classify_request_kind(
         "abort",
     ):
         return hint
-    if new_app_score:
-        return "feature"
+    if new_app_score and feature_score == 0:
+        return "new_app"
     return "feature"
 
 

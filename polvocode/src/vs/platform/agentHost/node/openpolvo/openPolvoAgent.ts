@@ -435,6 +435,32 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		});
 	}
 
+	/**
+	 * Sinaliza ao workbench para abrir/atualizar o browser interno na URL do dev server.
+	 * O consumo é feito por OpenPolvoDevExplorerContribution (browser layer), que executa
+	 * o comando do browser integrado com reuseUrlFilter (mesmo tab → HMR ao vivo).
+	 */
+	private _firePreview(session: URI, turnId: string, previewUrl: string): void {
+		const toolCallId = generateUuid();
+		const label = localize('openPolvoDevPreviewReady', "Preview ao vivo: {0}", previewUrl);
+		this._fire(session, {
+			type: ActionType.ChatToolCallComplete,
+			turnId,
+			toolCallId,
+			result: {
+				success: true,
+				pastTenseMessage: label,
+				content: [{ type: ToolResultContentType.Text, text: previewUrl }],
+			},
+			_meta: {
+				ui: {
+					toolName: 'dev_preview',
+					previewUrl,
+				},
+			},
+		});
+	}
+
 	/** Mostra eventos do grafo (tool_call/tool_result/observation) como passos de raciocínio. */
 	private _surfaceAgentEvent(session: URI, turnId: string, eventType: string | undefined, payload: Record<string, unknown> | undefined): void {
 		if (!eventType || eventType === 'thought' || eventType === 'final') {
@@ -764,6 +790,10 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 					messages.join(' '),
 					'dev_post_setup',
 				);
+			}
+			// Preview ao vivo: abre/atualiza o browser interno na URL do dev server.
+			if (result?.previewUrl) {
+				this._firePreview(session, turnId, result.previewUrl);
 			}
 		} catch (err) {
 			this._logService.warn(

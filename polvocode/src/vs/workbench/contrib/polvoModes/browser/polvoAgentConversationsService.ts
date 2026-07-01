@@ -39,7 +39,7 @@ export interface IPolvoMessageAttachment {
 
 export interface IPolvoDevFileChange {
 	readonly path: string;
-	readonly op?: 'write' | 'mkdir';
+	readonly op?: 'write' | 'mkdir' | 'delete';
 	readonly added?: number;
 	readonly removed?: number;
 }

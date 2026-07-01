@@ -59,6 +59,14 @@ def test_new_page_in_existing_project_is_feature_not_new_app():
     assert kind == "feature"
 
 
+def test_new_system_in_open_workspace_is_new_app_not_feature():
+    kind = classify_request_kind(
+        "cria um sistema de controle de peças com crud do zero",
+        has_project=True,
+    )
+    assert kind == "new_app"
+
+
 def test_pure_question_is_explain():
     kind = classify_request_kind(
         "o que é que este componente faz?",

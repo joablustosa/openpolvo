@@ -5,6 +5,7 @@ STEPS = [
     "context_loader",
     "requirements",
     "stack_selector",
+    "agent_loop",
     "legacy_core",
     "type_check",
     "lint_fix",

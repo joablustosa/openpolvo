@@ -103,15 +103,16 @@ registerAction2(class extends Action2 {
 		}
 		const providerPick = await quickInput.pick(
 			[
-				{ id: 'openai', label: 'OpenAI' },
+				{ id: 'openai', label: 'OpenAI (GPT)' },
 				{ id: 'google', label: 'Google Gemini' },
+				{ id: 'anthropic', label: 'Anthropic (Claude)' },
 			],
 			{ placeHolder: localize('polvoLlmProvider', "Provider do modelo") },
 		);
 		if (!providerPick) {
 			return;
 		}
-		const modelId = await promptRequired(quickInput, localize('polvoLlmModelId', "Model ID (ex.: gpt-4o-mini, gemini-1.5-pro)"));
+		const modelId = await promptRequired(quickInput, localize('polvoLlmModelId', "Model ID (ex.: gpt-4o-mini, gemini-1.5-pro, claude-sonnet-5)"));
 		if (!modelId) {
 			return;
 		}
@@ -122,7 +123,7 @@ registerAction2(class extends Action2 {
 		try {
 			await api.createLlmProfile({
 				display_name: displayName,
-				provider: providerPick.id as 'openai' | 'google',
+				provider: providerPick.id as 'openai' | 'google' | 'anthropic',
 				model_id: modelId,
 				api_key: apiKey,
 			});

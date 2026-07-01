@@ -177,6 +177,7 @@ def build_polvo_code_ops_metadata(
         "polvo_code_ops": ops_out,
         "polvo_code_create_project": bool(create_project),
         "polvo_code_project_title": (project_title or "").strip() or None,
+        "polvo_code_git_init": bool(create_project),
         "polvo_code_npm_install": bool(npm_install),
         "polvo_code_run_dev": run_dev,
     }

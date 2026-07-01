@@ -85,9 +85,11 @@ export interface IOpenPolvoLlmProfile {
 	readonly has_api_key: boolean;
 }
 
+export type OpenPolvoLlmProviderId = 'openai' | 'google' | 'anthropic';
+
 export interface IOpenPolvoLlmProfileInput {
 	readonly display_name: string;
-	readonly provider: 'openai' | 'google';
+	readonly provider: OpenPolvoLlmProviderId;
 	readonly model_id: string;
 	readonly api_key: string;
 }
@@ -165,6 +167,7 @@ const BASE_MODELS: IOpenPolvoModel[] = [
 	{ id: 'auto', name: 'Automático', description: 'Routing automático (perfil/chave ou local)', provider: 'auto', configured: true },
 	{ id: 'openai', name: 'OpenAI', description: 'OpenAI (chave configurada no backend)', provider: 'openai' },
 	{ id: 'google', name: 'Gemini', description: 'Google Gemini', provider: 'google' },
+	{ id: 'anthropic', name: 'Claude', description: 'Anthropic Claude', provider: 'anthropic' },
 	{ id: 'ollama', name: 'Ollama (local)', description: 'Modelo local via Ollama', provider: 'ollama' },
 ];
 
@@ -196,6 +199,7 @@ export interface IOpenPolvoWorkbenchApiService {
 	deleteWorkflow(id: string): Promise<void>;
 	listLlmProfiles(): Promise<IOpenPolvoLlmProfile[]>;
 	createLlmProfile(input: IOpenPolvoLlmProfileInput): Promise<IOpenPolvoLlmProfile>;
+	updateLlmProfile(id: string, patch: { model_id?: string; api_key?: string; display_name?: string }): Promise<IOpenPolvoLlmProfile>;
 	deleteLlmProfile(id: string): Promise<void>;
 	getSmtpSettings(): Promise<IOpenPolvoSmtpSettings | undefined>;
 	putSmtpSettings(input: IOpenPolvoSmtpInput): Promise<void>;
@@ -529,6 +533,24 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		const body = await asJson<IOpenPolvoLlmProfile>(context);
 		if (!body?.id) {
 			throw new Error('create LLM profile failed: missing id');
+		}
+		return body;
+	}
+
+	async updateLlmProfile(id: string, patch: { model_id?: string; api_key?: string; display_name?: string }): Promise<IOpenPolvoLlmProfile> {
+		const context = await this.requestAuthorized({
+			type: 'PATCH',
+			url: `${this.baseUrl}${OfficialRoutes.llmProfiles}/${id}`,
+			headers: { 'Content-Type': 'application/json' },
+			data: JSON.stringify(patch),
+			callSite: 'openPolvoWorkbenchApiService.updateLlmProfile',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`update LLM profile failed (${context.res.statusCode})`);
+		}
+		const body = await asJson<IOpenPolvoLlmProfile>(context);
+		if (!body?.id) {
+			throw new Error('update LLM profile failed: missing id');
 		}
 		return body;
 	}

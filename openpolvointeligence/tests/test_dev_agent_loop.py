@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from openpolvointeligence.graphs.dev_workflow.engines.agent_loop.loop import _parse_action
+from openpolvointeligence.graphs.dev_workflow.engines.agent_loop.model_bridge import (
+    parse_json_action as _parse_action,
+)
 from openpolvointeligence.graphs.dev_workflow.engines.agent_loop.patch import (
     apply_search_replace,
 )

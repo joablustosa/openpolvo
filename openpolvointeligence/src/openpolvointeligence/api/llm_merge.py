@@ -14,10 +14,14 @@ def merge_llm_from_mapping(base: Settings, data: dict[str, Any]) -> Settings:
         updates["openai_api_key"] = v
     if v := (data.get("google_api_key") or "").strip():
         updates["google_api_key"] = v
+    if v := (data.get("anthropic_api_key") or "").strip():
+        updates["anthropic_api_key"] = v
     if v := (data.get("openai_model") or "").strip():
         updates["openai_model"] = v
     if v := (data.get("google_model") or "").strip():
         updates["google_model"] = v
+    if v := (data.get("anthropic_model") or "").strip():
+        updates["anthropic_model"] = v
     if not updates:
         return base
     return base.model_copy(update=updates)

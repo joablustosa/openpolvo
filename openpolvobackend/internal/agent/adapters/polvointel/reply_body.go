@@ -12,8 +12,10 @@ type replyHTTPBody struct {
 	ModelProvider         string                          `json:"model_provider"`
 	OpenAIAPIKey          string                          `json:"openai_api_key,omitempty"`
 	GoogleAPIKey          string                          `json:"google_api_key,omitempty"`
+	AnthropicAPIKey       string                          `json:"anthropic_api_key,omitempty"`
 	OpenAIModel           string                          `json:"openai_model,omitempty"`
 	GoogleModel           string                          `json:"google_model,omitempty"`
+	AnthropicModel        string                          `json:"anthropic_model,omitempty"`
 	ConversationID        string                          `json:"conversation_id,omitempty"`
 	AgentMemory           map[string]string               `json:"agent_memory,omitempty"`
 	SMTPContext           *agentports.SMTPContext         `json:"smtp_context,omitempty"`
@@ -65,13 +67,15 @@ func ApplyDevStudioFields(in *agentports.ReplyInput, ds DevStudioFields) {
 func marshalReplyBody(in agentports.ReplyInput) ([]byte, error) {
 	deskMode := len(in.DeskContext) > 0
 	body := replyHTTPBody{
-		ModelProvider:  string(in.ModelProvider),
-		OpenAIAPIKey:   in.OpenAIAPIKey,
-		GoogleAPIKey:   in.GoogleAPIKey,
-		OpenAIModel:    in.OpenAIModel,
-		GoogleModel:    in.GoogleModel,
-		ConversationID: strings.TrimSpace(in.ConversationID),
-		DeskContext:    in.DeskContext,
+		ModelProvider:   string(in.ModelProvider),
+		OpenAIAPIKey:    in.OpenAIAPIKey,
+		GoogleAPIKey:    in.GoogleAPIKey,
+		AnthropicAPIKey: in.AnthropicAPIKey,
+		OpenAIModel:     in.OpenAIModel,
+		GoogleModel:     in.GoogleModel,
+		AnthropicModel:  in.AnthropicModel,
+		ConversationID:  strings.TrimSpace(in.ConversationID),
+		DeskContext:     in.DeskContext,
 	}
 	body.SMTPContext = in.SMTP
 	if !deskMode {

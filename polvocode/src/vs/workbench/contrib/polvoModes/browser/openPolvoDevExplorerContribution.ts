@@ -7,6 +7,8 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IAgentHostService } from '../../../../platform/agentHost/common/agentService.js';
 import { ActionType } from '../../../../platform/agentHost/common/state/sessionActions.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { BrowserViewCommandId } from '../../../../platform/browserView/common/browserView.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IExplorerService } from '../../files/browser/files.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -24,6 +26,7 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 
 	private _lastRevealUri: string | undefined;
 	private _revealTimer: ReturnType<typeof setTimeout> | undefined;
+	private _lastPreviewUrl: string | undefined;
 
 	constructor(
 		@IAgentHostService private readonly agentHostService: IAgentHostService,
@@ -31,6 +34,7 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IWorkspaceEditingService private readonly workspaceEditingService: IWorkspaceEditingService,
+		@ICommandService private readonly commandService: ICommandService,
 	) {
 		super();
 
@@ -43,6 +47,12 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 				return;
 			}
 			const ui = action._meta?.ui;
+			// Preview ao vivo: abre/atualiza o browser integrado na URL do dev server.
+			const previewUrl = (ui as { previewUrl?: unknown } | undefined)?.previewUrl;
+			if (typeof previewUrl === 'string' && previewUrl) {
+				this._openPreview(previewUrl);
+				return;
+			}
 			const resourceUri = ui?.resourceUri;
 			const toolName = ui?.toolName;
 			const revealFolder = ui?.revealFolder === true;
@@ -70,6 +80,33 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 			this._revealTimer = undefined;
 			void this._reveal(resource, revealFolder, addToWorkspace);
 		}, 80);
+	}
+
+	/**
+	 * Abre (ou reutiliza) o browser interno na URL do dev server. O `reuseUrlFilter`
+	 * garante que o mesmo tab é reaproveitado — com HMR do Vite, o preview atualiza ao
+	 * vivo sem abrir novos separadores.
+	 */
+	private _openPreview(url: string): void {
+		if (this._lastPreviewUrl === url) {
+			return;
+		}
+		this._lastPreviewUrl = url;
+		try {
+			let authorityFilter = 'http://localhost';
+			try {
+				authorityFilter = new URL(url).origin;
+			} catch {
+				// mantém o filtro por omissão
+			}
+			void this.commandService.executeCommand(BrowserViewCommandId.Open, {
+				url,
+				reuseUrlFilter: authorityFilter,
+				openToSide: true,
+			});
+		} catch {
+			// browser integrado indisponível (ex.: build web) — best-effort
+		}
 	}
 
 	private _normalizeFolderUri(uri: URI): string {

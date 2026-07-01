@@ -30,8 +30,10 @@ func (z *Resolver) ApplyToReplyInput(
 	}
 	repIn.OpenAIAPIKey = ""
 	repIn.GoogleAPIKey = ""
+	repIn.AnthropicAPIKey = ""
 	repIn.OpenAIModel = ""
 	repIn.GoogleModel = ""
+	repIn.AnthropicModel = ""
 
 	var prof *lldomain.Profile
 	var err error
@@ -61,7 +63,7 @@ func (z *Resolver) ApplyToReplyInput(
 				return err
 			}
 		}
-	} else if requested == convdomain.ModelOpenAI || requested == convdomain.ModelGoogle {
+	} else if requested == convdomain.ModelOpenAI || requested == convdomain.ModelGoogle || requested == convdomain.ModelAnthropic {
 		prof, err = z.Repo.FirstProfileForProvider(ctx, string(requested))
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -99,6 +101,10 @@ func (z *Resolver) ApplyToReplyInput(
 		repIn.ModelProvider = convdomain.ModelGoogle
 		repIn.GoogleAPIKey = prof.APIKeyPlain
 		repIn.GoogleModel = prof.ModelID
+	case "anthropic":
+		repIn.ModelProvider = convdomain.ModelAnthropic
+		repIn.AnthropicAPIKey = prof.APIKeyPlain
+		repIn.AnthropicModel = prof.ModelID
 	default:
 		repIn.ModelProvider = convdomain.ModelOpenAI
 	}

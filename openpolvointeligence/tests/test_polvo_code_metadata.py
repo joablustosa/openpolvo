@@ -48,6 +48,7 @@ def test_build_metadata_pending_opens_native_plugin():
     assert meta["polvo_code_ops_pending"] is True
     assert meta["native_plugin"]["id"] == "dev_studio"
     assert meta["polvo_code_create_project"] is True
+    assert meta["polvo_code_git_init"] is True
 
 
 def test_build_metadata_pending_with_partial_validation_warnings():

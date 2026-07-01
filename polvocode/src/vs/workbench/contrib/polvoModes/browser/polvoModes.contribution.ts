@@ -8,6 +8,7 @@ import './polvoWorkbenchModeService.js';
 import './polvoModeNavigationService.js';
 import './polvoModeCommands.js';
 import './polvoSettingsCommands.js';
+import './openPolvoModelPicker.js';
 import './openpolvo.config.contribution.js';
 import './openPolvoWorkbenchApiService.js';
 import './openPolvoAuth.js';

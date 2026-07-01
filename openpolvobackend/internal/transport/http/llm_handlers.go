@@ -109,8 +109,8 @@ func (h *LLMHandlers) PostProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Provider = strings.ToLower(strings.TrimSpace(req.Provider))
-	if req.Provider != "openai" && req.Provider != "google" {
-		writeError(w, http.StatusBadRequest, "provider must be openai or google")
+	if req.Provider != "openai" && req.Provider != "google" && req.Provider != "anthropic" {
+		writeError(w, http.StatusBadRequest, "provider must be openai, google or anthropic")
 		return
 	}
 	if strings.TrimSpace(req.DisplayName) == "" || strings.TrimSpace(req.ModelID) == "" || strings.TrimSpace(req.APIKey) == "" {

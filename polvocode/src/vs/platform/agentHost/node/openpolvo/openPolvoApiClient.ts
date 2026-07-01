@@ -41,6 +41,7 @@ const BASE_MODELS: IOpenPolvoApiModel[] = [
 	{ id: 'auto', name: 'Automático', description: 'Routing automático (perfil/chave ou local)', provider: 'auto', configured: true },
 	{ id: 'openai', name: 'OpenAI', description: 'OpenAI (chave configurada no backend)', provider: 'openai' },
 	{ id: 'google', name: 'Gemini', description: 'Google Gemini', provider: 'google' },
+	{ id: 'anthropic', name: 'Claude', description: 'Anthropic Claude', provider: 'anthropic' },
 	{ id: 'ollama', name: 'Ollama (local)', description: 'Modelo local via Ollama', provider: 'ollama' },
 ];
 

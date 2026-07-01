@@ -5,10 +5,11 @@ import "strings"
 type ModelProvider string
 
 const (
-	ModelOpenAI  ModelProvider = "openai"
-	ModelGoogle  ModelProvider = "google"
-	ModelOllama  ModelProvider = "ollama"
-	ModelAuto    ModelProvider = "auto"
+	ModelOpenAI    ModelProvider = "openai"
+	ModelGoogle    ModelProvider = "google"
+	ModelAnthropic ModelProvider = "anthropic"
+	ModelOllama    ModelProvider = "ollama"
+	ModelAuto      ModelProvider = "auto"
 )
 
 func ParseModelProvider(s string) (ModelProvider, bool) {
@@ -17,6 +18,8 @@ func ParseModelProvider(s string) (ModelProvider, bool) {
 		return ModelOpenAI, true
 	case string(ModelGoogle):
 		return ModelGoogle, true
+	case string(ModelAnthropic):
+		return ModelAnthropic, true
 	case string(ModelOllama):
 		return ModelOllama, true
 	case string(ModelAuto):

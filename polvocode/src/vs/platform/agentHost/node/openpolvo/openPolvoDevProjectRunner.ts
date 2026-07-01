@@ -5,6 +5,7 @@
 
 import { exec, spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs/promises';
+import * as net from 'net';
 import * as path from 'path';
 import { promisify } from 'util';
 import { readProjectRootFromMetadata } from '../../common/openPolvoDevProject.js';
@@ -12,6 +13,7 @@ import { readProjectRootFromMetadata } from '../../common/openPolvoDevProject.js
 const execAsync = promisify(exec);
 
 const INSTALL_TIMEOUT_MS = 300_000;
+const DEV_SERVER_READY_TIMEOUT_MS = 30_000;
 const runningDevServers = new Map<string, ChildProcess>();
 
 export interface IDevProjectSetupMetadata {
@@ -112,6 +114,74 @@ function spawnDetachedDevServer(command: string, cwd: string): void {
 	});
 }
 
+function delay(ms: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Deriva as portas candidatas do dev server a partir do comando e do package.json. */
+async function inferDevPorts(projectCwd: string, devCommand: string): Promise<number[]> {
+	const explicit = devCommand.match(/--port[=\s]+(\d{2,5})/);
+	if (explicit) {
+		return [Number(explicit[1])];
+	}
+	let deps: Record<string, unknown> = {};
+	for (const rel of ['package.json', path.join('frontend', 'package.json')]) {
+		try {
+			const raw = await fs.readFile(path.join(projectCwd, rel), 'utf8');
+			const pkg = JSON.parse(raw) as Record<string, unknown>;
+			deps = { ...(pkg.dependencies as object), ...(pkg.devDependencies as object) };
+			break;
+		} catch {
+			// tenta o próximo
+		}
+	}
+	if (deps.vite) {
+		return [5173, 4173];
+	}
+	if (deps.next || deps['react-scripts']) {
+		return [3000];
+	}
+	if (deps.astro) {
+		return [4321];
+	}
+	return [5173, 3000, 4173, 8080];
+}
+
+/** Testa se uma porta TCP local está a aceitar ligações. */
+function isPortOpen(port: number): Promise<boolean> {
+	return new Promise(resolve => {
+		const socket = net.connect(port, '127.0.0.1');
+		let done = false;
+		const finish = (ok: boolean) => {
+			if (done) {
+				return;
+			}
+			done = true;
+			socket.destroy();
+			resolve(ok);
+		};
+		socket.setTimeout(1000);
+		socket.once('connect', () => finish(true));
+		socket.once('error', () => finish(false));
+		socket.once('timeout', () => finish(false));
+	});
+}
+
+/** Aguarda o dev server ficar acessível e devolve a URL do preview (ou undefined). */
+async function waitForDevServerUrl(projectCwd: string, devCommand: string): Promise<string | undefined> {
+	const ports = await inferDevPorts(projectCwd, devCommand);
+	const deadline = Date.now() + DEV_SERVER_READY_TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		for (const port of ports) {
+			if (await isPortOpen(port)) {
+				return `http://localhost:${port}`;
+			}
+		}
+		await delay(500);
+	}
+	return undefined;
+}
+
 /**
  * Instala dependências e arranca o dev server após criar um projecto novo.
  * Em projectos existentes só corre `npm install` quando solicitado na metadata.
@@ -119,7 +189,7 @@ function spawnDetachedDevServer(command: string, cwd: string): void {
 export async function runDevProjectPostSetup(
 	workspacePath: string,
 	setup: IDevProjectSetupMetadata,
-): Promise<{ projectCwd: string; devStarted: boolean } | undefined> {
+): Promise<{ projectCwd: string; devStarted: boolean; previewUrl?: string } | undefined> {
 	const wp = workspacePath.trim();
 	if (!wp) {
 		return undefined;
@@ -144,21 +214,32 @@ export async function runDevProjectPostSetup(
 	}
 
 	let devStarted = false;
+	let devCommandUsed = '';
 	if (setup.runDev && setup.devCommand) {
 		const devCommand = resolveDevCommand(setup, layout);
 		if (layout.isMonorepo || devCommand.startsWith('make') || devCommand.includes('dev.ps1')) {
 			spawnDetachedDevServer(devCommand, projectCwd);
 			devStarted = true;
+			devCommandUsed = devCommand;
 		} else if (hasNode || devCommand.startsWith('npm') || devCommand.startsWith('cd frontend')) {
 			spawnDetachedDevServer(devCommand, projectCwd);
 			devStarted = true;
+			devCommandUsed = devCommand;
 		} else if (hasGo) {
-			spawnDetachedDevServer(devCommand.startsWith('go') ? devCommand : 'go run .', projectCwd);
+			const goCommand = devCommand.startsWith('go') ? devCommand : 'go run .';
+			spawnDetachedDevServer(goCommand, projectCwd);
 			devStarted = true;
+			devCommandUsed = goCommand;
 		}
 	}
 
-	return { projectCwd, devStarted };
+	// Só front web tem preview no browser interno; Go puro não é servido aqui.
+	let previewUrl: string | undefined;
+	if (devStarted && (hasNode || layout.isMonorepo)) {
+		previewUrl = await waitForDevServerUrl(projectCwd, devCommandUsed || setup.devCommand);
+	}
+
+	return { projectCwd, devStarted, previewUrl };
 }
 
 export function projectRootResourceUri(workspacePath: string, projectRootRel?: string): string | undefined {

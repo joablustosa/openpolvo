@@ -6,13 +6,13 @@
 import * as dom from '../../../../base/browser/dom.js';
 import { Dimension } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { Action } from '../../../../base/common/actions.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { showOpenPolvoModelPicker } from './openPolvoModelPicker.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
@@ -41,7 +41,7 @@ import {
 	renderLoadingPlaceholder,
 } from './polvoChatResponseTimer.js';
 import { IWorkspaceEditingService } from '../../../services/workspaces/common/workspaceEditing.js';
-import { applyDevFileToWorkspaceFolder, openPolvoProjectFolderInExplorer, projectRootFromMetadata, shouldOpenPolvoProjectInExplorer } from './openPolvoDevWorkspaceFiles.js';
+import { applyDevFileToWorkspaceFolder, ensureUniquePolvoProjectRoot, openPolvoProjectFolderInExplorer, projectRootFromMetadata, runPolvoProjectPostSetupInTerminal, shouldOpenPolvoProjectInExplorer } from './openPolvoDevWorkspaceFiles.js';
 import { IPolvoAgentHistorySyncService } from './polvoAgentHistorySyncService.js';
 
 const $ = dom.$;
@@ -71,6 +71,8 @@ export class PolvoAgentChatEditor extends EditorPane {
 	private isSending = false;
 	private abortController: AbortController | undefined;
 	private devProjectRootRel: string | undefined;
+	private devProjectRootRequestedRel: string | undefined;
+	private devProjectRootSetup: Promise<string | undefined> | undefined;
 	private readonly responseTimer = new PolvoChatResponseTimerController(() => this.renderMessages());
 
 	private readonly quickActions: IQuickAction[] = [
@@ -90,12 +92,12 @@ export class PolvoAgentChatEditor extends EditorPane {
 		@IPolvoAgentHistorySyncService private readonly historySyncService: IPolvoAgentHistorySyncService,
 		@IOpenPolvoWorkbenchApiService private readonly openPolvoApi: IOpenPolvoWorkbenchApiService,
 		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
-		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly fileService: IFileService,
 		@IExplorerService private readonly explorerService: IExplorerService,
 		@IWorkspaceEditingService private readonly workspaceEditingService: IWorkspaceEditingService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super(PolvoAgentChatEditor.ID, group, telemetryService, themeService, storageService);
 		this._register(this.responseTimer);
@@ -160,7 +162,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 
 		this._register(dom.addDisposableListener(this.sendButton, dom.EventType.CLICK, () => this.sendMessage()));
 		this._register(dom.addDisposableListener(attachButton, dom.EventType.CLICK, () => this.fileInput?.click()));
-		this._register(dom.addDisposableListener(this.modelChip, dom.EventType.CLICK, e => this.showModelPicker(e)));
+		this._register(dom.addDisposableListener(this.modelChip, dom.EventType.CLICK, e => void this.showModelPicker(e)));
 
 		const quickActionsRow = dom.append(composerInner, $('.polvo-agent-chat-quick-actions'));
 		for (const action of this.quickActions) {
@@ -243,32 +245,15 @@ export class PolvoAgentChatEditor extends EditorPane {
 		this.modelLabelElement.textContent = model?.name ?? localize('polvoAgentDefaultModel', "Polvo");
 	}
 
-	private showModelPicker(e: MouseEvent): void {
-		if (this.models.length === 0) {
-			void this.loadModels().then(() => this.showModelPicker(e));
-			return;
+	private async showModelPicker(_e: MouseEvent): Promise<void> {
+		// Seletor agrupado: IA local detectada + GPT/Gemini/Claude com estado
+		// configurado (✓) ou por-configurar (🔒). Ao escolher 🔒 abre a config de chave.
+		const selected = await this.instantiationService.invokeFunction(showOpenPolvoModelPicker);
+		if (selected && this.conversationId) {
+			this.conversationsService.setConversationModel(this.conversationId, selected);
+			await this.loadModels();
+			this.updateModelLabel();
 		}
-		const conversation = this.conversationId ? this.conversationsService.getConversation(this.conversationId) : undefined;
-		const selectedId = conversation?.modelId;
-		this.contextMenuService.showContextMenu({
-			getAnchor: () => ({ x: e.clientX, y: e.clientY }),
-			getActions: () => this.models.map(model => {
-				const action = new Action(
-					`polvo-model-${model.id}`,
-					model.name,
-					undefined,
-					true,
-					() => {
-						if (this.conversationId) {
-							this.conversationsService.setConversationModel(this.conversationId, model.id);
-							this.updateModelLabel();
-						}
-					},
-				);
-				action.checked = model.id === selectedId;
-				return action;
-			}),
-		});
 	}
 
 	private async ensureApiSession(): Promise<void> {
@@ -350,6 +335,9 @@ export class PolvoAgentChatEditor extends EditorPane {
 		this.responseTimer.start();
 		this.abortController?.abort();
 		this.abortController = new AbortController();
+		this.devProjectRootRel = undefined;
+		this.devProjectRootRequestedRel = undefined;
+		this.devProjectRootSetup = undefined;
 
 		let apiSessionId = conversation.apiSessionId;
 		try {
@@ -366,6 +354,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 				let richFormatting = false;
 				let richProgressLabel = '';
 				const devFileChanges: IPolvoDevFileChange[] = [];
+				const appliedDevPaths = new Set<string>();
 				let lastDevWorkflowStepId = '';
 
 				const handleStreamEvent = (event: IOpenPolvoStreamEvent): void => {
@@ -385,7 +374,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 					if (step === 'dev_project_root') {
 						const root = event.payload?.project_root;
 						if (typeof root === 'string' && root.trim()) {
-							this.devProjectRootRel = root.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+							void this.scheduleDevProjectRoot(root);
 						}
 					} else if (step.startsWith('dev_')) {
 						const label = event.content ?? event.payload?.label as string ?? '';
@@ -452,6 +441,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 						op: event.file.op ?? 'write',
 					};
 					devFileChanges.push(change);
+					appliedDevPaths.add(event.file.path.replace(/\\/g, '/').replace(/^\/+/, ''));
 					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
 						devFileChanges: [...devFileChanges],
 						pdfGenerating,
@@ -474,6 +464,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 						removed: event.fileEdit.removed,
 					};
 					devFileChanges.push(change);
+					appliedDevPaths.add(event.fileEdit.path.replace(/\\/g, '/').replace(/^\/+/, ''));
 					this.conversationsService.updateDevResponseMessage(this.conversationId!, assistantText, {
 						devFileChanges: [...devFileChanges],
 						pdfGenerating,
@@ -507,7 +498,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 						assistantMetadata = event.metadata;
 						const root = readProjectRootFromMetadata(event.metadata);
 						if (root) {
-							this.devProjectRootRel = root;
+							void this.scheduleDevProjectRoot(root);
 						}
 					}
 					pdfGenerating = false;
@@ -520,7 +511,11 @@ export class PolvoAgentChatEditor extends EditorPane {
 						devFileChanges,
 					});
 					this.renderMessages();
-					void this.openCreatedProjectInExplorer(assistantMetadata);
+					void (async () => {
+						await this.applyPolvoCodeOpsFromMetadata(assistantMetadata, appliedDevPaths, devFileChanges);
+						await this.openCreatedProjectInExplorer(assistantMetadata);
+						await this.runCreatedProjectPostSetup(assistantMetadata);
+					})();
 				} else if (event.type === 'messages_saved' && event.messages?.length) {
 					this.conversationsService.reconcileServerMessageIds(
 						this.conversationId!,
@@ -976,7 +971,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 		if (folders.length === 0) {
 			return;
 		}
-		const root = projectRootFromMetadata(metadata) ?? this.devProjectRootRel;
+		const root = await this.resolveCreatedProjectRoot(metadata);
 		if (!root) {
 			return;
 		}
@@ -990,15 +985,139 @@ export class PolvoAgentChatEditor extends EditorPane {
 		);
 	}
 
-	private async persistDevFileAndReveal(file: { path: string; content?: string; op?: 'write' | 'mkdir' }): Promise<void> {
+	private async scheduleDevProjectRoot(requestedRoot: string): Promise<string | undefined> {
+		const normalized = requestedRoot.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+		if (!normalized) {
+			return undefined;
+		}
+		this.devProjectRootRequestedRel ??= normalized;
+		if (this.devProjectRootSetup) {
+			return this.devProjectRootSetup;
+		}
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			this.devProjectRootRel = normalized;
+			return normalized;
+		}
+		this.devProjectRootSetup = ensureUniquePolvoProjectRoot(
+			this.fileService,
+			folders[0].uri,
+			normalized,
+		).then(root => {
+			this.devProjectRootRel = root ?? normalized;
+			return this.devProjectRootRel;
+		});
+		return this.devProjectRootSetup;
+	}
+
+	private normalizeIncomingDevFilePath(path: string): string {
+		let normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
+		const requested = this.devProjectRootRequestedRel;
+		if (
+			requested
+			&& this.devProjectRootRel
+			&& requested !== this.devProjectRootRel
+			&& normalized.startsWith(`${requested}/`)
+		) {
+			normalized = normalized.slice(requested.length + 1);
+		}
+		return normalized;
+	}
+
+	private async resolveCreatedProjectRoot(metadata: Record<string, unknown> | undefined): Promise<string | undefined> {
+		if (this.devProjectRootSetup) {
+			return this.devProjectRootSetup;
+		}
+		const root = projectRootFromMetadata(metadata) ?? this.devProjectRootRel;
+		return root ? this.scheduleDevProjectRoot(root) : undefined;
+	}
+
+	private async applyPolvoCodeOpsFromMetadata(
+		metadata: Record<string, unknown> | undefined,
+		appliedDevPaths: Set<string>,
+		devFileChanges: IPolvoDevFileChange[],
+	): Promise<void> {
+		const ops = metadata?.polvo_code_ops;
+		if (!Array.isArray(ops)) {
+			return;
+		}
+		for (const raw of ops) {
+			if (!raw || typeof raw !== 'object') {
+				continue;
+			}
+			const op = raw as Record<string, unknown>;
+			const path = String(op.path ?? '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+			if (!path || appliedDevPaths.has(path)) {
+				continue;
+			}
+			const kind = op.op === 'mkdir' ? 'mkdir' : op.op === 'delete' ? 'delete' : 'write';
+			await this.persistDevFileAndReveal({
+				path,
+				content: typeof op.content === 'string' ? op.content : '',
+				op: kind,
+			});
+			appliedDevPaths.add(path);
+			devFileChanges.push({ path, op: kind });
+			if (this.conversationId) {
+				const conversation = this.conversationsService.getConversation(this.conversationId);
+				const response = conversation?.messages.findLast(m => m.role === 'assistant' && m.devResponse);
+				this.conversationsService.updateDevResponseMessage(this.conversationId, response?.content ?? '', {
+					devFileChanges: [...devFileChanges],
+					metadata,
+				});
+				this.renderMessages();
+			}
+		}
+	}
+
+	private async runCreatedProjectPostSetup(metadata: Record<string, unknown> | undefined): Promise<void> {
+		if (!shouldOpenPolvoProjectInExplorer(metadata)) {
+			return;
+		}
 		const folders = this.workspaceContextService.getWorkspace().folders;
 		if (folders.length === 0) {
 			return;
 		}
+		const root = await this.resolveCreatedProjectRoot(metadata);
+		if (!root) {
+			return;
+		}
+		try {
+			const started = await runPolvoProjectPostSetupInTerminal(
+				this.instantiationService,
+				this.fileService,
+				folders[0].uri,
+				root,
+				metadata,
+			);
+			if (started && this.conversationId) {
+				this.conversationsService.appendDevStepMessage(
+					this.conversationId,
+					localize('polvoDevPostSetupStarted', "Setup do projecto iniciado no terminal integrado."),
+				);
+				this.renderMessages();
+			}
+		} catch {
+			// best-effort: o projecto já foi criado e aberto; falhas de terminal não bloqueiam o chat.
+		}
+	}
+
+	private async persistDevFileAndReveal(file: { path: string; content?: string; op?: 'write' | 'mkdir' | 'delete' }): Promise<void> {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			return;
+		}
+		if (this.devProjectRootSetup) {
+			await this.devProjectRootSetup;
+		}
+		const normalizedFile = {
+			...file,
+			path: this.normalizeIncomingDevFilePath(file.path),
+		};
 		const resource = await applyDevFileToWorkspaceFolder(
 			this.fileService,
 			folders[0].uri,
-			file,
+			normalizedFile,
 			this.devProjectRootRel,
 		);
 		if (!resource) {

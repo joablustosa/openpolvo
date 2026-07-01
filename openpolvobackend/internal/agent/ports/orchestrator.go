@@ -28,10 +28,12 @@ type ReplyInput struct {
 	ConversationID  string            // opcional: UUID da conversa para o Intelligence
 	AgentMemory     *AgentMemoryIn    // opcional: vindo do SQLite
 	// Overrides opcionais enviados ao Open Polvo Intelligence (perfis LLM na BD local).
-	OpenAIAPIKey  string `json:"-"`
-	GoogleAPIKey  string `json:"-"`
-	OpenAIModel   string `json:"-"`
-	GoogleModel   string `json:"-"`
+	OpenAIAPIKey    string `json:"-"`
+	GoogleAPIKey    string `json:"-"`
+	AnthropicAPIKey string `json:"-"`
+	OpenAIModel     string `json:"-"`
+	GoogleModel     string `json:"-"`
+	AnthropicModel  string `json:"-"`
 	SMTP           *SMTPContext         // opcional: conta de envio configurada na aplicação
 	Contacts       []ContactBrief       // opcional: agenda do utilizador (nome, email, telefone)
 	TaskLists      []TaskListBrief      // opcional: listas de tarefas persistidas (Agente Tarefas)
