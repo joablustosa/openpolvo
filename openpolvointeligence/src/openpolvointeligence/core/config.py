@@ -151,6 +151,12 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="DEV_WORKFLOW_STREAM_PREVIEW",
     )
+    # Streaming token-a-token (evento text_delta) do texto do loop de dev — só no modo
+    # nativo e no loop top-level; fallback para ainvoke se o stream falhar.
+    dev_workflow_stream_tokens: bool = Field(
+        default=True,
+        validation_alias="DEV_WORKFLOW_STREAM_TOKENS",
+    )
     dev_workflow_auto_commit: bool = Field(
         default=True,
         validation_alias="DEV_WORKFLOW_AUTO_COMMIT",

@@ -6,10 +6,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **Resposta do agente em streaming token-a-token** — o agente Agent/Code Mode passa a
-  enviar a resposta incrementalmente (evento `delta`), como no Claude/Cursor, com fallback
-  automático para invocação normal quando o modelo/provider não suporta stream fiável
-  (ex.: Ollama). Configurável por `DESK_STREAM_TOKENS`.
+- **Resposta do agente em streaming token-a-token** — o agente Agent/Code Mode e o loop
+  de desenvolvimento passam a enviar a resposta incrementalmente (evento `text_delta`),
+  como no Claude/Cursor, com fallback automático para invocação normal quando o modelo/
+  provider não suporta stream fiável (ex.: Ollama). Configurável por `DESK_STREAM_TOKENS`
+  (agente) e `DEV_WORKFLOW_STREAM_TOKENS` (loop de dev).
 - **Loop ReAct do agente — raciocínio visível e guarda de loop** — o agente Agent/Code Mode
   passa a emitir eventos `graph_step` e `thought` (o raciocínio entre chamadas de ferramenta
   fica visível em tempo real) e a cortar loops improdutivos (mesma ferramenta+argumentos

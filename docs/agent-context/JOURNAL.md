@@ -3,6 +3,32 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Streaming: front verificado (P1) + loop de dev (P2)
+
+**P1 — Render do `delta` no frontend (verificado por inspeção, sem mudança):**
+O normalizador `openpolvoBackendProtocol.ts` já mapeia `delta`→`text_delta` lendo
+`evt.delta ?? evt.text ?? evt.token` (o meu `{"type":"delta","text":…}` é consumido),
+e trata `agent_event` (`thought`→thinking, `tool_call` client). `_sawText` evita
+duplicação com o `done`. **O streaming do desk funciona end-to-end sem tocar no front.**
+
+**P2 — Streaming token-a-token no loop de dev (`engines/agent_loop`):**
+- `ModelBridge.decide(messages, *, emit, thread_id)`: novo `_invoke` streama via `astream`,
+  acumula `AIMessageChunk`, emite `("text_delta",{delta})` e converte num AIMessage limpo
+  (preserva tool_calls). **Só em modo nativo** (JSON=ação, não prosa) e com fallback ainvoke.
+- `loop.py`: passa `emit` ao `decide` **só no top-level** (`depth==0`) — subagentes não
+  poluem a UI. Flag `DEV_WORKFLOW_STREAM_TOKENS`.
+- `dev_gateway_graph.py::emit_tool`: caminho especial `text_delta` → evento SSE top-level
+  (os restantes continuam `agent_event`).
+
+**Escopo/risco:** o render usa o MESMO caminho do desk (normalizer + text_delta), logo
+baixo risco; UI do dev agent não executável aqui. Ollama (modo JSON) não streama prosa
+— comportamento inalterado.
+
+**Arquivos:** `engines/agent_loop/model_bridge.py`, `engines/agent_loop/loop.py`,
+`core/dev_gateway_graph.py`, `core/config.py`, NOVO `tests/test_agent_loop_streaming.py` (6).
+
+**Portão:** ruff OK; `pytest -m "not integration"` = 447 passed, 2 skipped. Sem regressões.
+
 ## 2026-07-01 — Agente Geral: streaming token-a-token (`delta`) com fallback
 
 **O quê:** O agente Desk (Agent/Code Mode) passa a **streamar a resposta token a token**
