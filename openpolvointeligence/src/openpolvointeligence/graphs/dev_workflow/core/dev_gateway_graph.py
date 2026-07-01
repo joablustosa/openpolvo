@@ -1121,7 +1121,12 @@ async def run_dev_workflow_stream(
             return await bridge.wait(call_id, timeout_s=timeout_s or terminal_timeout)
 
         async def emit_tool(kind: str, payload: dict[str, Any]) -> None:
-            await exec_q.put(_agent_event_for_sse({"type": kind, **payload}))
+            # text_delta é um tipo SSE top-level (texto incremental) — os restantes
+            # eventos vão embrulhados como agent_event.
+            if kind == "text_delta":
+                await exec_q.put({"type": "text_delta", "delta": str(payload.get("delta") or "")})
+            else:
+                await exec_q.put(_agent_event_for_sse({"type": kind, **payload}))
 
         port = build_terminal_port(
             settings,

@@ -70,12 +70,7 @@ _SUBAGENT_ROLES: dict[str, str] = {
 def _load_agent_loop_system() -> str:
     from pathlib import Path
 
-    path = (
-        Path(__file__).resolve().parents[4]
-        / "prompts"
-        / "dev_agent"
-        / "agent_loop_system.md"
-    )
+    path = Path(__file__).resolve().parents[4] / "prompts" / "dev_agent" / "agent_loop_system.md"
     if path.is_file():
         return path.read_text(encoding="utf-8")
     return "És um agente de desenvolvimento. Usa ferramentas para explorar, editar e validar."
@@ -197,13 +192,17 @@ async def run_agent_loop(
     assistant_reply = ""
 
     await _emit_event(
-        emit, thread_id, "agent_loop_start",
+        emit,
+        thread_id,
+        "agent_loop_start",
         {"mode": bridge.mode, "depth": depth, "max_iterations": max_iter},
     )
 
+    # Streaming de texto só no loop top-level (evita ruído de subagentes aninhados).
+    decide_emit = emit if depth == 0 else None
     for i in range(max_iter):
         try:
-            decision = await bridge.decide(messages)
+            decision = await bridge.decide(messages, emit=decide_emit, thread_id=thread_id)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("agent_loop LLM falhou: %s", exc)
             await _emit_event(emit, thread_id, "agent_loop_error", {"detail": str(exc)[:300]})
@@ -239,7 +238,10 @@ async def run_agent_loop(
                 {"type": "tool_call", "tool": tool, "args": args, "thought": thought},
             )
             await _emit_event(
-                emit, thread_id, "tool_call", {"tool": tool, "args": _safe_args(args)},
+                emit,
+                thread_id,
+                "tool_call",
+                {"tool": tool, "args": _safe_args(args)},
             )
 
             obs, project_files, partial_ops = await execute_agent_tool(
@@ -262,7 +264,9 @@ async def run_agent_loop(
             for op in partial_ops:
                 if isinstance(op, dict) and op.get("path"):
                     await _emit_event(
-                        emit, thread_id, "file_applied",
+                        emit,
+                        thread_id,
+                        "file_applied",
                         {"op": op.get("op"), "path": op.get("path")},
                     )
 
@@ -273,12 +277,13 @@ async def run_agent_loop(
     if not assistant_reply and complete:
         assistant_reply = f"Concluído: {len(valid_ops)} ficheiro(s) alterado(s)."
     pending = [
-        {"op": o.get("op"), "path": o.get("path"), "content": o.get("content")}
-        for o in valid_ops
+        {"op": o.get("op"), "path": o.get("path"), "content": o.get("content")} for o in valid_ops
     ]
 
     await _emit_event(
-        emit, thread_id, "agent_loop_complete",
+        emit,
+        thread_id,
+        "agent_loop_complete",
         {"complete": complete, "ops": len(valid_ops), "iterations": len(trace)},
     )
 
@@ -289,7 +294,9 @@ async def run_agent_loop(
         needs_install = any(p.endswith("package.json") for p in touched)
         if needs_install or "package.json" in project_files:
             await _emit_event(
-                emit, thread_id, "preview",
+                emit,
+                thread_id,
+                "preview",
                 {"action": "start_dev_server", "needs_install": needs_install},
             )
 

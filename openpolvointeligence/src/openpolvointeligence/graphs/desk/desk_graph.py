@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.graph import END, START, StateGraph
 
 from openpolvointeligence.core.config import Settings
@@ -22,6 +30,8 @@ from openpolvointeligence.graphs.desk.desk_tool_logic import (
 from openpolvointeligence.graphs.message_utils import tail_messages
 from openpolvointeligence.graphs.email.email_send_reply import format_smtp_block_for_prompt
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
+
+logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
@@ -44,6 +54,43 @@ def _to_lc_messages(raw: list[dict[str, Any]]) -> list[Any]:
     return out
 
 
+# Nº de rondas de tool-calls idênticas consecutivas que caracterizam um loop preso.
+_LOOP_REPEAT_LIMIT = 3
+
+
+async def _emit_event(emit, kind: str, payload: dict[str, Any]) -> None:
+    """Emite um evento tolerando emit síncrono, assíncrono ou ausente."""
+    if emit is None:
+        return
+    r = emit(kind, payload)
+    if hasattr(r, "__await__"):
+        await r
+
+
+def tool_calls_signature(resp: Any) -> str:
+    """Assinatura estável (nome+args) das tool_calls de um AIMessage; '' se não houver."""
+    if not (isinstance(resp, AIMessage) and resp.tool_calls):
+        return ""
+    parts: list[str] = []
+    for tc in resp.tool_calls:
+        name = str(tc.get("name") or "")
+        args = tc.get("args") or {}
+        try:
+            a = json.dumps(args, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError):
+            a = str(args)
+        parts.append(f"{name}:{a}")
+    return "|".join(sorted(parts))
+
+
+def is_unproductive_loop(signatures: list[str]) -> bool:
+    """True se as últimas N rondas repetiram exatamente a mesma tool_call (loop preso)."""
+    if len(signatures) < _LOOP_REPEAT_LIMIT:
+        return False
+    last = signatures[-_LOOP_REPEAT_LIMIT:]
+    return bool(last[0]) and all(s == last[0] for s in last)
+
+
 def should_continue_tools(state: DeskAgentState) -> Literal["tools", "finalize"]:
     iteration = int(state.get("iteration") or 0)
     max_it = int(state.get("max_iterations") or 8)
@@ -54,6 +101,9 @@ def should_continue_tools(state: DeskAgentState) -> Literal["tools", "finalize"]
         return "finalize"
     last = msgs[-1]
     if isinstance(last, AIMessage) and last.tool_calls:
+        # Guarda contra loop improdutivo: mesma tool+args repetida sem progresso.
+        if is_unproductive_loop(list(state.get("tool_signatures") or [])):
+            return "finalize"
         return "tools"
     return "finalize"
 
@@ -91,7 +141,66 @@ def make_load_context_node(settings: Settings):
     return load_context
 
 
-def make_agent_node(settings: Settings):
+def _chunk_text(chunk: Any) -> str:
+    """Texto incremental de um AIMessageChunk (string ou blocos de texto)."""
+    c = getattr(chunk, "content", "")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "".join(
+            p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return ""
+
+
+def _thought_text(resp: Any) -> str:
+    """Texto de raciocínio de um AIMessage (string ou blocos de texto)."""
+    raw = getattr(resp, "content", "")
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list):
+        parts = [p.get("text", "") for p in raw if isinstance(p, dict) and p.get("type") == "text"]
+        return "".join(parts).strip()
+    return ""
+
+
+def _chunk_to_message(full: AIMessageChunk) -> AIMessage:
+    """Converte o chunk acumulado num AIMessage limpo (preserva tool_calls)."""
+    return AIMessage(
+        content=full.content,
+        tool_calls=list(getattr(full, "tool_calls", []) or []),
+        additional_kwargs=dict(getattr(full, "additional_kwargs", {}) or {}),
+    )
+
+
+async def _invoke_model(bound: Any, msgs: list[Any], emit, settings: Settings) -> tuple[Any, bool]:
+    """Invoca o modelo. Devolve (resposta, streamed?).
+
+    Faz streaming token-a-token (emitindo `delta`) quando possível; cai para
+    ``ainvoke`` sem duplicar texto se o provider/modelo não suportar stream fiável.
+    """
+    if emit is None or not bool(getattr(settings, "desk_stream_tokens", True)):
+        return await bound.ainvoke(msgs), False
+    full: AIMessageChunk | None = None
+    emitted = False
+    try:
+        async for chunk in bound.astream(msgs):
+            full = chunk if full is None else full + chunk
+            piece = _chunk_text(chunk)
+            if piece:
+                emitted = True
+                await _emit_event(emit, "delta", {"text": piece})
+    except Exception:  # noqa: BLE001 — stream instável (ex.: Ollama) cai para ainvoke
+        logger.warning("desk astream falhou; a usar ainvoke", exc_info=True)
+        if full is None and not emitted:
+            return await bound.ainvoke(msgs), False
+        # Já houve deltas — usa o parcial para não duplicar texto na UI.
+    if full is None:
+        return await bound.ainvoke(msgs), False
+    return _chunk_to_message(full), True
+
+
+def make_agent_node(settings: Settings, *, emit=None):
     tools = desk_langchain_tools(settings)
 
     async def agent(state: DeskAgentState) -> dict[str, Any]:
@@ -99,11 +208,12 @@ def make_agent_node(settings: Settings):
         # Usar effective_provider (não desk_effective_provider) para não voltar a
         # bloquear cloud quando o utilizador escolheu um perfil com chave.
         mp = effective_provider(str(state.get("model_provider") or ""))
+        iteration = int(state.get("iteration") or 0) + 1
+        await _emit_event(emit, "graph_step", {"step": "agent", "iteration": iteration})
         chat = get_chat_model(settings, mp)
         bound = chat.bind_tools(tools)
         msgs = list(state.get("messages") or [])
-        resp = await bound.ainvoke(msgs)
-        iteration = int(state.get("iteration") or 0) + 1
+        resp, streamed = await _invoke_model(bound, msgs, emit, settings)
         trace = truncate_trace(list(state.get("trace") or []) + ["agent"])
         pending: list[dict[str, Any]] = []
         if isinstance(resp, AIMessage) and resp.tool_calls:
@@ -115,6 +225,14 @@ def make_agent_node(settings: Settings):
                         "args": tc.get("args") or {},
                     },
                 )
+        # Sem streaming (fallback): o raciocínio intermédio que acompanha tool_calls
+        # sai como `thought`. Com streaming, esse texto já foi emitido como `delta`.
+        if pending and not streamed:
+            thought = _thought_text(resp)
+            if thought:
+                await _emit_event(emit, "thought", {"text": thought[:2000]})
+        signatures = list(state.get("tool_signatures") or [])
+        signatures.append(tool_calls_signature(resp))
         return {
             # Mantém histórico completo; se sobrescrever com [resp], o próximo
             # passo pode começar em ToolMessage e quebrar o contrato OpenAI.
@@ -122,6 +240,7 @@ def make_agent_node(settings: Settings):
             "iteration": iteration,
             "trace": trace,
             "pending_tool_calls": pending,
+            "tool_signatures": signatures[-8:],
         }
 
     return agent
@@ -213,7 +332,7 @@ def build_desk_graph(
 ):
     g = StateGraph(DeskAgentState)
     g.add_node("load_context", make_load_context_node(settings))
-    g.add_node("agent", make_agent_node(settings))
+    g.add_node("agent", make_agent_node(settings, emit=emit))
     g.add_node(
         "tools",
         make_tools_node(settings, bridge_wait=bridge_wait, emit=emit, use_local=use_local),

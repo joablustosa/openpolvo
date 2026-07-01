@@ -191,7 +191,12 @@ async def run_desk_reply_stream(
         set_bridge(cid, bridge)
 
     async def emit(kind: str, payload: dict[str, Any]) -> None:
-        await out_q.put(_agent_event(kind, payload))
+        # `delta` é um tipo SSE top-level (texto incremental); os restantes vão
+        # embrulhados como `agent_event` (graph_step/thought/tool_call/tool_result).
+        if kind == "delta":
+            await out_q.put({"type": "delta", "text": str(payload.get("text") or "")})
+        else:
+            await out_q.put(_agent_event(kind, payload))
 
     async def bridge_wait(
         _conversation_id: str,

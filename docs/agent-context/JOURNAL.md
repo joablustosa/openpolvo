@@ -3,6 +3,84 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Streaming: front verificado (P1) + loop de dev (P2)
+
+**P1 — Render do `delta` no frontend (verificado por inspeção, sem mudança):**
+O normalizador `openpolvoBackendProtocol.ts` já mapeia `delta`→`text_delta` lendo
+`evt.delta ?? evt.text ?? evt.token` (o meu `{"type":"delta","text":…}` é consumido),
+e trata `agent_event` (`thought`→thinking, `tool_call` client). `_sawText` evita
+duplicação com o `done`. **O streaming do desk funciona end-to-end sem tocar no front.**
+
+**P2 — Streaming token-a-token no loop de dev (`engines/agent_loop`):**
+- `ModelBridge.decide(messages, *, emit, thread_id)`: novo `_invoke` streama via `astream`,
+  acumula `AIMessageChunk`, emite `("text_delta",{delta})` e converte num AIMessage limpo
+  (preserva tool_calls). **Só em modo nativo** (JSON=ação, não prosa) e com fallback ainvoke.
+- `loop.py`: passa `emit` ao `decide` **só no top-level** (`depth==0`) — subagentes não
+  poluem a UI. Flag `DEV_WORKFLOW_STREAM_TOKENS`.
+- `dev_gateway_graph.py::emit_tool`: caminho especial `text_delta` → evento SSE top-level
+  (os restantes continuam `agent_event`).
+
+**Escopo/risco:** o render usa o MESMO caminho do desk (normalizer + text_delta), logo
+baixo risco; UI do dev agent não executável aqui. Ollama (modo JSON) não streama prosa
+— comportamento inalterado.
+
+**Arquivos:** `engines/agent_loop/model_bridge.py`, `engines/agent_loop/loop.py`,
+`core/dev_gateway_graph.py`, `core/config.py`, NOVO `tests/test_agent_loop_streaming.py` (6).
+
+**Portão:** ruff OK; `pytest -m "not integration"` = 447 passed, 2 skipped. Sem regressões.
+
+## 2026-07-01 — Agente Geral: streaming token-a-token (`delta`) com fallback
+
+**O quê:** O agente Desk (Agent/Code Mode) passa a **streamar a resposta token a token**
+(evento SSE `delta`), padrão Claude/Cursor, em vez de esperar a resposta inteira (`ainvoke`).
+
+**Como (robusto, provider-agnóstico):**
+- Nó `agent`: `_invoke_model` usa `bound.astream(...)`, acumula os `AIMessageChunk`,
+  emite cada pedaço como `delta` e converte o acumulado num `AIMessage` limpo (preserva
+  tool_calls). **Fallback automático** para `ainvoke` quando o stream falha (ex.: Ollama
+  instável) — sem duplicar texto (usa o parcial se já emitiu deltas). Flag `DESK_STREAM_TOKENS`.
+- `thought` só sai no **fallback** (sem stream); com stream, o texto já flui como `delta`.
+- Driver `desk_reply.py`: `emit("delta",…)` vira evento SSE top-level `{"type":"delta","text":…}`
+  (os restantes continuam `agent_event`).
+
+**Cross-stack (verificado):** o proxy Go (`conversation_handlers.go`) é **passthrough**
+(`sendLine(line)` repassa todo `data:` verbatim) → o `delta` chega ao frontend sem
+mudança no Go. Frontend (render do delta): não verificável aqui (sem node_modules).
+
+**Escopo:** só o agente Geral (desk). O loop de dev (`engines/agent_loop`, `model_bridge`)
+é caminho separado com preview próprio — deixado como follow-up, para não arriscar o que
+funciona.
+
+**Arquivos:** `graphs/desk/desk_graph.py`, `graphs/desk/desk_reply.py`, `core/config.py`,
+`tests/test_desk_react_events.py` (reescrito: 9 testes, stream + fallback).
+
+**Portão:** ruff OK; `pytest -m "not integration"` = 441 passed, 2 skipped. Sem regressões.
+
+## 2026-07-01 — Agente Geral: loop ReAct — transparência (thought/graph_step) + guarda de loop
+
+**Contexto:** O loop agentico ReAct com tool-calling **já existia e estava completo** no
+agente Desk (`graphs/desk/desk_graph.py`): load_context → agent (bind_tools) → tools ↔
+agent → finalize, com limite de iterações e streaming de tool_call/tool_result/final/done.
+Só implementei os gaps para paridade Claude, reusando o `emit` existente.
+
+**Adicionado (só o que faltava):**
+- **Eventos `graph_step` e `thought`** emitidos pelo nó `agent` — o raciocínio intermédio
+  (texto que acompanha as tool_calls) fica visível no SSE. `thought` só quando há tool_calls
+  (senão o texto é a resposta final, já emitida como `final`). O driver `desk_reply.py`
+  embrulha qualquer `emit(kind,payload)` em `agent_event`, então flui sem mudança no driver.
+- **Guarda de loop improdutivo**: `tool_calls_signature` + `is_unproductive_loop` +
+  `tool_signatures` no state; se a mesma tool+args se repete 3 rondas seguidas,
+  `should_continue_tools` finaliza (evita loop preso a gastar tokens).
+
+**Arquivos:** `graphs/desk/desk_graph.py`, `graphs/desk/desk_state.py`,
+NOVO `tests/test_desk_react_events.py` (8 testes, sem LLM real).
+
+**Portão:** ruff check+format OK; `pytest -m "not integration"` = 439 passed, 2 skipped.
+Sem regressões (testes desk existentes verdes).
+
+**Follow-up:** streaming token-a-token (`delta`) do texto do agente — não existe (usa
+`ainvoke`); é mudança maior (astream_events) e ficou fora deste escopo.
+
 ## 2026-07-01 — Automações: template Pesquisa→E-mail 1 clique + polimento
 
 **Contexto:** Descoberto que a automação já existe **end-to-end** (backend `internal/workflows`

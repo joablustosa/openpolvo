@@ -13,7 +13,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.dev_workflow.engines.agent_loop.schemas import (
@@ -104,11 +110,50 @@ class ModelBridge:
             f"## Ferramentas\n{render_tool_catalog()}"
         )
 
-    async def decide(self, messages: list[BaseMessage]) -> LoopDecision:
-        resp = await self.chat.ainvoke(messages)
+    async def decide(
+        self, messages: list[BaseMessage], *, emit=None, thread_id: str = ""
+    ) -> LoopDecision:
+        resp = await self._invoke(messages, emit)
         if self.native:
             return self._decide_native(resp)
         return self._decide_json(resp)
+
+    async def _invoke(self, messages: list[BaseMessage], emit) -> BaseMessage:
+        """Invoca o modelo; streama tokens (evento text_delta) em modo nativo quando há emit.
+
+        Só streama em modo nativo — em modo JSON a saída é uma ação JSON, não prosa.
+        Fallback para ``ainvoke`` (sem duplicar texto) se o stream falhar.
+        """
+        stream = (
+            self.native
+            and emit is not None
+            and bool(getattr(self.settings, "dev_workflow_stream_tokens", True))
+        )
+        if not stream:
+            return await self.chat.ainvoke(messages)
+        full: AIMessageChunk | None = None
+        emitted = False
+        try:
+            async for chunk in self.chat.astream(messages):
+                full = chunk if full is None else full + chunk
+                piece = _chunk_text(chunk)
+                if piece:
+                    emitted = True
+                    try:
+                        await emit("text_delta", {"delta": piece})
+                    except Exception:  # noqa: BLE001 — emit nunca deve quebrar o loop
+                        pass
+        except Exception:  # noqa: BLE001 — stream instável cai para ainvoke
+            _logger.info("agent_loop astream falhou; a usar ainvoke", exc_info=True)
+            if full is None and not emitted:
+                return await self.chat.ainvoke(messages)
+        if full is None:
+            return await self.chat.ainvoke(messages)
+        return AIMessage(
+            content=full.content,
+            tool_calls=list(getattr(full, "tool_calls", []) or []),
+            additional_kwargs=dict(getattr(full, "additional_kwargs", {}) or {}),
+        )
 
     def _decide_native(self, resp: BaseMessage) -> LoopDecision:
         tool_calls = list(getattr(resp, "tool_calls", None) or [])
@@ -185,3 +230,15 @@ def _content_text(msg: BaseMessage) -> str:
                 parts.append(str(block.get("text") or ""))
         return "\n".join(parts)
     return str(content or "")
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Texto incremental de um AIMessageChunk (string ou blocos de texto)."""
+    c = getattr(chunk, "content", "")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "".join(
+            p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return ""

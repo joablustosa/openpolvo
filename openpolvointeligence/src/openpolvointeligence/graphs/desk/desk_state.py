@@ -24,6 +24,8 @@ class DeskAgentState(TypedDict, total=False):
     assistant_text: str
     metadata: dict[str, Any]
     pending_tool_calls: list[dict[str, Any]]
+    # Assinaturas (nome+args) das tool_calls por ronda — guarda contra loop improdutivo.
+    tool_signatures: list[str]
     agent_memory: dict[str, Any]
     _raw_messages: list[dict[str, Any]]
     smtp_context: dict[str, Any]
