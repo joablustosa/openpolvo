@@ -162,6 +162,9 @@ class DevWorkflowState(TypedDict, total=False):
     corrective_attempts: int
     delivery_gate_result: DeliveryGateResult
     delivery_gate_retries: int
+    # Bug-fix team: triagem determinística (detect) + relatório detectar→corrigir→verificar.
+    bug_category: str
+    bugfix_report: dict[str, Any]
     preview_console_block: str | None
     preview_console_logs: list[dict[str, Any]] | None
     compile_log: str | None

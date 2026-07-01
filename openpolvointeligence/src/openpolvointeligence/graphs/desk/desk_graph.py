@@ -92,7 +92,7 @@ def make_load_context_node(settings: Settings):
 
 
 def make_agent_node(settings: Settings):
-    tools = desk_langchain_tools()
+    tools = desk_langchain_tools(settings)
 
     async def agent(state: DeskAgentState) -> dict[str, Any]:
         # O provider já vem resolvido em run_desk_reply (perfil/chave ou Ollama).

@@ -113,6 +113,13 @@ export class PolvoWorkflowNavView extends ViewPane {
 
 		this._register(dom.addDisposableListener(this.listContainer, dom.EventType.CLICK, e => {
 			const target = e.target as HTMLElement;
+			const exampleBtn = target.closest('.polvo-workflow-nav-example');
+			if (exampleBtn instanceof HTMLElement) {
+				e.preventDefault();
+				e.stopPropagation();
+				void this.createResearchEmailExample();
+				return;
+			}
 			const optionsBtn = target.closest('.polvo-conversation-options');
 			if (optionsBtn instanceof HTMLElement) {
 				e.preventDefault();
@@ -181,7 +188,11 @@ export class PolvoWorkflowNavView extends ViewPane {
 
 		if (this.workflowsService.workflows.length === 0) {
 			const empty = dom.append(this.listContainer, $('.polvo-workflow-nav-empty'));
-			empty.textContent = localize('polvoWorkflowNavEmpty', "Nenhum workflow ainda. Use o campo abaixo para criar um.");
+			empty.textContent = localize('polvoWorkflowNavEmpty', "Nenhuma automação ainda. Comece pelo exemplo ou descreva a sua no campo abaixo.");
+			const example = dom.append(this.listContainer, $('button.polvo-workflow-nav-example'));
+			example.classList.add('polvo-workflow-nav-example-button');
+			example.appendChild(renderIcon(Codicon.sparkle));
+			dom.append(example, $('span')).textContent = localize('polvoWorkflowExampleResearchEmail', "Exemplo: Pesquisa na internet → E-mail (diário)");
 			return;
 		}
 
@@ -270,6 +281,19 @@ export class PolvoWorkflowNavView extends ViewPane {
 		}
 		this.workflowsService.setActiveWorkflow(workflowId);
 		await this.editorService.openEditor(new PolvoWorkflowEditorInput(workflow.resource), { pinned: true, revealIfOpened: true });
+	}
+
+	/** Preenche o composer com o prompt do exemplo Pesquisa → E-mail e cria a automação. */
+	private async createResearchEmailExample(): Promise<void> {
+		if (!this.inputElement || this.isSending) {
+			return;
+		}
+		this.inputElement.value = localize(
+			'polvoWorkflowExamplePrompt',
+			"Todos os dias às 8h, pesquise na internet as principais notícias sobre inteligência artificial, resuma os resultados e envie um e-mail com o resumo para mim. (Ajuste o tema, o horário e o destinatário. Configure o SMTP em: OpenPolvo: Configurar SMTP.)"
+		);
+		this.autoResizeInput();
+		await this.createWorkflowFromPrompt();
 	}
 
 	private async createWorkflowFromPrompt(): Promise<void> {

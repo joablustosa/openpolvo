@@ -73,11 +73,7 @@ def collapse_parallel_steps(steps: list[str]) -> list[str]:
     out: list[str] = []
     i = 0
     while i < len(steps):
-        if (
-            i + 1 < len(steps)
-            and steps[i] == "lint_fix"
-            and steps[i + 1] == "test_runner"
-        ):
+        if i + 1 < len(steps) and steps[i] == "lint_fix" and steps[i + 1] == "test_runner":
             out.append("lint_test_parallel")
             i += 2
         else:
@@ -207,6 +203,42 @@ def route_after_pause(state: DevWorkflowState) -> str:
     return "continue"
 
 
+def _finalize_bugfix_report(
+    state: DevWorkflowState, files_changed: list[str]
+) -> tuple[dict[str, Any], str]:
+    """Fecha o relatório detectar→corrigir→verificar (bug-fix team)."""
+    report = dict(state.get("bugfix_report") or {})
+    gate = state.get("delivery_gate_result") or {}
+    checks = list(gate.get("checks_run") or []) if isinstance(gate, dict) else []
+    failures = list(gate.get("failures") or []) if isinstance(gate, dict) else []
+    verified = bool(gate.get("passed")) if isinstance(gate, dict) else False
+    report.update(
+        {
+            "phase": "verified" if verified else "unverified",
+            "files_changed": files_changed,
+            "verification": {
+                "passed": verified,
+                "checks_run": checks,
+                "failures": failures,
+                "repair_attempts": int(state.get("corrective_attempts") or 0)
+                + int(state.get("delivery_gate_retries") or 0),
+            },
+        }
+    )
+    cat = report.get("category") or "unknown"
+    symptom = str(report.get("symptom") or "").strip()
+    status = "✅ verificado" if verified else "⚠️ não verificado"
+    checks_str = ", ".join(checks) or "—"
+    lines = [f"🐛 Bug-fix ({cat}) — {status}."]
+    if symptom:
+        lines.append(f"Sintoma: {symptom[:200]}")
+    if files_changed:
+        lines.append(f"Ficheiros: {', '.join(files_changed[:10])}")
+    fail_str = f" | falhas: {'; '.join(failures)[:200]}" if failures else ""
+    lines.append(f"Verificação: {checks_str}{fail_str}")
+    return report, "\n".join(lines)
+
+
 async def node_deliver(settings: Settings, state: DevWorkflowState) -> dict[str, Any]:
     """Finaliza metadata e polvo_code_ops."""
     trace = truncate_trace(list(state.get("trace") or []))
@@ -242,12 +274,21 @@ async def node_deliver(settings: Settings, state: DevWorkflowState) -> dict[str,
     assistant = str(state.get("assistant_text") or "").strip()
     if not assistant:
         assistant = "Alterações aplicadas ao projecto."
+    files_changed = [str(o.get("path")) for o in valid if o.get("path")]
     deliverable = {
         "summary": assistant[:500],
-        "files_changed": [str(o.get("path")) for o in valid if o.get("path")],
+        "files_changed": files_changed,
         "workflow_id": str(state.get("workflow_id") or ""),
         "request_kind": kind,
     }
+    bugfix_report: dict[str, Any] | None = None
+    if state.get("bugfix_report") is not None:
+        bugfix_report, bugfix_summary = _finalize_bugfix_report(state, files_changed)
+        deliverable["bugfix_report"] = bugfix_report
+        # Só substitui o texto quando é o genérico (não sobrescreve resumo do LLM).
+        if assistant in ("", "Alterações aplicadas ao projecto."):
+            assistant = bugfix_summary
+            deliverable["summary"] = assistant[:500]
     dw = dict(meta.get("dev_workflow") or {})
     dw.update(
         {
@@ -258,6 +299,8 @@ async def node_deliver(settings: Settings, state: DevWorkflowState) -> dict[str,
             "completed_steps": state.get("completed_steps"),
         },
     )
+    if bugfix_report is not None:
+        dw["bugfix_report"] = bugfix_report
     meta["dev_workflow"] = dw
     if state.get("polvo_code_open_workspace"):
         meta["polvo_code_open_workspace"] = True
@@ -272,4 +315,6 @@ async def node_deliver(settings: Settings, state: DevWorkflowState) -> dict[str,
         "trace": trace + ["workflow:deliver"],
         **plan_patch,
     }
+    if bugfix_report is not None:
+        out["bugfix_report"] = bugfix_report
     return merge_project_learning(state, out)
