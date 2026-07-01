@@ -181,6 +181,9 @@ class Settings(BaseSettings):
     )
     desk_tools_local: bool = Field(default=False, validation_alias="DESK_TOOLS_LOCAL")
     desk_git_allow_commit: bool = Field(default=False, validation_alias="DESK_GIT_ALLOW_COMMIT")
+    # Streaming token-a-token (evento `delta`) da resposta do agente Desk. Fallback
+    # automático para invocação normal quando o provider/modelo falha a fazer stream.
+    desk_stream_tokens: bool = Field(default=True, validation_alias="DESK_STREAM_TOKENS")
     # VCS tools (git + gh). github_tools_enabled expõe a tool `github`. vcs_allow_write
     # permite ações de escrita no caminho local/headless sem UI de aprovação (default
     # False = escrita bloqueada até aprovação; no fluxo bridge o cliente é quem aprova).

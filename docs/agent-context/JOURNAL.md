@@ -3,6 +3,33 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-01 — Agente Geral: streaming token-a-token (`delta`) com fallback
+
+**O quê:** O agente Desk (Agent/Code Mode) passa a **streamar a resposta token a token**
+(evento SSE `delta`), padrão Claude/Cursor, em vez de esperar a resposta inteira (`ainvoke`).
+
+**Como (robusto, provider-agnóstico):**
+- Nó `agent`: `_invoke_model` usa `bound.astream(...)`, acumula os `AIMessageChunk`,
+  emite cada pedaço como `delta` e converte o acumulado num `AIMessage` limpo (preserva
+  tool_calls). **Fallback automático** para `ainvoke` quando o stream falha (ex.: Ollama
+  instável) — sem duplicar texto (usa o parcial se já emitiu deltas). Flag `DESK_STREAM_TOKENS`.
+- `thought` só sai no **fallback** (sem stream); com stream, o texto já flui como `delta`.
+- Driver `desk_reply.py`: `emit("delta",…)` vira evento SSE top-level `{"type":"delta","text":…}`
+  (os restantes continuam `agent_event`).
+
+**Cross-stack (verificado):** o proxy Go (`conversation_handlers.go`) é **passthrough**
+(`sendLine(line)` repassa todo `data:` verbatim) → o `delta` chega ao frontend sem
+mudança no Go. Frontend (render do delta): não verificável aqui (sem node_modules).
+
+**Escopo:** só o agente Geral (desk). O loop de dev (`engines/agent_loop`, `model_bridge`)
+é caminho separado com preview próprio — deixado como follow-up, para não arriscar o que
+funciona.
+
+**Arquivos:** `graphs/desk/desk_graph.py`, `graphs/desk/desk_reply.py`, `core/config.py`,
+`tests/test_desk_react_events.py` (reescrito: 9 testes, stream + fallback).
+
+**Portão:** ruff OK; `pytest -m "not integration"` = 441 passed, 2 skipped. Sem regressões.
+
 ## 2026-07-01 — Agente Geral: loop ReAct — transparência (thought/graph_step) + guarda de loop
 
 **Contexto:** O loop agentico ReAct com tool-calling **já existia e estava completo** no

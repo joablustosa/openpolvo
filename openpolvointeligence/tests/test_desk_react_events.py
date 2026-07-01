@@ -7,9 +7,9 @@ improdutivo, sem LLM real (modelo fake via monkeypatch).
 from __future__ import annotations
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
-from openpolvointeligence.core.config import get_settings
+from openpolvointeligence.core.config import Settings, get_settings
 from openpolvointeligence.graphs.desk import desk_graph
 from openpolvointeligence.graphs.desk.desk_graph import (
     is_unproductive_loop,
@@ -74,36 +74,93 @@ def test_should_continue_tools_when_not_looping():
     assert should_continue_tools(state) == "tools"
 
 
-# ── Agent node: emite graph_step + thought e rastreia assinaturas ────────────
+# ── Agent node: streaming (delta) + fallback (thought) + guarda ──────────────
 
 
 class _FakeBound:
-    def __init__(self, resp):
+    def __init__(self, resp, chunks=None):
         self._resp = resp
+        self._chunks = chunks
 
     async def ainvoke(self, _msgs):
         return self._resp
 
+    async def astream(self, _msgs):
+        if self._chunks is None:
+            raise RuntimeError("stream indisponível")
+        for c in self._chunks:
+            yield c
+
 
 class _FakeChat:
-    def __init__(self, resp):
+    def __init__(self, resp, chunks=None):
         self._resp = resp
+        self._chunks = chunks
 
     def bind_tools(self, _tools):
-        return _FakeBound(self._resp)
+        return _FakeBound(self._resp, self._chunks)
 
 
-def _patch_model(monkeypatch, resp):
-    monkeypatch.setattr(desk_graph, "get_chat_model", lambda _s, _mp: _FakeChat(resp))
+def _patch_model(monkeypatch, resp, chunks=None):
+    monkeypatch.setattr(desk_graph, "get_chat_model", lambda _s, _mp: _FakeChat(resp, chunks))
 
 
 @pytest.mark.asyncio
-async def test_agent_emits_graph_step_and_thought(monkeypatch):
+async def test_agent_streams_delta_with_tool_calls(monkeypatch):
+    # Stream: texto incremental (delta) + tool_call acumulada; sem `thought`.
+    chunks = [
+        AIMessageChunk(content="Vou listar "),
+        AIMessageChunk(content="os ficheiros."),
+        AIMessageChunk(
+            content="",
+            tool_call_chunks=[{"name": "filesystem_list", "args": "{}", "id": "1", "index": 0}],
+        ),
+    ]
+    _patch_model(monkeypatch, AIMessage(content="ignored"), chunks=chunks)
+    events: list[tuple[str, dict]] = []
+
+    async def emit(kind, payload):
+        events.append((kind, payload))
+
+    node = make_agent_node(get_settings(), emit=emit)
+    out = await node({"messages": [], "iteration": 0, "model_provider": "openai"})
+
+    kinds = [k for k, _ in events]
+    assert "graph_step" in kinds
+    assert "delta" in kinds  # streaming token-a-token
+    assert "thought" not in kinds  # delta substitui o thought quando há stream
+    deltas = "".join(p["text"] for k, p in events if k == "delta")
+    assert deltas == "Vou listar os ficheiros."
+    assert out["pending_tool_calls"] and out["pending_tool_calls"][0]["name"] == "filesystem_list"
+    assert out["tool_signatures"] and "filesystem_list" in out["tool_signatures"][-1]
+
+
+@pytest.mark.asyncio
+async def test_agent_streams_final_answer(monkeypatch):
+    chunks = [AIMessageChunk(content="Resposta "), AIMessageChunk(content="final.")]
+    _patch_model(monkeypatch, AIMessage(content="ignored"), chunks=chunks)
+    events: list[tuple[str, dict]] = []
+
+    async def emit(kind, payload):
+        events.append((kind, payload))
+
+    node = make_agent_node(get_settings(), emit=emit)
+    out = await node({"messages": [], "iteration": 0, "model_provider": "openai"})
+
+    deltas = "".join(p["text"] for k, p in events if k == "delta")
+    assert deltas == "Resposta final."
+    assert "thought" not in [k for k, _ in events]
+    assert out["pending_tool_calls"] == []
+
+
+@pytest.mark.asyncio
+async def test_agent_fallback_to_thought_when_stream_unavailable(monkeypatch):
+    # Sem astream (chunks=None → raise) → fallback ainvoke; raciocínio sai como `thought`.
     resp = AIMessage(
-        content="Vou listar os ficheiros primeiro.",
-        tool_calls=[{"name": "filesystem_list", "args": {}, "id": "1"}],
+        content="Vou verificar o git.",
+        tool_calls=[{"name": "git_status", "args": {}, "id": "1"}],
     )
-    _patch_model(monkeypatch, resp)
+    _patch_model(monkeypatch, resp, chunks=None)
     events: list[tuple[str, dict]] = []
 
     async def emit(kind, payload):
@@ -113,36 +170,34 @@ async def test_agent_emits_graph_step_and_thought(monkeypatch):
     out = await node({"messages": [], "iteration": 0, "model_provider": "ollama"})
 
     kinds = [k for k, _ in events]
-    assert "graph_step" in kinds
     assert "thought" in kinds
-    thought = next(p for k, p in events if k == "thought")
-    assert "listar os ficheiros" in thought["text"]
-    # Assinatura rastreada para a guarda de loop.
-    assert out["tool_signatures"] and "filesystem_list" in out["tool_signatures"][-1]
-    assert out["iteration"] == 1
+    assert "delta" not in kinds  # stream falhou antes de emitir
+    assert out["pending_tool_calls"][0]["name"] == "git_status"
 
 
 @pytest.mark.asyncio
-async def test_agent_no_thought_when_final_answer(monkeypatch):
-    # Sem tool_calls → é a resposta final; não deve emitir `thought`.
-    _patch_model(monkeypatch, AIMessage(content="Aqui está a resposta final."))
+async def test_agent_stream_disabled_by_flag(monkeypatch):
+    resp = AIMessage(
+        content="Reasoning.", tool_calls=[{"name": "git_status", "args": {}, "id": "1"}]
+    )
+    _patch_model(monkeypatch, resp, chunks=[AIMessageChunk(content="nao usado")])
     events: list[str] = []
 
     async def emit(kind, _payload):
         events.append(kind)
 
-    node = make_agent_node(get_settings(), emit=emit)
-    out = await node({"messages": [], "iteration": 0, "model_provider": "ollama"})
+    node = make_agent_node(Settings(desk_stream_tokens=False), emit=emit)
+    out = await node({"messages": [], "iteration": 0, "model_provider": "openai"})
 
-    assert "graph_step" in events
-    assert "thought" not in events
-    assert out["pending_tool_calls"] == []
+    assert "delta" not in events  # flag desliga o stream
+    assert "thought" in events  # usa ainvoke + thought
+    assert out["pending_tool_calls"][0]["name"] == "git_status"
 
 
 @pytest.mark.asyncio
-async def test_agent_without_emit_does_not_fail(monkeypatch):
-    # emit=None (ex.: get_compiled_desk_graph) não deve quebrar.
-    _patch_model(monkeypatch, AIMessage(content="ok"))
+async def test_agent_without_emit_uses_ainvoke(monkeypatch):
+    # emit=None (ex.: get_compiled_desk_graph) → ainvoke, sem quebrar.
+    _patch_model(monkeypatch, AIMessage(content="ok"), chunks=[AIMessageChunk(content="x")])
     node = make_agent_node(get_settings())  # emit default None
     out = await node({"messages": [], "iteration": 2, "model_provider": "ollama"})
     assert out["iteration"] == 3

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langgraph.graph import END, START, StateGraph
 
 from openpolvointeligence.core.config import Settings
@@ -23,6 +30,8 @@ from openpolvointeligence.graphs.desk.desk_tool_logic import (
 from openpolvointeligence.graphs.message_utils import tail_messages
 from openpolvointeligence.graphs.email.email_send_reply import format_smtp_block_for_prompt
 from openpolvointeligence.graphs.models import effective_provider, get_chat_model
+
+logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
@@ -132,6 +141,18 @@ def make_load_context_node(settings: Settings):
     return load_context
 
 
+def _chunk_text(chunk: Any) -> str:
+    """Texto incremental de um AIMessageChunk (string ou blocos de texto)."""
+    c = getattr(chunk, "content", "")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "".join(
+            p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return ""
+
+
 def _thought_text(resp: Any) -> str:
     """Texto de raciocínio de um AIMessage (string ou blocos de texto)."""
     raw = getattr(resp, "content", "")
@@ -141,6 +162,42 @@ def _thought_text(resp: Any) -> str:
         parts = [p.get("text", "") for p in raw if isinstance(p, dict) and p.get("type") == "text"]
         return "".join(parts).strip()
     return ""
+
+
+def _chunk_to_message(full: AIMessageChunk) -> AIMessage:
+    """Converte o chunk acumulado num AIMessage limpo (preserva tool_calls)."""
+    return AIMessage(
+        content=full.content,
+        tool_calls=list(getattr(full, "tool_calls", []) or []),
+        additional_kwargs=dict(getattr(full, "additional_kwargs", {}) or {}),
+    )
+
+
+async def _invoke_model(bound: Any, msgs: list[Any], emit, settings: Settings) -> tuple[Any, bool]:
+    """Invoca o modelo. Devolve (resposta, streamed?).
+
+    Faz streaming token-a-token (emitindo `delta`) quando possível; cai para
+    ``ainvoke`` sem duplicar texto se o provider/modelo não suportar stream fiável.
+    """
+    if emit is None or not bool(getattr(settings, "desk_stream_tokens", True)):
+        return await bound.ainvoke(msgs), False
+    full: AIMessageChunk | None = None
+    emitted = False
+    try:
+        async for chunk in bound.astream(msgs):
+            full = chunk if full is None else full + chunk
+            piece = _chunk_text(chunk)
+            if piece:
+                emitted = True
+                await _emit_event(emit, "delta", {"text": piece})
+    except Exception:  # noqa: BLE001 — stream instável (ex.: Ollama) cai para ainvoke
+        logger.warning("desk astream falhou; a usar ainvoke", exc_info=True)
+        if full is None and not emitted:
+            return await bound.ainvoke(msgs), False
+        # Já houve deltas — usa o parcial para não duplicar texto na UI.
+    if full is None:
+        return await bound.ainvoke(msgs), False
+    return _chunk_to_message(full), True
 
 
 def make_agent_node(settings: Settings, *, emit=None):
@@ -156,7 +213,7 @@ def make_agent_node(settings: Settings, *, emit=None):
         chat = get_chat_model(settings, mp)
         bound = chat.bind_tools(tools)
         msgs = list(state.get("messages") or [])
-        resp = await bound.ainvoke(msgs)
+        resp, streamed = await _invoke_model(bound, msgs, emit, settings)
         trace = truncate_trace(list(state.get("trace") or []) + ["agent"])
         pending: list[dict[str, Any]] = []
         if isinstance(resp, AIMessage) and resp.tool_calls:
@@ -168,9 +225,9 @@ def make_agent_node(settings: Settings, *, emit=None):
                         "args": tc.get("args") or {},
                     },
                 )
-        # Raciocínio intermédio (texto que acompanha tool_calls) → evento `thought`.
-        # Quando NÃO há tool_calls, o texto é a resposta final (emitida como `final`).
-        if pending:
+        # Sem streaming (fallback): o raciocínio intermédio que acompanha tool_calls
+        # sai como `thought`. Com streaming, esse texto já foi emitido como `delta`.
+        if pending and not streamed:
             thought = _thought_text(resp)
             if thought:
                 await _emit_event(emit, "thought", {"text": thought[:2000]})
