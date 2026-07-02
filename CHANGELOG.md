@@ -27,6 +27,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Automações: nó HTTP + tentativas (retry) por passo** — novo nó "http" para chamar
+  APIs (GET/POST/…, cabeçalhos e corpo, com substituição de `{{output:…}}` e proteção
+  contra SSRF). Passos de rede (http, pesquisa web, e-mail) podem repetir automaticamente
+  em caso de falha (campos `retries`/`retry_delay_ms` do nó).
 - **Automações: executar agora + histórico de execuções no app** — o painel de Automações
   ganhou "Executar agora" (corre o workflow e mostra sucesso/falha) e "Ver execuções"
   (histórico com logs por passo). O botão de exemplo passou a criar o template

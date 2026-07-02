@@ -340,10 +340,12 @@ func RunGraph(
 			var hits []wfports.WebSearchOrganicHit
 			var err error
 			switch eng {
-			case "duckduckgo":
-				hits, err = FetchSerpOrganicHits(ctx, eng, params)
-			case "google":
-				hits, err = FetchSerpOrganicHits(ctx, eng, params)
+			case "duckduckgo", "google":
+				err = withRetry(ctx, n.Data.Retries, n.Data.RetryDelayMs, func() error {
+					var e error
+					hits, e = FetchSerpOrganicHits(ctx, eng, params)
+					return e
+				})
 			default:
 				step.Message = "search_engine inválido (use duckduckgo ou google)"
 				step.OK = false
@@ -381,6 +383,39 @@ func RunGraph(
 			step.OK = true
 			outputs[id] = full
 			step.Message = full
+
+		case "http", "http_request":
+			rawURL := strings.TrimSpace(expandEmailTemplates(n.Data.URL, id, order, outputs, preds))
+			if rawURL == "" {
+				step.Message = "url vazia"
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("nó %s: url obrigatória", id)
+			}
+			reqBody := expandEmailTemplates(n.Data.Body, id, order, outputs, preds)
+			headers := make(map[string]string, len(n.Data.Headers))
+			for k, v := range n.Data.Headers {
+				headers[k] = expandEmailTemplates(v, id, order, outputs, preds)
+			}
+			var httpOut string
+			httpErr := withRetry(ctx, n.Data.Retries, n.Data.RetryDelayMs, func() error {
+				var e error
+				httpOut, e = doHTTPRequest(ctx, n.Data.Method, rawURL, headers, reqBody)
+				return e
+			})
+			if httpErr != nil {
+				step.Message = httpErr.Error()
+				step.OK = false
+				logs = append(logs, step)
+				return logs, fmt.Errorf("http %s: %w", id, httpErr)
+			}
+			step.OK = true
+			outputs[id] = httpOut
+			if len(httpOut) > 200 {
+				step.Message = "HTTP OK: " + httpOut[:200] + "…"
+			} else {
+				step.Message = "HTTP OK: " + httpOut
+			}
 
 		case "send_email":
 			if mail == nil || mail.Send == nil {
@@ -447,11 +482,14 @@ func RunGraph(
 				logs = append(logs, step)
 				return logs, fmt.Errorf("nó %s: email_body obrigatório", id)
 			}
-			if err := mail.Send(ctx, toAddr, sub, body); err != nil {
-				step.Message = err.Error()
+			sendErr := withRetry(ctx, n.Data.Retries, n.Data.RetryDelayMs, func() error {
+				return mail.Send(ctx, toAddr, sub, body)
+			})
+			if sendErr != nil {
+				step.Message = sendErr.Error()
 				step.OK = false
 				logs = append(logs, step)
-				return logs, fmt.Errorf("send_email %s: %w", id, err)
+				return logs, fmt.Errorf("send_email %s: %w", id, sendErr)
 			}
 			step.OK = true
 			step.Message = "email enviado para " + toAddr

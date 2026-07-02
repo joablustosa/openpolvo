@@ -13,6 +13,15 @@ workflow, e o botão de exemplo passou a criar o **template determinístico** vi
 sem browser falha com mensagem clara se o Chromium não estiver instalado (backend).
 Não verificável por transpile neste ambiente.
 
+## ⚡ Atualização 2026-07-01 — P1 (parte 1): nó HTTP + retry por passo
+- **Item 5 (nó HTTP) ✅**: novo tipo `http`/`http_request` no engine — method/headers/body,
+  URL/body/headers com `{{output:ID}}`, guard SSRF (`isSafePublicURL`), saída em `outputs[id]`.
+- **Item 11 (retry) ✅ (rede)**: campo `Retries`/`RetryDelayMs` no NodeData + `withRetry`;
+  aplicado a `http`, `web_search` e `send_email` (nós de rede). Nós de browser já têm timeout.
+- Arquivos: `engine/http_node.go`, `domain/graph.go`, `engine/runner.go`. 10 testes.
+- **Falta (P1 parte 2):** condicional (12) e aprovação humana (13) — mudam o modelo de
+  execução (branching / pause-resume) e o contrato do grafo (edge labels) → design a confirmar.
+
 ## Resumo executivo
 Fundação **forte e funcional**: NL→grafo, scheduler+fila, cron+timezone, canvas, nós
 web/email/LLM, templates, passagem de dados, SMTP/keys. Os **gaps** concentram-se em:

@@ -93,6 +93,31 @@ com LLM off: contexto em ~0s, erro claro no chat, done em 8,8s (antes: travava).
 em vez de falhar o workflow; `npm install` do dependency agent respeita o timeout de
 120s — projetos grandes dependem do post-setup do frontend (terminal real).
 
+## 2026-07-01 — Automações P1 (parte 1): nó HTTP + retry por passo
+
+**O quê (engine Go, `internal/workflows`):**
+- **Nó HTTP (item 5):** novo tipo `http`/`http_request`. `NodeData` ganha `Method`,
+  `Headers`, `Body`. URL/body/valores de headers passam por `expandEmailTemplates`
+  (`{{previous}}`/`{{output:ID}}`). Guard SSRF `isSafePublicURL` (bloqueia loopback/privado/
+  metadata). Resposta (texto truncado) guardada em `outputs[id]`. Status ≥400 = erro.
+- **Retry por passo (item 11):** `NodeData.Retries`/`RetryDelayMs` + helper `withRetry`;
+  aplicado aos nós de rede `http`, `web_search`, `send_email`. Browser já tem timeout.
+- `doHTTPRequest` = guard + `httpRequest` (mecânica testável isolada do SSRF).
+
+**Mantido:** todos os outros nós e o executor linear intactos (mudanças aditivas; só o
+web_search/send_email ganharam o wrapper de retry, sem mudar semântica de sucesso).
+
+**Arquivos:** NOVO `engine/http_node.go` + `engine/http_node_test.go` (10 testes);
+`domain/graph.go` (campos); `engine/runner.go` (case http + wrappers de retry).
+
+**Portão:** `gofmt`/`go vet`/`go build ./...` OK; `go test ./internal/workflows/...` verde.
+
+**Falta P1 (parte 2):** condicional if/else (12) e aprovação humana (13) — arquiteturais:
+- Condicional exige **label nas arestas** (`GraphEdge.Label` "true"/"false") + skip-propagation
+  no executor (contrato do grafo muda → afeta canvas + geração NL). Cross-stack.
+- Aprovação exige **pausar/retomar** a run (hoje síncrona) → persistência de estado + endpoint
+  de retomada. Grande. Design a confirmar antes de implementar.
+
 ## 2026-07-01 — Automações P0: run-now + histórico/logs + templates no frontend
 
 **O quê:** Expostas no frontend `polvoModes` capacidades que já existiam no backend.
