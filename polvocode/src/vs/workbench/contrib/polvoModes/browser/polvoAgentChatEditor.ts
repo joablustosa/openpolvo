@@ -16,11 +16,10 @@ import { showOpenPolvoModelPicker } from './openPolvoModelPicker.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { normalizeProjectRoot, resolveProjectAbsPath, stripPrefixedProjectPath } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
+import { normalizeProjectRoot, stripPrefixedProjectPath } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
 import { IExplorerService } from '../../files/browser/files.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
@@ -588,7 +587,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 				text,
 				conversation.modelId,
 				handleStreamEvent,
-				this.abortController.signal,
+				this.abortController!.signal,
 				attachments,
 				apiCodeRefs.length > 0 ? apiCodeRefs : undefined,
 			);
@@ -706,7 +705,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 		);
 	}
 
-	private static iconForAttachment(name: string, mimeType?: string): Codicon {
+	private static iconForAttachment(name: string, mimeType?: string): ThemeIcon {
 		const n = (name || '').toLowerCase();
 		const m = (mimeType || '').toLowerCase();
 		if (PolvoAgentChatEditor.isWordAttachment(name, mimeType)) {

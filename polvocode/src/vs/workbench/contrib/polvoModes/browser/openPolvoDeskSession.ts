@@ -15,7 +15,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IChatEntitlementService } from '../../../services/chat/common/chatEntitlementService.js';
-import type { IResolvedAccountInfo } from '../../../sessions/browser/accountTitleBarState.js';
+import type { IResolvedAccountInfo } from '../../../../sessions/browser/accountTitleBarState.js';
 
 /** Mesmo id que `defaultAccount.ts` — Agents title bar / menu Sign In. */
 const DEFAULT_ACCOUNT_STATUS_KEY = new RawContextKey<string>('defaultAccountStatus', 'uninitialized');

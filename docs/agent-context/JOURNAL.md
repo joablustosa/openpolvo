@@ -3,6 +3,18 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-02 — Instalador desktop com backend e intelligence embutidos
+
+**Objetivo:** utilizador instala um `.exe` e tem Agente/Dev/Workflow funcionais sem arrancar
+serviços manualmente.
+
+**Implementação:** `openPolvoBundledServices.ts` arranca `openlaele-api` e `openpolvointel`
+em `isBuilt` (poll `/healthz` antes da primeira janela); `tools/build-desktop-installer.ps1`
+compila Go + PyInstaller + gulp Inno Setup e copia para `resources/openpolvo/`.
+
+**Arquivos:** `openPolvoBundledServices.ts`, `app.ts`, `tools/build-desktop-installer.ps1`,
+`docs/releases/desktop-installer.md`.
+
 ## 2026-07-02 — Agente: mesma resiliência de ligação que Workflow
 
 **Sintoma:** chat Agente com `failed to fetch` ao enviar mensagem (createSession/stream).

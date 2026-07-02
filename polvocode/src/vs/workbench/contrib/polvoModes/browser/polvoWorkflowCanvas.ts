@@ -6,6 +6,7 @@
 import * as dom from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Codicon } from '../../../../base/common/codicons.js';
+import { ThemeIcon } from '../../../../base/common/themables.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
@@ -22,7 +23,7 @@ const FALLBACK_PER_ROW = 4;
 const CANVAS_PADDING = 60;
 
 interface INodeVisual {
-	readonly icon: Codicon;
+	readonly icon: ThemeIcon;
 	readonly accent: string;
 }
 
@@ -164,7 +165,9 @@ export class PolvoWorkflowCanvas extends Disposable {
 		this.renderDisposables.clear();
 		this.nodeElements.clear();
 		dom.clearNode(this.nodeLayer);
-		dom.clearNode(this.edgeLayer);
+		while (this.edgeLayer.firstChild) {
+			this.edgeLayer.removeChild(this.edgeLayer.firstChild);
+		}
 
 		const nodes = this.graph?.nodes ?? [];
 		const edges = this.graph?.edges ?? [];

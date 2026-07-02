@@ -46,9 +46,17 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 			if (!action.result?.success) {
 				return;
 			}
-			const ui = action._meta?.ui;
+			const ui = action._meta?.ui as {
+				previewUrl?: unknown;
+				resourceUri?: string;
+				toolName?: string;
+				revealFolder?: boolean;
+				addToWorkspace?: boolean;
+				openFolder?: boolean;
+				forceReveal?: boolean;
+			} | undefined;
 			// Preview ao vivo: abre/atualiza o browser integrado na URL do dev server.
-			const previewUrl = (ui as { previewUrl?: unknown } | undefined)?.previewUrl;
+			const previewUrl = ui?.previewUrl;
 			if (typeof previewUrl === 'string' && previewUrl) {
 				this._openPreview(previewUrl);
 				return;

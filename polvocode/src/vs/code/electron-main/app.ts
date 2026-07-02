@@ -115,6 +115,7 @@ import { UserDataProfilesHandler } from '../../platform/userDataProfile/electron
 import { ProfileStorageChangesListenerChannel } from '../../platform/userDataProfile/electron-main/userDataProfileStorageIpc.js';
 import { Promises, RunOnceScheduler, runWhenGlobalIdle } from '../../base/common/async.js';
 import { CancellationToken } from '../../base/common/cancellation.js';
+import { startOpenPolvoBundledServices } from '../../platform/openpolvo/electron-main/openPolvoBundledServices.js';
 import { resolveMachineId, resolveSqmId, resolveDevDeviceId, validateDevDeviceId } from '../../platform/telemetry/electron-main/telemetryUtils.js';
 import { ExtensionsProfileScannerService } from '../../platform/extensionManagement/node/extensionsProfileScannerService.js';
 import { LoggerChannel } from '../../platform/log/electron-main/logIpc.js';
@@ -683,6 +684,15 @@ export class CodeApplication extends Disposable {
 
 		// Setup vscode-remote-resource protocol handler
 		this.setupManagedRemoteResourceUrlHandler(mainProcessElectronServer);
+
+		// OpenPolvo: backend + intelligence embutidos no instalador desktop
+		const bundledServices = await startOpenPolvoBundledServices(
+			appInstantiationService.invokeFunction(accessor => accessor.get(IEnvironmentMainService)),
+			appInstantiationService.invokeFunction(accessor => accessor.get(ILogService)),
+		);
+		if (bundledServices) {
+			this._register(bundledServices);
+		}
 
 		// Signal phase: ready - before opening first window
 		this.lifecycleMainService.phase = LifecycleMainPhase.Ready;

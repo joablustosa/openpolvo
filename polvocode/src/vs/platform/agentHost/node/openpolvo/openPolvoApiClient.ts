@@ -15,7 +15,7 @@ import {
 	performOpenPolvoLocalLogin,
 	waitForOpenPolvoBackend,
 } from '../../common/openpolvoBackendProtocol.js';
-import { Agent, fetch as undiciFetch } from 'undici';
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
 
 /** Cliente HTTP sem timeout de body — streams dev podem durar vários minutos. */
 const longStreamAgent = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
@@ -184,11 +184,11 @@ export class OpenPolvoApiClient {
 		await this.ensureAuth();
 		const headers = { ...init.headers as Record<string, string>, ...this._authHeaders() };
 		try {
-			let res = await undiciFetch(url, { ...init, headers, dispatcher: longStreamAgent } as RequestInit);
+			let res = await undiciFetch(url, { ...init, headers, dispatcher: longStreamAgent } as UndiciRequestInit);
 			if (res.status === 401) {
 				await this.refreshAuth();
 				const retryHeaders = { ...init.headers as Record<string, string>, ...this._authHeaders() };
-				res = await undiciFetch(url, { ...init, headers: retryHeaders, dispatcher: longStreamAgent } as RequestInit);
+				res = await undiciFetch(url, { ...init, headers: retryHeaders, dispatcher: longStreamAgent } as UndiciRequestInit);
 			}
 			return res as unknown as Response;
 		} catch (err) {

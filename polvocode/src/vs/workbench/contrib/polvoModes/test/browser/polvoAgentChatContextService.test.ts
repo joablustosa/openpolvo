@@ -8,7 +8,6 @@ import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { Range } from '../../../../../editor/common/core/range.js';
 import { capCodeReferenceText, readCodeReferenceFromEditor } from '../../browser/polvoAgentChatContextService.js';
-import { mock } from '../../../../../base/test/common/mock.js';
 import type { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import type { ITextModel } from '../../../../../editor/common/model.js';
 import type { ICodeEditor } from '../../../../../editor/browser/editorBrowser.js';
@@ -32,8 +31,9 @@ suite('PolvoAgentChatContextService', () => {
 			getModel: () => model,
 			getSelection: () => new Range(2, 1, 2, 12),
 		} as unknown as ICodeEditor;
-		const workspace = mock<IWorkspaceContextService>() as IWorkspaceContextService;
-		(workspace as { asRelativePath: (u: URI) => string }).asRelativePath = () => 'src/app.ts';
+		const workspace = {
+			getWorkspaceFolder: () => ({ uri: URI.file('/workspace'), name: 'workspace', index: 0 }),
+		} as unknown as IWorkspaceContextService;
 
 		const ref = readCodeReferenceFromEditor(editor, workspace);
 		assert.ok(ref);

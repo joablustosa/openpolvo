@@ -45,7 +45,6 @@ import {
 	readProjectRootFromProgressPayload,
 	resolveProjectAbsPath,
 	stripPrefixedProjectPath,
-	slugifyProjectTitle,
 } from '../../common/openPolvoDevProject.js';
 import type { ProtectedResourceMetadata } from '../../common/state/protocol/state.js';
 import type { ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../../common/state/protocol/commands.js';
@@ -377,7 +376,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 			children.push({
 				type: CustomizationType.Skill,
 				id: `openpolvo-skill-${ent.name}`,
-				uri: URI.file(skillMd),
+				uri: URI.file(skillMd).toString(true),
 				name: ent.name,
 			});
 		}
@@ -387,7 +386,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		return [{
 			type: CustomizationType.Directory,
 			id: 'openpolvo-dev-skills',
-			uri: URI.file(skillsDir),
+			uri: URI.file(skillsDir).toString(true),
 			name: 'OpenPolvo Dev Skills',
 			enabled: true,
 			load: { kind: CustomizationLoadStatus.Loaded },
@@ -671,12 +670,12 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		if (!state.projectRootResolved && looksPrefixed) {
 			const rootPath = `${firstSeg}/${secondSeg}`;
 			const unique = await this._ensureProjectRoot(state, rootPath);
-			if (unique !== rootPath) {
+			if (unique && unique !== rootPath) {
 				normalized = normalized.replace(rootPath, unique);
 			}
 		} else if (!state.projectRootResolved && looksSlugPrefixed) {
 			const unique = await this._ensureProjectRoot(state, firstSeg);
-			if (unique !== firstSeg) {
+			if (unique && unique !== firstSeg) {
 				normalized = [unique, ...segments.slice(1)].join('/');
 			}
 		} else if (
@@ -755,6 +754,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		}
 
 		const op = file.op === 'mkdir' ? 'mkdir' : file.op === 'delete' ? 'delete' : 'write';
+		const fileContent = 'content' in file ? file.content : undefined;
 		const toolCallId = generateUuid();
 		const toolName = op === 'mkdir' ? 'dev_mkdir' : op === 'delete' ? 'dev_file_delete' : 'dev_file_write';
 		const displayName = op === 'mkdir'
@@ -790,7 +790,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 				await this._fileService.del(URI.file(absPath), { recursive: true, useTrash: true });
 			} else {
 				await this._fileService.createFolder(URI.file(path.dirname(absPath)));
-				await this._fileService.writeFile(URI.file(absPath), VSBuffer.fromString(file.content ?? ''));
+				await this._fileService.writeFile(URI.file(absPath), VSBuffer.fromString(fileContent ?? ''));
 			}
 
 			if (tracker) {
@@ -804,7 +804,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 					toolCallId,
 					absPath,
 					op === 'mkdir' ? 'dev_mkdir' : 'dev_file_write',
-					{ path: relPath, content: file.content },
+					{ path: relPath, content: fileContent },
 					state.modelId,
 				);
 				if (fileEdit) {

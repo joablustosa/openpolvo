@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { disposableTimeout, IntervalTimer, timeout } from '../../../../base/common/async.js';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isWindows } from '../../../../base/common/platform.js';
@@ -11,7 +12,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { INativeEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -80,7 +81,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 		@IProgressService private readonly progressService: IProgressService,
 		@IDialogService private readonly dialogService: IDialogService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IEnvironmentService private readonly environmentService: IEnvironmentService,
+		@INativeEnvironmentService private readonly nativeEnvironmentService: INativeEnvironmentService,
 		@IFileService private readonly fileService: IFileService,
 		@IHostService private readonly hostService: IHostService,
 		@ILogService private readonly logService: ILogService,
@@ -121,7 +122,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 		const url = this.ollamaUrl;
 		const probe = await probeOllama(this.requestService, url);
 		const version = probe.running ? await probeOllamaVersion(this.requestService, url) : undefined;
-		const installedOnDisk = await detectOllamaInstalled(this.fileService, this.environmentService.userHome)
+		const installedOnDisk = await detectOllamaInstalled(this.fileService, this.nativeEnvironmentService.userHome)
 			|| this.storageService.get(OLLAMA_INSTALLED_KEY, StorageScope.APPLICATION) === 'true';
 		const assessment = resolveOllamaRuntimeIssue(probe, model, installedOnDisk, version);
 
@@ -246,7 +247,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 		this.upgradeCheckInFlight = true;
 		try {
 			const nativeHostService = this.instantiationService.invokeFunction(accessor => accessor.get(INativeHostService));
-			const environmentService = this.instantiationService.invokeFunction(accessor => accessor.get(IEnvironmentService));
+			const environmentService = this.instantiationService.invokeFunction(accessor => accessor.get(INativeEnvironmentService));
 			const fileService = this.instantiationService.invokeFunction(accessor => accessor.get(IFileService));
 
 			const dir = joinPath(environmentService.tmpDir, 'openpolvo-local-llm');
@@ -258,7 +259,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 				'winget upgrade --id Ollama.Ollama -e --silent --accept-source-agreements --accept-package-agreements',
 				'',
 			].join('\r\n');
-			await fileService.writeFile(scriptUri, VSBuffer.fromString(script, 'utf8'));
+			await fileService.writeFile(scriptUri, VSBuffer.fromString(script));
 
 			const launcherUri = joinPath(dir, 'upgrade-ollama.cmd');
 			const launcher = [
@@ -266,7 +267,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 				`start /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${scriptUri.fsPath}"`,
 				'',
 			].join('\r\n');
-			await fileService.writeFile(launcherUri, VSBuffer.fromString(launcher, 'utf8'));
+			await fileService.writeFile(launcherUri, VSBuffer.fromString(launcher));
 			await nativeHostService.openExternal(launcherUri.toString(true));
 			this.storageService.store(LAST_UPGRADE_CHECK_KEY, today, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		} catch (err) {
@@ -300,13 +301,13 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 		try {
 			const fileService = this.instantiationService.invokeFunction(accessor => accessor.get(IFileService));
 			const nativeHostService = this.instantiationService.invokeFunction(accessor => accessor.get(INativeHostService));
-			const environmentService = this.instantiationService.invokeFunction(accessor => accessor.get(IEnvironmentService));
+			const environmentService = this.instantiationService.invokeFunction(accessor => accessor.get(INativeEnvironmentService));
 
 			const dir = joinPath(environmentService.tmpDir, 'openpolvo-local-llm');
 			await fileService.createFolder(dir);
 
 			const scriptUri = joinPath(dir, 'ollama-action.ps1');
-			await fileService.writeFile(scriptUri, VSBuffer.fromString(plan.command, 'utf8'));
+			await fileService.writeFile(scriptUri, VSBuffer.fromString(plan.command));
 
 			const launcherUri = joinPath(dir, 'ollama-action.cmd');
 			const launcher = [
@@ -314,7 +315,7 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 				`start "${plan.windowTitle}" powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "${scriptUri.fsPath}"`,
 				'',
 			].join('\r\n');
-			await fileService.writeFile(launcherUri, VSBuffer.fromString(launcher, 'utf8'));
+			await fileService.writeFile(launcherUri, VSBuffer.fromString(launcher));
 
 			await nativeHostService.openExternal(launcherUri.toString(true));
 			this.notificationService.info(localize(
@@ -333,13 +334,15 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 			? localize('openpolvo.localLlm.progressModel', "Open Polvo: a baixar o modelo {0}…", model)
 			: localize('openpolvo.localLlm.progress', "Open Polvo: a preparar o Ollama…");
 
+		const cts = new CancellationTokenSource();
 		await this.progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
 				title: progressTitle,
 				cancellable: true,
 			},
-			async (progress, token) => {
+			async progress => {
+				const token = cts.token;
 				const url = this.ollamaUrl;
 				const started = Date.now();
 				let runtimeReady = false;
@@ -384,7 +387,9 @@ export class OpenPolvoLocalLlmSetupContribution extends Disposable implements IW
 					));
 				}
 			},
+			() => cts.cancel(),
 		).finally(() => {
+			cts.dispose();
 			this.installing = false;
 		});
 	}

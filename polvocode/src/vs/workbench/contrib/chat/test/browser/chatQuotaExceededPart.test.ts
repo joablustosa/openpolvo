@@ -46,6 +46,7 @@ function createMockEntitlementService(entitlement: ChatEntitlement): IChatEntitl
 		clearQuotas() { },
 		markAnonymousRateLimited() { },
 		markSetupCompleted() { },
+		markOpenPolvoDeskReady() { },
 		setForceHidden() { },
 		update() { return Promise.resolve(); },
 	} as IChatEntitlementService;

@@ -8,7 +8,7 @@ import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platfor
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { IRequestService, asJson } from '../../../../platform/request/common/request.js';
+import { IRequestService, asJson, NO_FETCH_TELEMETRY } from '../../../../platform/request/common/request.js';
 
 interface IOllamaTag {
 	readonly name?: string;
@@ -67,7 +67,7 @@ export async function probeOllama(
 ): Promise<IOllamaProbeResult> {
 	try {
 		const context = await requestService.request(
-			{ type: 'GET', url: `${normalizeOllamaUrl(url)}/api/tags` },
+			{ type: 'GET', url: `${normalizeOllamaUrl(url)}/api/tags`, callSite: NO_FETCH_TELEMETRY },
 			token,
 		);
 		if (context.res.statusCode && context.res.statusCode >= 400) {
@@ -91,7 +91,7 @@ export async function probeOllamaVersion(
 ): Promise<string | undefined> {
 	try {
 		const context = await requestService.request(
-			{ type: 'GET', url: `${normalizeOllamaUrl(url)}/api/version` },
+			{ type: 'GET', url: `${normalizeOllamaUrl(url)}/api/version`, callSite: NO_FETCH_TELEMETRY },
 			token,
 		);
 		if (context.res.statusCode && context.res.statusCode >= 400) {

@@ -79,7 +79,7 @@ export interface IPolvoAgentConversationsService {
 	createConversation(): IPolvoConversation;
 	setActiveConversation(id: string | undefined): void;
 	getConversation(id: string): IPolvoConversation | undefined;
-	addMessage(conversationId: string, role: 'user' | 'assistant', content: string, attachments?: IPolvoMessageAttachment[]): void;
+	addMessage(conversationId: string, role: 'user' | 'assistant', content: string, attachments?: IPolvoMessageAttachment[], codeReferences?: IPolvoCodeReferenceMeta[]): void;
 	setConversationModel(conversationId: string, modelId: string): void;
 	setApiSessionId(conversationId: string, apiSessionId: string): void;
 	updateAssistantMessage(conversationId: string, content: string, extras?: IPolvoAssistantMessageExtras): void;

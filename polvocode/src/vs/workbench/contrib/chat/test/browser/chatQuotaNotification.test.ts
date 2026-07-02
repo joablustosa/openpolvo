@@ -71,6 +71,7 @@ function createMockEntitlementService(opts?: {
 		clearQuotas() { },
 		markAnonymousRateLimited() { },
 		markSetupCompleted() { },
+		markOpenPolvoDeskReady() { },
 		setForceHidden() { },
 		update() { return Promise.resolve(); },
 	};

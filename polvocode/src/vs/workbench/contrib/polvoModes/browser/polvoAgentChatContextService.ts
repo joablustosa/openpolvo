@@ -6,6 +6,7 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { relativePath } from '../../../../base/common/resources.js';
 import { ICodeEditor, isCodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -71,12 +72,14 @@ export function readCodeReferenceFromEditor(
 		return undefined;
 	}
 	const uri = model.uri;
-	const relativePath = workspaceContextService.asRelativePath(uri) || uri.fsPath.replace(/\\/g, '/');
+	const folder = workspaceContextService.getWorkspaceFolder(uri);
+	const rel = folder ? relativePath(folder.uri, uri) : undefined;
+	const relativePathStr = rel?.replace(/\\/g, '/') ?? uri.fsPath.replace(/\\/g, '/');
 	const startLine = selection.startLineNumber;
 	const endLine = selection.endLineNumber;
 	return {
 		uri,
-		relativePath,
+		relativePath: relativePathStr,
 		startLine,
 		endLine,
 		text: capCodeReferenceText(text),

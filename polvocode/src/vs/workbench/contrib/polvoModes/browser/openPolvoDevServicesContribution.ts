@@ -8,7 +8,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { dirname } from '../../../../base/common/path.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
-import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { INativeEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -36,12 +36,12 @@ export class OpenPolvoDevServicesContribution extends Disposable implements IWor
 	private _started = false;
 
 	constructor(
-		@IEnvironmentService private readonly environmentService: IEnvironmentService,
+		@INativeEnvironmentService private readonly nativeEnvironmentService: INativeEnvironmentService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
 	) {
 		super();
-		if (this.environmentService.isBuilt) {
+		if (this.nativeEnvironmentService.isBuilt) {
 			return;
 		}
 		this._register(disposableTimeout(() => {
@@ -50,7 +50,7 @@ export class OpenPolvoDevServicesContribution extends Disposable implements IWor
 	}
 
 	private resolveRepoRoot(): string | undefined {
-		const appRoot = this.environmentService.appRoot;
+		const appRoot = this.nativeEnvironmentService.appRoot;
 		if (!appRoot) {
 			return undefined;
 		}

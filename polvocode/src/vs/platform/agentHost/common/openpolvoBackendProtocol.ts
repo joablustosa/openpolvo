@@ -129,7 +129,7 @@ export interface INormalizedStreamEvent {
 	file?: { path: string; language?: string; content?: string; op?: 'write' | 'mkdir' | 'delete' };
 	fileEdit?: {
 		path: string;
-		op?: 'write' | 'mkdir';
+		op?: 'write' | 'mkdir' | 'delete';
 		added?: number;
 		removed?: number;
 		uri?: string;
@@ -268,8 +268,8 @@ interface IRawOfficialEvent {
 	metadata?: Record<string, unknown>;
 	event_type?: string;
 	payload?: Record<string, unknown>;
-	file?: { path?: string; language?: string; content?: string; op?: 'write' | 'mkdir' };
-	file_edit?: { path?: string; op?: 'write' | 'mkdir'; added?: number; removed?: number; uri?: string };
+	file?: { path?: string; language?: string; content?: string; op?: 'write' | 'mkdir' | 'delete' };
+	file_edit?: { path?: string; op?: 'write' | 'mkdir' | 'delete'; added?: number; removed?: number; uri?: string };
 	messages?: IOfficialMessage[];
 	done?: boolean;
 }

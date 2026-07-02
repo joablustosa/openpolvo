@@ -25,9 +25,10 @@ export class OpenPolvoDevAgentPanelContribution extends Disposable implements IW
 			if (envelope.action.type !== ActionType.ChatToolCallComplete) {
 				return;
 			}
-			const ui = envelope.action._meta?.ui;
+			const ui = envelope.action._meta?.ui as { toolName?: string; step?: unknown } | undefined;
 			if (ui?.toolName === 'dev_workflow_step' && envelope.action.result?.success) {
-				const label = envelope.action.result.pastTenseMessage ?? '';
+				const rawLabel = envelope.action.result.pastTenseMessage;
+				const label = typeof rawLabel === 'string' ? rawLabel : String(rawLabel ?? '');
 				const step = typeof ui.step === 'string' ? ui.step : 'dev_step';
 				this._events.push({ step, label, at: Date.now() });
 			}

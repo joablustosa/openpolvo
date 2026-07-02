@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import * as path from 'path';
 import type { IBuildChatBodyOptions } from '../../common/openpolvoBackendProtocol.js';
 
@@ -111,7 +112,7 @@ async function walkWorkspace(
 		return;
 	}
 	const abs = relPath ? path.join(workspacePath, relPath) : workspacePath;
-	let entries: fs.Dirent[];
+	let entries: Dirent[];
 	try {
 		entries = await fs.readdir(abs, { withFileTypes: true });
 	} catch {

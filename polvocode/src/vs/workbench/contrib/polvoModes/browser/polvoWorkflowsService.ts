@@ -282,11 +282,15 @@ export class PolvoWorkflowsService extends Disposable implements IPolvoWorkflows
 	}
 
 	private repairWorkflowResources(): void {
-		for (const workflow of this._workflows) {
-			if (workflow.resource.path !== workflow.id) {
-				workflow.resource = URI.from({ scheme: POLVO_WORKFLOW_SCHEME, path: workflow.id });
+		this._workflows = this._workflows.map(workflow => {
+			if (workflow.resource.path === workflow.id) {
+				return workflow;
 			}
-		}
+			return {
+				...workflow,
+				resource: URI.from({ scheme: POLVO_WORKFLOW_SCHEME, path: workflow.id }),
+			};
+		});
 	}
 
 	private restore(): void {

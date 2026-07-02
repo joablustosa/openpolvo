@@ -66,6 +66,7 @@ function createEntitlementService(opts: {
 		clearQuotas: () => { },
 		markAnonymousRateLimited: () => { },
 		markSetupCompleted: () => { },
+		markOpenPolvoDeskReady: () => { },
 		setForceHidden: () => { },
 		previewFeaturesDisabled: false,
 		clientByokEnabled: false,
