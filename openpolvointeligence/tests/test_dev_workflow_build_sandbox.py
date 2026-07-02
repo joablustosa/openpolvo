@@ -7,6 +7,7 @@ from openpolvointeligence.graphs.dev_workflow.dev_workflow_build_sandbox import 
     build_disabled_result,
     build_errors_to_digest,
     node_toolchain_available,
+    normalize_sandbox_project_files,
     parse_build_errors,
     run_build_sandbox,
 )
@@ -67,6 +68,17 @@ def test_build_errors_to_digest_maps_fields():
     assert digest[0]["line"] == 3
     assert digest[0]["code"] == "build"
     assert digest[0]["message"] == "boom"
+
+
+def test_normalize_sandbox_project_files_strips_prefix():
+    files = {
+        "projects/foo/package.json": "{}",
+        "projects/foo/src/App.tsx": "export default 1;",
+    }
+    out = normalize_sandbox_project_files(files, "projects/foo")
+    assert "package.json" in out
+    assert out["package.json"] == "{}"
+    assert out["src/App.tsx"] == "export default 1;"
 
 
 async def test_run_build_sandbox_disabled_degrades_gracefully():

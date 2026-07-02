@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
+import { isOpenPolvoConnectionError } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import { formatResponseElapsedSeconds } from './polvoChatResponseTimer.js';
 import { IOpenPolvoWorkbenchApiService, type IOpenPolvoWorkflowGraph } from './openPolvoWorkbenchApiService.js';
 import { IPolvoWorkflowsService } from './polvoWorkflowsService.js';
@@ -59,11 +60,21 @@ export async function sendPolvoWorkflowMessage(
 			return;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
+			const isConnectionError = isOpenPolvoConnectionError(err);
 			workflowsService.updateAssistantMessage(
 				workflowId,
-				localize('polvoWorkflowGenerateFailed', "Falha ao gerar automação no backend ({0}). A usar resposta em texto.", message),
+				isConnectionError
+					? localize(
+						'polvoWorkflowBackendUnavailable',
+						"Não foi possível contactar o backend OpenPolvo ({0}). Verifique os terminais integrados \"OpenPolvo: Backend\" e \"OpenPolvo: Intelligence\".",
+						message,
+					)
+					: localize('polvoWorkflowGenerateFailed', "Falha ao gerar automação no backend ({0}). A usar resposta em texto.", message),
 			);
-			// Continua para o fallback de chat.
+			if (isConnectionError) {
+				return;
+			}
+			// Continua para o fallback de chat apenas em erros de negócio (ex.: JSON inválido).
 		}
 	}
 

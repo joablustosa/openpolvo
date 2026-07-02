@@ -15,6 +15,7 @@ import './openPolvoAuth.js';
 import './openPolvoDeskSession.js';
 import './openPolvoAgentHostAuthContribution.js';
 import './openPolvoDevExplorerContribution.js';
+import './openPolvoDevServicesContribution.js';
 import './openPolvoDevAgentPanel.js';
 import './polvoAgentConversationsService.js';
 import './polvoAgentChatContextService.js';

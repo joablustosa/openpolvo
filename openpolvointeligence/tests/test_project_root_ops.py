@@ -65,6 +65,13 @@ def test_resolve_existing_project_root_from_state() -> None:
     assert root == "projects/my-app"
 
 
+def test_strip_prefixed_project_path() -> None:
+    from openpolvointeligence.graphs.dev_workflow.project_root_ops import strip_project_root_prefix
+
+    assert strip_project_root_prefix("projects/foo/src/App.tsx", "projects/foo") == "src/App.tsx"
+    assert strip_project_root_prefix("package.json", "projects/foo") == "package.json"
+
+
 def test_resolve_existing_project_root_from_files() -> None:
     root = resolve_existing_project_root(
         {

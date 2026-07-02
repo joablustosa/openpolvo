@@ -194,8 +194,8 @@ def _yield_patch_stream_events(
             {
                 "type": "progress",
                 "step": "dev_project_root",
-                "label": f"A criar projecto em `{root}/`…",
-                "payload": {"project_root": root, "create_project": True},
+                "label": f"A criar repositório e abrir `{root}/`…",
+                "payload": {"project_root": root, "create_project": True, "open_workspace": True},
             },
         )
     for ev in _file_events_from_ops(ops):
@@ -417,8 +417,8 @@ def _early_project_root_progress(
         {
             "type": "progress",
             "step": "dev_project_root",
-            "label": f"A criar projecto em `{root}/`…",
-            "payload": {"project_root": root, "create_project": True},
+            "label": f"A criar repositório e abrir `{root}/`…",
+            "payload": {"project_root": root, "create_project": True, "open_workspace": True},
         },
         root,
     )

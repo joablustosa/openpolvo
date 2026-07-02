@@ -921,7 +921,13 @@ def build_dev_workflow_graph(settings: Settings) -> Any:
                 key = str(w["path"]).replace("\\", "/").lstrip("/")
                 project_files[key] = str(w.get("content") or "")
 
-        result = await run_build_sandbox(settings, project_files)
+        result = await run_build_sandbox(
+            settings,
+            project_files,
+            workspace_path=str(state.get("workspace_path") or state.get("workspace_id") or "").strip()
+            or None,
+            project_root=str(state.get("polvo_code_project_root") or "").strip() or None,
+        )
 
         meta = dict(state.get("metadata") or {})
         dw = dict(meta.get("dev_workflow") or {})

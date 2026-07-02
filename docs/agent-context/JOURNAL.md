@@ -3,6 +3,61 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-02 — Agente: mesma resiliência de ligação que Workflow
+
+**Sintoma:** chat Agente com `failed to fetch` ao enviar mensagem (createSession/stream).
+
+**Correção:** helpers partilhados `waitForOpenPolvoBackend` / `formatOpenPolvoConnectionError`;
+`requestAuthorized` e `streamMessage` aguardam `/healthz`; `withOpenPolvoApiAuth` repete após
+erro de ligação; `OpenPolvoApiClient` (Agent Host) com o mesmo poll; mensagens claras no chat.
+
+**Arquivos:** `openpolvoBackendProtocol.ts`, `openPolvoWorkbenchApiService.ts`,
+`openPolvoApiClient.ts`, `openPolvoApiAuthHelper.ts`, `polvoAgentChatEditor.ts`.
+
+## 2026-07-02 — Workflow: ligação ao backend (`failed to fetch`)
+
+**Sintoma:** aba Automações falhava com "Falha ao gerar automação no backend
+(failed to fetch)" e caía no fallback de texto.
+
+**Causa:** pedido a `/v1/workflows/generate` antes do backend estar pronto;
+`ensureAuth` não recarregava o token após login; timeout curto para LLM.
+
+**Correção:** `ensureBackendReady()` com poll em `/healthz`; timeout 180s no
+generate; mensagens de erro claras; sem fallback texto em erro de ligação;
+`ensureAuth` sincroniza token da configuração; dev services arrancam backend primeiro.
+
+**Arquivos:** `openPolvoWorkbenchApiService.ts`, `polvoWorkflowMessaging.ts`,
+`openPolvoDevServicesContribution.ts`, `openpolvoBackendProtocol.ts`.
+
+## 2026-07-02 — Build sandbox Windows + serviços dev no terminal integrado
+
+**Sintoma:** build sandbox falhava com `WinError 2` no Windows (`npx`/`npm` via
+`create_subprocess_exec`); `start-dev-services.ps1` abria várias janelas PowerShell.
+
+**Correção:** `dev_workflow_build_sandbox.py` usa `create_subprocess_shell` no Windows,
+normaliza paths `projects/<slug>/` e prefere disco quando o projecto já existe;
+passo `dev_build` corre `npm install` + `tsc` no terminal integrado;
+`openPolvoDevServicesContribution.ts` arranca Backend/Intelligence no terminal do IDE;
+`start-dev-services.ps1` deixa de usar `Start-Process`.
+
+**Arquivos:** `dev_workflow_build_sandbox.py`, `dev_workflow_graph.py`,
+`openPolvoDevServicesContribution.ts`, `openPolvoDevWorkspaceFiles.ts`,
+`polvoAgentChatEditor.ts`, `start-dev-services.ps1`, `tests/test_dev_workflow_build_sandbox.py`.
+
+## 2026-07-02 — Abrir workspace do projecto antes do codegen (new_app)
+
+**Sintoma:** ao pedir nova app, ficheiros eram gerados no monorepo pai; ao abrir
+manualmente `projects/<slug>/`, o contexto e o chat não acompanhavam.
+
+**Correção:** evento SSE `dev_project_root` antecipado emite `open_workspace: true`;
+cliente cria `projects/<slug>/`, corre `git init`, troca o workspace para a pasta do
+projecto (`updateFolders` na mesma janela, sem reload que corta o stream) e só depois
+aplica ficheiros com paths relativos à nova raiz (`devProjectRootPrefix` + strip).
+
+**Arquivos:** `dev_gateway_graph.py`, `polvoAgentChatEditor.ts`,
+`openPolvoDevWorkspaceFiles.ts`, `openPolvoDevExplorerContribution.ts`, `openPolvoAgent.ts`,
+`openPolvoDevProject.ts`, `tests/test_project_root_ops.py`.
+
 ## 2026-07-02 — Fix tela preta no arranque do IDE (import em falta)
 
 **Sintoma:** Open Polvo abria com ecrã preto; workbench não carregava.

@@ -19,8 +19,8 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { readProjectRootFromMetadata } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
+import { normalizeProjectRoot, resolveProjectAbsPath, stripPrefixedProjectPath } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
 import { IExplorerService } from '../../files/browser/files.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
@@ -33,6 +33,7 @@ import { IOpenPolvoModel, IOpenPolvoWorkbenchApiService, type IOpenPolvoStreamEv
 import type { IOpenPolvoAttachment, IOpenPolvoCodeReference } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import { IOpenPolvoSignInService } from './openPolvoAuth.js';
 import { withOpenPolvoApiAuth } from './openPolvoApiAuthHelper.js';
+import { isOpenPolvoConnectionError } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import { extractRichBlocks, markdownToRichBlocks, renderRichChatBlocks } from './polvoRichChatRenderer.js';
 import {
 	appendResponseTimerLabel,
@@ -41,7 +42,7 @@ import {
 	renderLoadingPlaceholder,
 } from './polvoChatResponseTimer.js';
 import { IWorkspaceEditingService } from '../../../services/workspaces/common/workspaceEditing.js';
-import { applyDevFileToWorkspaceFolder, ensureUniquePolvoProjectRoot, openPolvoProjectFolderInExplorer, projectRootFromMetadata, readDevWorkspacePostSetup, runPolvoProjectPostSetupInTerminal, shouldOpenPolvoProjectInExplorer, tryOpenDevPreviewWhenReady } from './openPolvoDevWorkspaceFiles.js';
+import { applyDevFileToWorkspaceFolder, ensureUniquePolvoProjectRoot, initPolvoProjectGit, openPolvoProjectFolderInExplorer, projectRootFromMetadata, readDevWorkspacePostSetup, runDevProjectBuildInTerminal, runPolvoProjectPostSetupInTerminal, shouldOpenPolvoProjectInExplorer, tryOpenDevPreviewWhenReady } from './openPolvoDevWorkspaceFiles.js';
 import { IPolvoAgentHistorySyncService } from './polvoAgentHistorySyncService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -74,6 +75,8 @@ export class PolvoAgentChatEditor extends EditorPane {
 	private abortController: AbortController | undefined;
 	private devProjectRootRel: string | undefined;
 	private devProjectRootRequestedRel: string | undefined;
+	private devProjectRootPrefix: string | undefined;
+	private devWorkspaceOpened = false;
 	private devProjectRootSetup: Promise<string | undefined> | undefined;
 	private warnedNoWorkspace = false;
 	private readonly responseTimer = new PolvoChatResponseTimerController(() => this.renderMessages());
@@ -236,7 +239,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 	}
 
 	private async loadModels(): Promise<void> {
-		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels());
+		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels(), this.openPolvoApi);
 		this.updateModelLabel();
 	}
 
@@ -271,7 +274,8 @@ export class PolvoAgentChatEditor extends EditorPane {
 		}
 		try {
 			const apiSessionId = await withOpenPolvoApiAuth(this.signInService, () =>
-				this.openPolvoApi.createSession(conversation.title, conversation.modelId)
+				this.openPolvoApi.createSession(conversation.title, conversation.modelId),
+				this.openPolvoApi,
 			);
 			this.conversationsService.setApiSessionId(this.conversationId, apiSessionId);
 		} catch {
@@ -380,8 +384,10 @@ export class PolvoAgentChatEditor extends EditorPane {
 					if (step === 'dev_project_root') {
 						const root = event.payload?.project_root;
 						if (typeof root === 'string' && root.trim()) {
-							void this.scheduleDevProjectRoot(root);
+							void this.bootstrapDevProjectWorkspace(root);
 						}
+					} else if (step === 'dev_build') {
+						void this.runDevProjectBuild();
 					} else if (step.startsWith('dev_')) {
 						const label = event.content ?? event.payload?.label as string ?? '';
 						if (label && step !== lastDevWorkflowStepId) {
@@ -523,12 +529,12 @@ export class PolvoAgentChatEditor extends EditorPane {
 					}
 					if (event.metadata) {
 						assistantMetadata = event.metadata;
-						const root = readProjectRootFromMetadata(event.metadata);
+						const root = projectRootFromMetadata(event.metadata);
 						if (root) {
 							void this.scheduleDevProjectRoot(root);
 						}
 					}
-					const rootRel = readProjectRootFromMetadata(assistantMetadata);
+					const rootRel = projectRootFromMetadata(assistantMetadata);
 					if (!assistantText.trim() && devFileChanges.length > 0) {
 						assistantText = localize(
 							'polvoDevProjectCreatedSummary',
@@ -599,13 +605,19 @@ export class PolvoAgentChatEditor extends EditorPane {
 					this.renderMessages();
 				}
 			}
-			});
+			}, this.openPolvoApi);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.conversationsService.addMessage(
 				this.conversationId,
 				'assistant',
-				localize('polvoAgentApiError', "Não foi possível contactar a API OpenPolvo: {0}", message)
+				isOpenPolvoConnectionError(err)
+					? localize(
+						'polvoAgentBackendUnavailable',
+						"Não foi possível contactar o backend OpenPolvo ({0}). Verifique os terminais integrados \"OpenPolvo: Backend\" e \"OpenPolvo: Intelligence\".",
+						message,
+					)
+					: localize('polvoAgentApiError', "Não foi possível contactar a API OpenPolvo: {0}", message),
 			);
 			this.renderMessages();
 		} finally {
@@ -1010,7 +1022,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 	}
 
 	private async openCreatedProjectInExplorer(metadata: Record<string, unknown> | undefined): Promise<void> {
-		if (!shouldOpenPolvoProjectInExplorer(metadata)) {
+		if (this.devWorkspaceOpened || !shouldOpenPolvoProjectInExplorer(metadata)) {
 			return;
 		}
 		const folders = this.workspaceContextService.getWorkspace().folders;
@@ -1031,8 +1043,40 @@ export class PolvoAgentChatEditor extends EditorPane {
 		);
 	}
 
+	private async bootstrapDevProjectWorkspace(requestedRoot: string): Promise<void> {
+		if (this.devWorkspaceOpened) {
+			return;
+		}
+		const root = await this.scheduleDevProjectRoot(requestedRoot);
+		if (!root) {
+			return;
+		}
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			this.devProjectRootRel = root;
+			return;
+		}
+		const projectUri = URI.joinPath(folders[0].uri, ...root.split('/').filter(Boolean));
+		try {
+			await initPolvoProjectGit(this.instantiationService, projectUri);
+			const workbenchState = this.workspaceContextService.getWorkbenchState();
+			if (workbenchState === WorkbenchState.FOLDER && folders.length === 1) {
+				await this.workspaceEditingService.updateFolders(0, 1, [{ uri: projectUri }]);
+				this.devProjectRootPrefix = root;
+				this.devProjectRootRel = undefined;
+			} else {
+				await this.workspaceEditingService.addFolders([{ uri: projectUri }]);
+				this.devProjectRootPrefix = root;
+				this.devProjectRootRel = root;
+			}
+			this.devWorkspaceOpened = true;
+		} catch {
+			this.devProjectRootRel = root;
+		}
+	}
+
 	private async scheduleDevProjectRoot(requestedRoot: string): Promise<string | undefined> {
-		const normalized = requestedRoot.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+		const normalized = normalizeProjectRoot(requestedRoot);
 		if (!normalized) {
 			return undefined;
 		}
@@ -1058,6 +1102,9 @@ export class PolvoAgentChatEditor extends EditorPane {
 
 	private normalizeIncomingDevFilePath(path: string): string {
 		let normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
+		if (this.devProjectRootPrefix) {
+			normalized = stripPrefixedProjectPath(normalized, this.devProjectRootPrefix);
+		}
 		const requested = this.devProjectRootRequestedRel;
 		if (
 			requested
@@ -1116,6 +1163,32 @@ export class PolvoAgentChatEditor extends EditorPane {
 		}
 	}
 
+	private async runDevProjectBuild(): Promise<void> {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) {
+			return;
+		}
+		if (this.devProjectRootSetup) {
+			await this.devProjectRootSetup;
+		}
+		const rootRel = this.devWorkspaceOpened ? '' : (this.devProjectRootRel ?? this.devProjectRootPrefix);
+		try {
+			const started = await runDevProjectBuildInTerminal(
+				this.instantiationService,
+				this.fileService,
+				folders[0].uri,
+				rootRel || undefined,
+			);
+			if (started) {
+				this.notificationService.info(
+					localize('polvoDevBuildStarted', "Build do projecto iniciado no terminal integrado."),
+				);
+			}
+		} catch {
+			// best-effort
+		}
+	}
+
 	private async runCreatedProjectPostSetup(metadata: Record<string, unknown> | undefined): Promise<boolean> {
 		if (!shouldOpenPolvoProjectInExplorer(metadata)) {
 			return false;
@@ -1125,7 +1198,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 			return false;
 		}
 		const root = await this.resolveCreatedProjectRoot(metadata);
-		if (!root) {
+		if (!root && !this.devWorkspaceOpened) {
 			return false;
 		}
 		try {
@@ -1133,7 +1206,7 @@ export class PolvoAgentChatEditor extends EditorPane {
 				this.instantiationService,
 				this.fileService,
 				folders[0].uri,
-				root,
+				this.devWorkspaceOpened ? '' : (root ?? ''),
 				metadata,
 			);
 			if (started && this.conversationId) {

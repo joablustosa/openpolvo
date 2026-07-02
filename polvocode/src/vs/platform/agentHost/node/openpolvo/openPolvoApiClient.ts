@@ -10,8 +10,10 @@ import {
 	type IBuildChatBodyOptions,
 	type INormalizedStreamEvent,
 	OfficialRoutes,
+	formatOpenPolvoConnectionError,
 	parseSseBuffer,
 	performOpenPolvoLocalLogin,
+	waitForOpenPolvoBackend,
 } from '../../common/openpolvoBackendProtocol.js';
 import { Agent, fetch as undiciFetch } from 'undici';
 
@@ -54,6 +56,13 @@ export class OpenPolvoApiClient {
 		this._token = token;
 	}
 
+	private async ensureBackendReady(): Promise<void> {
+		await waitForOpenPolvoBackend(this.baseUrl, async healthUrl => {
+			const res = await fetch(healthUrl, { signal: AbortSignal.timeout(4_000) });
+			return res.ok;
+		});
+	}
+
 	async ensureAuth(): Promise<void> {
 		if (this._token) {
 			return;
@@ -66,13 +75,18 @@ export class OpenPolvoApiClient {
 	}
 
 	private async fetchAuthorized(url: string, init: RequestInit): Promise<Response> {
+		await this.ensureBackendReady();
 		await this.ensureAuth();
-		let res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
-		if (res.status === 401) {
-			await this.refreshAuth();
-			res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
+		try {
+			let res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
+			if (res.status === 401) {
+				await this.refreshAuth();
+				res = await fetch(url, { ...init, headers: { ...init.headers, ...this._authHeaders() } });
+			}
+			return res;
+		} catch (err) {
+			throw new Error(formatOpenPolvoConnectionError(err, this.baseUrl));
 		}
-		return res;
 	}
 
 	async listModels(): Promise<IOpenPolvoApiModel[]> {
@@ -166,15 +180,20 @@ export class OpenPolvoApiClient {
 	}
 
 	private async fetchAuthorizedStream(url: string, init: RequestInit): Promise<Response> {
+		await this.ensureBackendReady();
 		await this.ensureAuth();
 		const headers = { ...init.headers as Record<string, string>, ...this._authHeaders() };
-		let res = await undiciFetch(url, { ...init, headers, dispatcher: longStreamAgent } as RequestInit);
-		if (res.status === 401) {
-			await this.refreshAuth();
-			const retryHeaders = { ...init.headers as Record<string, string>, ...this._authHeaders() };
-			res = await undiciFetch(url, { ...init, headers: retryHeaders, dispatcher: longStreamAgent } as RequestInit);
+		try {
+			let res = await undiciFetch(url, { ...init, headers, dispatcher: longStreamAgent } as RequestInit);
+			if (res.status === 401) {
+				await this.refreshAuth();
+				const retryHeaders = { ...init.headers as Record<string, string>, ...this._authHeaders() };
+				res = await undiciFetch(url, { ...init, headers: retryHeaders, dispatcher: longStreamAgent } as RequestInit);
+			}
+			return res as unknown as Response;
+		} catch (err) {
+			throw new Error(formatOpenPolvoConnectionError(err, this.baseUrl));
 		}
-		return res as unknown as Response;
 	}
 
 	/** Devolve o resultado de uma tool local ao backend (bridge Desk). */

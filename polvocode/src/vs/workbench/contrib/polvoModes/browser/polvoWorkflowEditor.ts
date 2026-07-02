@@ -193,6 +193,7 @@ export class PolvoWorkflowEditor extends EditorPane {
 		try {
 			const record = await withOpenPolvoApiAuth(this.signInService, () =>
 				this.openPolvoApi.getWorkflow(workflow.backendId!),
+				this.openPolvoApi,
 			);
 			if (record?.graph) {
 				this.workflowsService.setGraph(this.workflowId, { graph: record.graph, title: record.title });
@@ -210,7 +211,7 @@ export class PolvoWorkflowEditor extends EditorPane {
 	}
 
 	private async loadModels(): Promise<void> {
-		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels());
+		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels(), this.openPolvoApi);
 		this.updateModelLabel();
 	}
 
@@ -261,7 +262,8 @@ export class PolvoWorkflowEditor extends EditorPane {
 				sendPolvoWorkflowMessage(this.workflowsService, this.openPolvoApi, this.workflowId!, text, {
 					useBackend: this.configurationService.getValue<boolean>(OpenPolvoWorkflowsBackendSettingId) !== false,
 					signal: this.abortController!.signal,
-				})
+				}),
+				this.openPolvoApi,
 			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -454,7 +456,7 @@ export class PolvoWorkflowEditor extends EditorPane {
 
 		if (workflow.backendId) {
 			try {
-				await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.updateWorkflow(workflow.backendId!, { graph: nextGraph }));
+				await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.updateWorkflow(workflow.backendId!, { graph: nextGraph }), this.openPolvoApi);
 			} catch (err) {
 				this.logService.warn(`[OpenPolvo] Failed to persist workflow graph: ${err instanceof Error ? err.message : String(err)}`);
 			}

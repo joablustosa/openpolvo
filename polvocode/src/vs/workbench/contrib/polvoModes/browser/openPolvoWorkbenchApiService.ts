@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { timeout } from '../../../../base/common/async.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -22,8 +23,10 @@ import {
 	type IOpenPolvoCodeReference,
 	OFFICIAL_API_DEFAULT_BASE_URL,
 	OfficialRoutes,
+	formatOpenPolvoConnectionError,
 	parseSseBuffer,
 	resolveModelSelection,
+	waitForOpenPolvoBackend,
 } from '../../../../platform/agentHost/common/openpolvoBackendProtocol.js';
 import type { IServerConversationDTO, IServerMessageDTO } from './polvoAgentHistoryMerge.js';
 import { IOpenPolvoSignInService } from './openPolvoAuth.js';
@@ -253,6 +256,8 @@ export interface IOpenPolvoWorkbenchApiService {
 	): Promise<void>;
 	login(email: string, password: string): Promise<void>;
 	register(email: string, password: string, name?: string): Promise<void>;
+	/** Aguarda o backend Go responder em `/healthz` (útil após arranque dev). */
+	ensureBackendReady(maxWaitMs?: number): Promise<void>;
 	generateWorkflow(prompt: string, model: string | undefined, saveTitle?: string): Promise<IOpenPolvoWorkflowGenerateResult>;
 	listWorkflows(): Promise<IOpenPolvoWorkflowRecord[]>;
 	getWorkflow(id: string): Promise<IOpenPolvoWorkflowRecord | undefined>;
@@ -398,6 +403,7 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		attachments?: IOpenPolvoAttachment[],
 		codeReferences?: IOpenPolvoCodeReference[],
 	): Promise<void> {
+		await this.ensureBackendReady();
 		await this.ensureAuth();
 		// Este chat não executa tool_calls (sem runner local) — o Intelligence executa
 		// as tools do Desk server-side em vez de esperar pelo bridge do cliente.
@@ -412,10 +418,15 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 			body: JSON.stringify(body),
 			signal,
 		});
-		let response = await doFetch();
-		if (response.status === 401) {
-			await this.refreshAuth();
+		let response: Response;
+		try {
 			response = await doFetch();
+			if (response.status === 401) {
+				await this.refreshAuth();
+				response = await doFetch();
+			}
+		} catch (err) {
+			throw new Error(formatOpenPolvoConnectionError(err, this.baseUrl));
 		}
 		if (!response.ok || !response.body) {
 			const text = await response.text().catch(() => '');
@@ -481,25 +492,34 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	async generateWorkflow(prompt: string, model: string | undefined, saveTitle?: string): Promise<IOpenPolvoWorkflowGenerateResult> {
+		await this.ensureBackendReady();
 		const selection = resolveModelSelection(model);
-		const context = await this.requestAuthorized({
-			type: 'POST',
-			url: `${this.baseUrl}${OfficialRoutes.workflowsGenerate}`,
-			headers: { 'Content-Type': 'application/json' },
-			data: JSON.stringify({
-				prompt,
-				model_provider: selection.model_provider,
-				llm_profile_id: selection.llm_profile_id,
-				save_title: saveTitle,
-			}),
-			callSite: 'openPolvoWorkbenchApiService.generateWorkflow',
-		});
+		let context: Awaited<ReturnType<typeof this.requestAuthorized>>;
+		try {
+			context = await this.requestAuthorized({
+				type: 'POST',
+				url: `${this.baseUrl}${OfficialRoutes.workflowsGenerate}`,
+				headers: { 'Content-Type': 'application/json' },
+				data: JSON.stringify({
+					prompt,
+					model_provider: selection.model_provider,
+					llm_profile_id: selection.llm_profile_id,
+					save_title: saveTitle,
+				}),
+				timeout: 180_000,
+				callSite: 'openPolvoWorkbenchApiService.generateWorkflow',
+			});
+		} catch (err) {
+			throw new Error(formatOpenPolvoConnectionError(err, this.baseUrl));
+		}
 		if (context.res.statusCode === 422) {
 			const err = await asJson<{ error?: string; raw_llm?: string }>(context);
 			throw new Error(err?.error ?? 'JSON inválido do modelo ao gerar automação');
 		}
 		if (context.res.statusCode && context.res.statusCode >= 400) {
-			throw new Error(`generate workflow failed (${context.res.statusCode})`);
+			const errText = await asJson<{ error?: string; detail?: string }>(context).catch(() => undefined);
+			const detail = errText?.error ?? errText?.detail;
+			throw new Error(detail ?? `generate workflow failed (${context.res.statusCode})`);
 		}
 		const body = await asJson<{
 			graph?: IOpenPolvoWorkflowGraph;
@@ -732,7 +752,24 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		}
 	}
 
+	async ensureBackendReady(maxWaitMs = 45_000): Promise<void> {
+		await waitForOpenPolvoBackend(
+			this.baseUrl,
+			async healthUrl => {
+				const context = await this.requestService.request({
+					type: 'GET',
+					url: healthUrl,
+					timeout: 4_000,
+					callSite: 'openPolvoWorkbenchApiService.ensureBackendReady',
+				}, CancellationToken.None);
+				return context.res.statusCode === 200;
+			},
+			{ maxWaitMs, sleep: ms => timeout(ms) },
+		);
+	}
+
 	private async requestAuthorized(options: IRequestOptions) {
+		await this.ensureBackendReady();
 		await this.ensureAuth();
 		let context = await this.requestService.request({
 			...options,
@@ -749,12 +786,12 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	}
 
 	private async ensureAuth(): Promise<void> {
-		if (this._token) {
-			return;
-		}
-		const configuredToken = this.configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
+		const configuredToken = this.configurationService.getValue<string>(OpenPolvoApiTokenSettingId)?.trim();
 		if (configuredToken) {
 			this._token = configuredToken;
+			return;
+		}
+		if (this._token) {
 			return;
 		}
 		const ok = await this.instantiationService.invokeFunction(accessor =>

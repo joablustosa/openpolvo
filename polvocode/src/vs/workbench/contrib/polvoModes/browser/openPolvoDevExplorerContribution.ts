@@ -12,7 +12,7 @@ import { BrowserViewCommandId } from '../../../../platform/browserView/common/br
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IExplorerService } from '../../files/browser/files.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkspaceEditingService } from '../../../services/workspaces/common/workspaceEditing.js';
 
 const DEV_TOOL_NAMES = new Set(['dev_file_write', 'dev_mkdir', 'dev_project_root']);
@@ -57,11 +57,16 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 			const toolName = ui?.toolName;
 			const revealFolder = ui?.revealFolder === true;
 			const addToWorkspace = ui?.addToWorkspace === true;
+			const openFolder = ui?.openFolder === true;
 			const forceReveal = ui?.forceReveal === true;
 			if (typeof resourceUri !== 'string' || !resourceUri) {
 				return;
 			}
 			if (typeof toolName === 'string' && !DEV_TOOL_NAMES.has(toolName)) {
+				return;
+			}
+			if (openFolder) {
+				void this._openFolderAsWorkspace(URI.parse(resourceUri));
 				return;
 			}
 			this._scheduleReveal(URI.parse(resourceUri), revealFolder, addToWorkspace, forceReveal);
@@ -126,6 +131,24 @@ export class OpenPolvoDevExplorerContribution extends Disposable implements IWor
 		return this.workspaceContextService.getWorkspace().folders.some(
 			f => this._normalizeFolderUri(f.uri) === target,
 		);
+	}
+
+	private async _openFolderAsWorkspace(resource: URI): Promise<void> {
+		try {
+			const folders = this.workspaceContextService.getWorkspace().folders;
+			const target = this._normalizeFolderUri(resource);
+			if (
+				this.workspaceContextService.getWorkbenchState() === WorkbenchState.FOLDER
+				&& folders.length === 1
+				&& this._normalizeFolderUri(folders[0].uri) !== target
+			) {
+				await this.workspaceEditingService.updateFolders(0, 1, [{ uri: resource }]);
+				return;
+			}
+			await this.commandService.executeCommand('vscode.openFolder', resource, { forceReuseWindow: true });
+		} catch {
+			// best-effort
+		}
 	}
 
 	private async _ensureInWorkspace(resource: URI, addToWorkspace: boolean): Promise<void> {

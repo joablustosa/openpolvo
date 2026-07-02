@@ -43,6 +43,8 @@ import {
 	PROJECTS_PARENT_DIR,
 	readProjectRootFromMetadata,
 	readProjectRootFromProgressPayload,
+	resolveProjectAbsPath,
+	stripPrefixedProjectPath,
 	slugifyProjectTitle,
 } from '../../common/openPolvoDevProject.js';
 import type { ProtectedResourceMetadata } from '../../common/state/protocol/state.js';
@@ -81,6 +83,8 @@ interface IOpenPolvoSessionState {
 	modelId?: string;
 	workingDirectory?: string;
 	projectRootRel?: string;
+	projectRootPrefix?: string;
+	projectWorkspaceBootstrapped?: boolean;
 	projectRootResolved?: boolean;
 	projectRootSetup?: Promise<string | undefined>;
 	abortController?: AbortController;
@@ -220,7 +224,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 							if (step === 'dev_project_root') {
 								const root = readProjectRootFromProgressPayload(event.payload);
 								if (root) {
-									pendingTools.push(this._scheduleProjectRoot(state, root));
+									pendingTools.push(this._bootstrapProjectWorkspaceEarly(session, state, effectiveTurnId, root));
 								}
 							}
 							if (step.startsWith('dev_') && event.content && step !== lastDevWorkflowStepId) {
@@ -528,6 +532,49 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		}
 	}
 
+	private async _bootstrapProjectWorkspaceEarly(
+		session: URI,
+		state: IOpenPolvoSessionState,
+		turnId: string,
+		requestedRoot: string,
+	): Promise<void> {
+		if (state.projectWorkspaceBootstrapped) {
+			return;
+		}
+		const parentWorkspace = state.workingDirectory;
+		if (!parentWorkspace) {
+			await this._scheduleProjectRoot(state, requestedRoot);
+			return;
+		}
+		await this._scheduleProjectRoot(state, requestedRoot);
+		const rootRel = state.projectRootRel;
+		if (!rootRel) {
+			return;
+		}
+		const absPath = resolveProjectAbsPath(parentWorkspace, rootRel);
+		if (!absPath) {
+			return;
+		}
+		try {
+			await fs.promises.mkdir(absPath, { recursive: true });
+			const { exec } = await import('child_process');
+			const { promisify } = await import('util');
+			const execAsync = promisify(exec);
+			await execAsync('git init', { cwd: absPath, windowsHide: true }).catch(() => undefined);
+		} catch (err) {
+			this._logService.warn(
+				`[OpenPolvo] git init early failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+		state.projectRootPrefix = rootRel;
+		state.workingDirectory = absPath;
+		state.projectRootRel = '';
+		state.projectWorkspaceBootstrapped = true;
+		state.projectRootResolved = true;
+		await this._openProjectInExplorer(session, state, turnId, true, { openFolder: true });
+		this._logService.info(`[OpenPolvo] Project workspace opened: ${absPath}`);
+	}
+
 	private async _scheduleProjectRoot(state: IOpenPolvoSessionState, requestedRoot: string): Promise<void> {
 		if (!state.projectRootSetup) {
 			state.projectRootSetup = this._ensureProjectRoot(state, requestedRoot);
@@ -606,6 +653,9 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		relPath: string,
 	): Promise<string> {
 		let normalized = normalizeDevRelativePath(relPath);
+		if (state.projectRootPrefix) {
+			normalized = stripPrefixedProjectPath(normalized, state.projectRootPrefix);
+		}
 		const segments = normalized.split('/').filter(Boolean);
 		const firstSeg = segments[0];
 		const secondSeg = segments[1];
@@ -836,7 +886,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 				`[OpenPolvo] post project setup failed: ${err instanceof Error ? err.message : String(err)}`,
 			);
 		} finally {
-			if (shouldOpenExplorer && state.projectRootRel) {
+			if (shouldOpenExplorer && state.projectRootRel && !state.projectWorkspaceBootstrapped) {
 				await this._openProjectInExplorer(session, state, turnId, true);
 			}
 		}
@@ -847,6 +897,7 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		state: IOpenPolvoSessionState,
 		turnId: string,
 		forceReveal = false,
+		options?: { openFolder?: boolean },
 	): Promise<void> {
 		if (!state.workingDirectory) {
 			return;
@@ -871,15 +922,16 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 			toolCallId,
 			result: {
 				success: true,
-				pastTenseMessage: localize('openPolvoDevProjectRoot', "Projecto criado em {0}", rel ?? '.'),
-				content: [{ type: ToolResultContentType.Text, text: rel ?? '.' }],
+				pastTenseMessage: localize('openPolvoDevProjectRoot', "Projecto criado em {0}", rel || absPath),
+				content: [{ type: ToolResultContentType.Text, text: rel || absPath }],
 			},
 			_meta: {
 				ui: {
 					resourceUri: URI.file(absPath).toString(),
 					toolName,
 					revealFolder: true,
-					addToWorkspace: true,
+					addToWorkspace: !options?.openFolder,
+					openFolder: options?.openFolder === true,
 					forceReveal,
 				},
 			},

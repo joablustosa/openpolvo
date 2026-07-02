@@ -64,6 +64,33 @@ export function prefixDevRelativePath(projectRoot: string, relPath: string): str
 	return `${root}/${rel}`;
 }
 
+/** Remove `projects/slug/` quando o workspace já é a pasta do projecto. */
+export function stripPrefixedProjectPath(path: string, projectRootPrefix: string | undefined): string {
+	const rel = normalizeDevRelativePath(path);
+	const prefix = projectRootPrefix ? normalizeDevRelativePath(projectRootPrefix) : '';
+	if (!prefix) {
+		return rel;
+	}
+	if (rel === prefix) {
+		return '';
+	}
+	if (rel.startsWith(`${prefix}/`)) {
+		return rel.slice(prefix.length + 1);
+	}
+	return rel;
+}
+
+export function resolveProjectAbsPath(workspacePath: string, projectRootRel: string): string | undefined {
+	const wp = workspacePath.trim();
+	const rel = normalizeDevRelativePath(projectRootRel);
+	if (!wp || !rel) {
+		return undefined;
+	}
+	const sep = wp.includes('\\') ? '\\' : '/';
+	const joined = rel.split('/').filter(Boolean).join(sep);
+	return `${wp.replace(/[\\/]+$/, '')}${sep}${joined}`;
+}
+
 export function readProjectRootFromMetadata(metadata: Record<string, unknown> | undefined): string | undefined {
 	if (!metadata) {
 		return undefined;

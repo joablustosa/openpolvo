@@ -152,7 +152,7 @@ export class PolvoWorkflowNavView extends ViewPane {
 	}
 
 	private async loadModels(): Promise<void> {
-		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels());
+		this.models = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.listModels(), this.openPolvoApi);
 		const model = this.models.find(m => m.id === this.selectedModelId) ?? this.models[0];
 		this.selectedModelId = model?.id ?? 'polvo';
 		if (this.modelLabelElement) {
@@ -415,7 +415,8 @@ export class PolvoWorkflowNavView extends ViewPane {
 				sendPolvoWorkflowMessage(this.workflowsService, this.openPolvoApi, workflow.id, text, {
 					useBackend: this.configurationService.getValue<boolean>(OpenPolvoWorkflowsBackendSettingId) !== false,
 					signal: this.abortController!.signal,
-				})
+				}),
+				this.openPolvoApi,
 			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);

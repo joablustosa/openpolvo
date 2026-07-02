@@ -68,7 +68,7 @@ export class PolvoAgentHistorySyncService extends Disposable implements IPolvoAg
 						this.logService.warn(`[OpenPolvo] Conversa local órfã (apiSessionId=${local.apiSessionId})`);
 					}
 				}
-			});
+			}, this.openPolvoApi);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.logService.warn(`[OpenPolvo] Falha ao sincronizar histórico: ${message}`);
@@ -105,7 +105,7 @@ export class PolvoAgentHistorySyncService extends Disposable implements IPolvoAg
 						builder: memory.builder,
 					});
 				}
-			});
+			}, this.openPolvoApi);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.logService.warn(`[OpenPolvo] Falha ao carregar mensagens: ${message}`);

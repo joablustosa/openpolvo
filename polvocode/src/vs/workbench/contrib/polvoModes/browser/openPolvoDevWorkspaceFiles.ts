@@ -103,6 +103,56 @@ export async function ensureUniquePolvoProjectRoot(
 	return candidate;
 }
 
+/** Inicializa repositório git na pasta do projecto (antes do codegen). */
+export async function initPolvoProjectGit(
+	instantiationService: IInstantiationService,
+	projectRootUri: URI,
+): Promise<void> {
+	const { ITerminalService } = await import('../../terminal/browser/terminal.js');
+	const terminalService = instantiationService.invokeFunction(accessor => accessor.get(ITerminalService));
+	const instance = await terminalService.createTerminal({
+		config: { name: 'OpenPolvo: git init', hideFromUser: true },
+		cwd: projectRootUri,
+	});
+	await instance.sendText('git init', true);
+}
+
+export async function runDevProjectBuildInTerminal(
+	instantiationService: IInstantiationService,
+	fileService: IFileService,
+	workspaceFolderUri: URI,
+	projectRootRel?: string,
+): Promise<boolean> {
+	const rel = normalizeDevRelativePath(projectRootRel ?? '');
+	const projectRootUri = rel
+		? URI.joinPath(workspaceFolderUri, ...rel.split('/').filter(Boolean))
+		: workspaceFolderUri;
+	const layout = await detectProjectLayout(fileService, projectRootUri);
+	const commands: string[] = [];
+	if (layout.hasRootNode) {
+		commands.push('npm install --no-audit --no-fund');
+		commands.push('npx tsc --noEmit --pretty false');
+	} else if (layout.hasFrontendNode) {
+		commands.push('npm install --no-audit --no-fund --prefix frontend');
+		commands.push('npm exec --prefix frontend tsc -- --noEmit --pretty false');
+	} else if (layout.hasRootGo || layout.hasBackendGo) {
+		commands.push(layout.hasBackendGo ? 'go -C backend build ./...' : 'go build ./...');
+	}
+	if (commands.length === 0) {
+		return false;
+	}
+	const { ITerminalService } = await import('../../terminal/browser/terminal.js');
+	const terminalService = instantiationService.invokeFunction(accessor => accessor.get(ITerminalService));
+	const instance = await terminalService.createTerminal({
+		config: { name: 'OpenPolvo: build' },
+		cwd: projectRootUri,
+	});
+	terminalService.setActiveInstance(instance);
+	await terminalService.focusInstance(instance);
+	await instance.sendText(commands.join('\n'), true);
+	return true;
+}
+
 /** Adiciona a pasta do projecto ao workspace (se necessário) e revela no Explorer. */
 export async function openPolvoProjectFolderInExplorer(
 	fileService: IFileService,

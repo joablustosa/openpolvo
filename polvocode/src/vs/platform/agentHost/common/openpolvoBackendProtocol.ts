@@ -36,6 +36,7 @@ export const OfficialRoutes = {
 	workflowsTemplates: '/v1/workflows/templates',
 	workflowRun: (id: string) => `/v1/workflows/${id}/run`,
 	workflowRuns: (id: string) => `/v1/workflows/${id}/runs`,
+	healthz: '/healthz',
 } as const;
 
 // ── Tipos do contrato ────────────────────────────────────────────────────────
@@ -432,4 +433,59 @@ export async function performOpenPolvoLocalLogin(
 		throw new Error('OpenPolvo local login failed: missing access_token');
 	}
 	return body.access_token;
+}
+
+/** Indica erro de rede típico (backend ainda a arrancar ou terminal parado). */
+export function isOpenPolvoConnectionError(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err);
+	return /failed to fetch|econnrefused|sem ligação|indisponível|connection refused|impossível conectar|network error|fetch failed/i.test(message);
+}
+
+/** Mensagem amigável para falhas de ligação ao backend Go. */
+export function formatOpenPolvoConnectionError(err: unknown, baseUrl: string): string {
+	const message = err instanceof Error ? err.message : String(err);
+	const lower = message.toLowerCase();
+	if (
+		lower.includes('failed to fetch')
+		|| lower.includes('econnrefused')
+		|| lower.includes('network')
+		|| lower.includes('impossível conectar')
+		|| lower.includes('connection refused')
+		|| lower.includes('fetch failed')
+	) {
+		return `sem ligação ao backend em ${baseUrl} — verifique o terminal "OpenPolvo: Backend"`;
+	}
+	if (lower.includes('timeout')) {
+		return 'tempo esgotado à espera do backend (o modelo pode demorar; tente novamente)';
+	}
+	return message;
+}
+
+/** Poll em `/healthz` até o backend Go responder (arranque dev no terminal integrado). */
+export async function waitForOpenPolvoBackend(
+	baseUrl: string,
+	ping: (healthUrl: string) => Promise<boolean>,
+	options?: { maxWaitMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> },
+): Promise<void> {
+	const maxWaitMs = options?.maxWaitMs ?? 45_000;
+	const intervalMs = options?.intervalMs ?? 1_500;
+	const sleep = options?.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+	const healthUrl = `${baseUrl.replace(/\/$/, '')}${OfficialRoutes.healthz}`;
+	const deadline = Date.now() + maxWaitMs;
+	let lastError = '';
+	while (Date.now() < deadline) {
+		try {
+			if (await ping(healthUrl)) {
+				return;
+			}
+			lastError = 'HTTP not ok';
+		} catch (err) {
+			lastError = err instanceof Error ? err.message : String(err);
+		}
+		await sleep(intervalMs);
+	}
+	throw new Error(
+		`Backend OpenPolvo indisponível em ${baseUrl} (${lastError || 'sem resposta'}). `
+		+ 'Confirme que o terminal "OpenPolvo: Backend" está a correr.',
+	);
 }
