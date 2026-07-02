@@ -12,6 +12,7 @@ import './openPolvoModelPicker.js';
 import './openpolvo.config.contribution.js';
 import './openPolvoWorkbenchApiService.js';
 import './openPolvoAuth.js';
+import './openPolvoDeskSession.js';
 import './openPolvoAgentHostAuthContribution.js';
 import './openPolvoDevExplorerContribution.js';
 import './openPolvoDevAgentPanel.js';

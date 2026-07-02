@@ -5,19 +5,24 @@
 
 import { timeout } from '../../../../base/common/async.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import {
 	isOpenPolvoAuthEnabled as isOpenPolvoAuthEnabledFromConfig,
+	OPENPOLVO_SIGN_IN_COMMAND_ID,
+	OpenPolvoApiTokenSettingId,
 	resolveOpenPolvoLocalCredentials,
 } from '../../../../platform/agentHost/common/openpolvoConfiguration.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAgentHostService } from '../../../../platform/agentHost/common/agentService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IOpenPolvoWorkbenchApiService } from './openPolvoWorkbenchApiService.js';
-import { OpenPolvoApiTokenSettingId } from '../common/openpolvoConfiguration.js';
 import { syncOpenPolvoTokenToAgentHost } from './openPolvoAgentHostAuth.js';
+import { applyOpenPolvoDeskSession, readOpenPolvoSignedIn } from './openPolvoDeskSession.js';
+import { IChatEntitlementService } from '../../../services/chat/common/chatEntitlementService.js';
 
 export const IOpenPolvoSignInService = createDecorator<IOpenPolvoSignInService>('openPolvoSignInService');
 
@@ -50,6 +55,7 @@ export class OpenPolvoSignInService extends Disposable implements IOpenPolvoSign
 		@ILogService private readonly logService: ILogService,
 		@IOpenPolvoWorkbenchApiService private readonly apiService: IOpenPolvoWorkbenchApiService,
 		@IAgentHostService private readonly agentHostService: IAgentHostService,
+		@IChatEntitlementService private readonly chatEntitlementService: IChatEntitlementService,
 	) {
 		super();
 	}
@@ -69,6 +75,9 @@ export class OpenPolvoSignInService extends Disposable implements IOpenPolvoSign
 		}
 		if (this.isSignedIn()) {
 			await syncOpenPolvoTokenToAgentHost(this.configurationService, this.agentHostService, this.logService);
+			if (readOpenPolvoSignedIn(this.configurationService)) {
+				applyOpenPolvoDeskSession(this.configurationService, this.chatEntitlementService, undefined, this.logService);
+			}
 			return true;
 		}
 		if (this.loginInFlight) {
@@ -85,7 +94,7 @@ export class OpenPolvoSignInService extends Disposable implements IOpenPolvoSign
 		if (!this.isEnabled()) {
 			return true;
 		}
-		await this.configurationService.updateValue(OpenPolvoApiTokenSettingId, '');
+		await this.configurationService.updateValue(OpenPolvoApiTokenSettingId, '', ConfigurationTarget.USER);
 		this.loginInFlight = undefined;
 		return this.doSilentLogin();
 	}
@@ -100,7 +109,11 @@ export class OpenPolvoSignInService extends Disposable implements IOpenPolvoSign
 		for (let attempt = 1; attempt <= AUTO_LOGIN_MAX_ATTEMPTS; attempt++) {
 			try {
 				await this.apiService.login(email, password);
+				if (!this.isSignedIn()) {
+					throw new Error('token not persisted after login');
+				}
 				await syncOpenPolvoTokenToAgentHost(this.configurationService, this.agentHostService, this.logService);
+				applyOpenPolvoDeskSession(this.configurationService, this.chatEntitlementService, undefined, this.logService);
 				this.logService.info('[OpenPolvo] Login local automático concluído');
 				return true;
 			} catch (err) {
@@ -119,6 +132,20 @@ export class OpenPolvoSignInService extends Disposable implements IOpenPolvoSign
 }
 
 registerSingleton(IOpenPolvoSignInService, OpenPolvoSignInService, InstantiationType.Delayed);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: OPENPOLVO_SIGN_IN_COMMAND_ID,
+			title: 'OpenPolvo Sign In',
+			f1: false,
+		});
+	}
+
+	override run(accessor: ServicesAccessor): Promise<boolean> {
+		return accessor.get(IOpenPolvoSignInService).ensureSignedIn();
+	}
+});
 
 /**
  * No arranque do workbench autentica silenciosamente com o admin local do backend,
@@ -141,4 +168,4 @@ export class OpenPolvoLocalAutoAuthContribution extends Disposable implements IW
 	}
 }
 
-registerWorkbenchContribution2(OpenPolvoLocalAutoAuthContribution.ID, OpenPolvoLocalAutoAuthContribution, WorkbenchPhase.AfterRestored);
+registerWorkbenchContribution2(OpenPolvoLocalAutoAuthContribution.ID, OpenPolvoLocalAutoAuthContribution, WorkbenchPhase.BlockRestore);

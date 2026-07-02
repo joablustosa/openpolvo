@@ -8,7 +8,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IRequestService, asJson, type IRequestOptions } from '../../../../platform/request/common/request.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -457,7 +457,7 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 	async login(email: string, password: string): Promise<void> {
 		const token = await this.requestLogin(email, password);
 		this._token = token;
-		await this.configurationService.updateValue(OpenPolvoApiTokenSettingId, token);
+		await this.configurationService.updateValue(OpenPolvoApiTokenSettingId, token, ConfigurationTarget.USER);
 	}
 
 	async register(email: string, password: string, name?: string): Promise<void> {
@@ -760,6 +760,8 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		const ok = await this.instantiationService.invokeFunction(accessor =>
 			accessor.get(IOpenPolvoSignInService).ensureSignedIn()
 		);
+		const token = this.configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
+		this._token = token?.trim() || undefined;
 		if (!ok || !this._token) {
 			throw new Error('OpenPolvo auto-login failed');
 		}

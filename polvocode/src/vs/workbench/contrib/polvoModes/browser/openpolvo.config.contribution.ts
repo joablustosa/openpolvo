@@ -78,6 +78,7 @@ configurationRegistry.registerDefaultConfigurations([{
 		[ChatConfiguration.EditorDefaultProvider]: 'openpolvoAh',
 		[ChatConfiguration.EditorLocalAgentEnabled]: false,
 		[ChatConfiguration.TitleBarSignInEnabled]: false,
+		[ChatConfiguration.AIDisabled]: false,
 		[OpenPolvoAgentEnabledSettingId]: true,
 		[OpenPolvoApiBaseUrlSettingId]: OFFICIAL_API_DEFAULT_BASE_URL,
 	},

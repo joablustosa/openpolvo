@@ -26,7 +26,7 @@ import { ILanguageModelsService } from '../../../common/languageModels.js';
 import { Target } from '../../../common/promptSyntax/promptTypes.js';
 import { AgentCustomizationItemProvider } from './agentCustomizationItemProvider.js';
 import { authenticateProtectedResources, AgentHostAuthTokenCache, resolveAuthenticationInteractively } from './agentHostAuth.js';
-import { resolveOpenPolvoAuthenticationInteractively, syncOpenPolvoTokenToAgentHost } from '../../../../polvoModes/browser/openPolvoAgentHostAuth.js';
+import { resolveOpenPolvoAuthenticationInteractively, syncOpenPolvoTokenToAgentHost, filterAgentsForOAuthAuthentication } from '../../../../polvoModes/browser/openPolvoAgentHostAuth.js';
 import { IOpenPolvoSignInService } from '../../../../polvoModes/browser/openPolvoAuth.js';
 import { AgentHostLanguageModelProvider, agentHostProviderSupportsAutoModel } from './agentHostLanguageModelProvider.js';
 import { AgentHostSessionHandler } from './agentHostSessionHandler.js';
@@ -306,13 +306,25 @@ export class AgentHostContribution extends Disposable implements IWorkbenchContr
 	private async _authenticateWithServer(agents: readonly AgentInfo[]): Promise<void> {
 		this._agentHostService.setAuthenticationPending(true);
 		try {
-			await syncOpenPolvoTokenToAgentHost(this._configurationService, this._agentHostService, this._logService);
+			if (this._openPolvoSignInService.isEnabled()) {
+				await this._openPolvoSignInService.ensureSignedIn();
+			}
+			await syncOpenPolvoTokenToAgentHost(
+				this._configurationService,
+				this._agentHostService,
+				this._logService,
+				this._authTokenCache,
+			);
 			const testToken = this._getScenarioAutomationToken();
 			if (testToken !== undefined) {
 				await this._seedTestToken(agents, testToken);
 				return;
 			}
-			await authenticateProtectedResources(agents, {
+			const oauthAgents = filterAgentsForOAuthAuthentication(agents, this._configurationService);
+			if (oauthAgents.length === 0) {
+				return;
+			}
+			await authenticateProtectedResources(oauthAgents, {
 				authTokenCache: this._authTokenCache,
 				authenticationService: this._authenticationService,
 				logPrefix: '[AgentHost]',
@@ -348,6 +360,7 @@ export class AgentHostContribution extends Disposable implements IWorkbenchContr
 			this._agentHostService,
 			this._logService,
 			this._openPolvoSignInService,
+			this._authTokenCache,
 		);
 		if (openPolvoResult !== undefined) {
 			return openPolvoResult;

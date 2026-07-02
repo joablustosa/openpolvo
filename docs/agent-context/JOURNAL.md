@@ -3,6 +3,75 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-02 — Fix tela preta no arranque do IDE (import em falta)
+
+**Sintoma:** Open Polvo abria com ecrã preto; workbench não carregava.
+
+**Causa:** `ReferenceError: IConfigurationService is not defined` em
+`openPolvoWorkbenchApiService.ts` — import de `ConfigurationTarget` sem
+`IConfigurationService` após alteração de auth.
+
+**Correção:** import conjunto `ConfigurationTarget, IConfigurationService`;
+`npm run transpile-client`.
+
+**Arquivos:** `polvocode/.../openPolvoWorkbenchApiService.ts`.
+
+## 2026-07-02 — UI Agents reconhece sessão OpenPolvo (sem Sign In GitHub)
+
+**Sintoma:** JWT OpenPolvo obtido mas UI continuava "Sign In" / "Agents Signed Out".
+
+**Causa:** login não actualizava `defaultAccountStatus`, `chatEntitlement` (Unknown)
+nem `resolveAccountInfo` — só GitHub conta como sessão.
+
+**Correções:** `markOpenPolvoDeskReady()` no entitlement; `openPolvoDeskSession.ts`
+força `defaultAccountStatus=available`; `resolveAccountInfo` devolve conta OpenPolvo;
+token persistido em `ConfigurationTarget.USER`; welcome/sessions salta GitHub após login.
+
+**Arquivos:** `openPolvoDeskSession.ts`, `chatEntitlementService.ts`, `accountTitleBarState.ts`,
+`openPolvoAuth.ts`, `sessionsSetUpService.ts`, `account.contribution.ts`.
+
+## 2026-07-02 — Fix login OpenPolvo: ordem auth, cache JWT, credenciais no Agent Host
+
+**Sintoma:** sign-in falhava ou pedia GitHub apesar do backend `/v1/auth/login` OK;
+logs `No token resolved for .../auth/me` mesmo com `Agent host token synced`.
+
+**Causa:** (1) `authenticateProtectedResources` tentava OAuth GitHub em recursos
+OpenPolvo (`authorization_servers: []`); (2) race — Agent Host autenticava antes do
+login; (3) credenciais `DEFAULT_ADMIN_*` não chegavam ao processo Agent Host;
+(4) `ensureAuth` não recarregava token da setting após `ensureSignedIn`.
+
+**Correções:** `ensureSignedIn` antes do sync; filtro de recursos OpenPolvo no
+passo OAuth; cache JWT actualizado no sync; `buildOpenPolvoEnv` propaga
+`OPENPOLVO_LOCAL_EMAIL/PASSWORD`; `code.bat` defaults alinhados ao backend `.env`.
+
+**Arquivos:** `openPolvoAgentHostAuth.ts`, `agentHostChatContribution.ts`,
+`openPolvoAuth.ts`, `openPolvoWorkbenchApiService.ts`, `openpolvoConfiguration.ts`,
+`sessionsSetUpService.ts`, `scripts/code.bat`.
+
+## 2026-07-02 — Auth OpenPolvo sem GitHub + fallback GPT quando Ollama offline
+
+**Sintoma:** ao criar aplicação / usar Agents, o IDE pedia sign-in GitHub/Copilot
+em vez da auth própria OpenPolvo com credenciais do `.env`.
+
+**Correções:**
+1. `chatSetupRunner.ts`: com OpenPolvo ativo usa `SetupWithOpenPolvo` e executa
+   login real via `workbench.action.openpolvo.signIn` (não `DefaultSetup` → GitHub).
+2. `openPolvoAuth.ts`: regista o comando de sign-in; auto-login em `BlockRestore`
+   (antes do welcome de sessions).
+3. `sessionsSetUpService.ts`: `ensureSignedIn()` antes do welcome; salta diálogo
+   GitHub quando login OpenPolvo OK.
+4. `openPolvoAgentHostAuth.ts`: `ensureSignedIn` em vez de `refreshSignedIn` no
+   fluxo interativo do Agent Host.
+5. `openpolvo.config.contribution.ts`: `chat.disableAIFeatures=false` por defeito.
+6. `dev-launch.ps1`: propaga `DEFAULT_ADMIN_*` do `openpolvobackend/.env` para
+   `OPENPOLVO_LOCAL_EMAIL/PASSWORD`.
+7. `models.py`: `resolve_desk_reply_provider("auto")` prefere Ollama quando
+   disponível; fallback OpenAI só quando Ollama inacessível.
+
+**Arquivos:** `polvocode/.../chatSetupRunner.ts`, `openPolvoAuth.ts`,
+`sessionsSetUpService.ts`, `openPolvoAgentHostAuth.ts`, `openpolvo.config.contribution.ts`,
+`scripts/dev-launch.ps1`, `openpolvointeligence/.../models.py`, testes.
+
 ## 2026-07-01 — Roteamento por aba: dev/agent/workflow cada uma no workflow certo
 
 **Sintoma:** mensagens da aba de desenvolvimento podiam ser "sequestradas" por

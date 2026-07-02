@@ -149,19 +149,18 @@ def resolve_desk_reply_provider(
     if mp == "google" and settings.google_api_key:
         return "google"
     if mp in ("", "auto"):
-        if settings.openai_api_key and not settings.google_api_key:
-            return "openai"
-        if settings.google_api_key and not settings.openai_api_key:
-            return "google"
-        if settings.openai_api_key:
-            return "openai"
-        if settings.google_api_key:
-            return "google"
         dc_mp = ""
         if isinstance(desk_context, dict):
             dc_mp = str(desk_context.get("model_provider") or "").strip().lower()
         if dc_mp == "ollama":
             return _fallback_if_ollama_unusable(settings, "ollama")
+        default = str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
+        if default == "ollama" and is_ollama_usable(
+            settings.ollama_base_url,
+            settings.ollama_model,
+            enabled=settings.ollama_enabled,
+        ):
+            return "ollama"
         resolved = desk_effective_provider(dc_mp or "auto", settings)
         if resolved == "ollama":
             return _fallback_if_ollama_unusable(settings, "ollama")

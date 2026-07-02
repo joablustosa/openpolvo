@@ -66,6 +66,9 @@ export function buildOpenPolvoEnv(
 	}
 	setIfMissing(OpenPolvoApiBaseUrlEnvVar, settings.baseUrl);
 	setIfMissing(OpenPolvoApiTokenEnvVar, settings.token);
+	const { email, password } = resolveOpenPolvoLocalCredentials();
+	setIfMissing(OpenPolvoLocalEmailEnvVar, email);
+	setIfMissing(OpenPolvoLocalPasswordEnvVar, password);
 	return out;
 }
 

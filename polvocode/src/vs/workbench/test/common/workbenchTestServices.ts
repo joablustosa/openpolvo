@@ -819,6 +819,7 @@ export class TestChatEntitlementService implements IChatEntitlementService {
 	clearQuotas(): void { }
 	markAnonymousRateLimited(): void { }
 	markSetupCompleted(): void { }
+	markOpenPolvoDeskReady(): void { }
 	setForceHidden(_hidden: boolean): void { }
 
 	readonly previewFeaturesDisabled = false;

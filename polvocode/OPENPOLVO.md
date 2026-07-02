@@ -4,30 +4,29 @@ IDE baseada no VS Code com modos **Agente**, **Workflow** e **Code**, integrada 
 
 ## Início rápido (dev local)
 
+**Pré-requisitos:** Node 24.x (`.nvmrc`), VS Build Tools 2022 (C++). Em Windows sem libs Spectre, o script `rebuild-natives.ps1` aplica patch automático.
+
 ```powershell
-# 1. Intelligence (terminal 1)
-cd openpolvointeligence
-uv run uvicorn openpolvointeligence.api.app:app --host 127.0.0.1 --port 8090
-
-# 2. Backend Go (terminal 2)
-cd openpolvobackend
-go run ./cmd/openlaele-api
-# HTTP_ADDR=:8081
-
-# 3. polvocode (terminal 3)
+# Setup (uma vez, ou após mudar package-lock.json)
 cd polvocode
-npm install
-npm run transpile-client
+powershell -ExecutionPolicy Bypass -File scripts/setup-dev.ps1
 
-$env:OPENPOLVO_API_BASE_URL = "http://127.0.0.1:8081"
-$env:OPENPOLVO_AGENT_ENABLED = "true"
-$env:NODE_ENV = "development"
-$env:VSCODE_DEV = "1"
-# Lançar Electron — ver scripts/code.bat ou electron em .build/electron após prelaunch
-.\scripts\code.bat
+# Arranque da IDE (com backend em :8081 e intelligence em :8090)
+powershell -ExecutionPolicy Bypass -File scripts/dev-launch.ps1
+
+# Dev com recompilação contínua (terminal separado)
+npm run watch
 ```
 
-Se `code.bat` falhar por falta de Windows SDK no branding do Electron, extrair o binário do cache e lançar `electron.exe` com `cwd` em `polvocode/` (ver notas em `MIGRATION.md`).
+| Script | Função |
+|--------|--------|
+| `scripts/setup-dev.ps1` | `npm ci` + postinstall + transpile + nativos |
+| `scripts/dev-launch.ps1` | Lança `Open Polvo.exe` com env OpenPolvo |
+| `scripts/rebuild-natives.ps1` | Recompila `.node` para Electron (Windows) |
+| `scripts/install-vs-spectre.ps1` | Instala libs Spectre (Admin, opcional) |
+| `scripts/code.bat` | Launcher upstream VS Code OSS |
+
+**Troubleshooting Windows:** se `npm install` falhar com EBUSY em `@playwright`, feche outros processos no `polvocode` e repita o setup. Se MSB8040 (Spectre), execute `rebuild-natives.ps1` ou `install-vs-spectre.ps1` como Administrador.
 
 ## Primeiro uso
 
