@@ -27,6 +27,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Agente: edição cirúrgica de ficheiros** — o agente da aba Agent ganhou
+  `filesystem_edit` (substitui um trecho único do ficheiro) e `filesystem_multi_edit`
+  (várias edições atómicas — se uma falhar, nenhuma é aplicada), como no Claude Code.
+  Alterações deixam de exigir reescrita total do ficheiro; erros orientam o modelo
+  (trecho não encontrado / ambíguo). Funciona no serviço local e no cliente Electron.
 - **Automações: nó HTTP + tentativas (retry) por passo** — novo nó "http" para chamar
   APIs (GET/POST/…, cabeçalhos e corpo, com substituição de `{{output:…}}` e proteção
   contra SSRF). Passos de rede (http, pesquisa web, e-mail) podem repetir automaticamente

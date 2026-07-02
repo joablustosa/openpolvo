@@ -93,6 +93,30 @@ com LLM off: contexto em ~0s, erro claro no chat, done em 8,8s (antes: travava).
 em vez de falhar o workflow; `npm install` do dependency agent respeita o timeout de
 120s — projetos grandes dependem do post-setup do frontend (terminal real).
 
+## 2026-07-02 — Agente Geral: edição cirúrgica de ficheiros (edit / multi-edit)
+
+**O quê:** O agente Desk (aba Agent) ganhou `filesystem_edit` (substituição old→new com
+old_text **único** no ficheiro, semântica Claude Code) e `filesystem_multi_edit`
+(várias edições em ordem, **atómico**: se alguma falhar, nenhuma é aplicada). Antes só
+havia `filesystem_write` (reescrita total) — o LLM tinha de reenviar o ficheiro inteiro.
+
+**Implementação (dois lados do bridge):**
+- Intelligence (`desk_tool_logic.py`): helper puro `apply_unique_edits` + `_edit_file_local`
+  (sandbox `resolve_under_workspace`, guards de tamanho, erros acionáveis
+  `old_text_not_found`/`old_text_ambiguous` com hint) + schemas + StructuredTools +
+  cases em `execute_tool_local`. Prompt `desk_agent_system.md` orienta: edit p/ alterar,
+  write só p/ criar/reescrever.
+- Cliente Electron (`deskToolRunner.ts`): cases `filesystem_edit`/`filesystem_multi_edit`
+  com a mesma semântica (único + atómico), para o caminho bridge.
+
+**Mantido:** read/write/list e todas as outras tools intactas (aditivo).
+
+**Portão:** ruff OK; `tests/test_desk_fs_edit.py` = 11 testes (lógica pura, disco,
+atomicidade, traversal, registo). Suíte: 464 passed. ⚠️ **9 falhas pré-existentes** em
+`test_models_provider_resolution.py`/`test_provider_anthropic.py` vindas do commit
+`06f0be7b` da main (fix de quota mudou `resolve_chat_provider` sem atualizar os testes)
+— não relacionadas; a corrigir em separado.
+
 ## 2026-07-01 — Automações P1 (parte 1): nó HTTP + retry por passo
 
 **O quê (engine Go, `internal/workflows`):**

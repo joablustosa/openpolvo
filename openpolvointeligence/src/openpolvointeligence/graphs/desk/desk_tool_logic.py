@@ -129,6 +129,78 @@ def _write_file_local(workspace_path: str, rel_path: str, content: str) -> dict[
         return {"ok": False, "error": str(exc)}
 
 
+def apply_unique_edits(
+    content: str,
+    edits: list[dict[str, Any]],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Aplica edições old_text→new_text em sequência, todas-ou-nenhuma.
+
+    Cada old_text tem de ser único no conteúdo corrente (mesma semântica do Edit
+    do Claude Code). Devolve (novo_conteudo, None) ou (None, erro).
+    """
+    if not edits:
+        return None, {"ok": False, "error": "empty_edits", "hint": "fornece pelo menos uma edição"}
+    working = content
+    for i, e in enumerate(edits):
+        old = str(e.get("old_text") or "")
+        new = str(e.get("new_text") or "")
+        if not old:
+            return None, {
+                "ok": False,
+                "error": "empty_old_text",
+                "hint": f"edição {i}: old_text vazio",
+            }
+        count = working.count(old)
+        if count == 0:
+            return None, {
+                "ok": False,
+                "error": "old_text_not_found",
+                "hint": f"edição {i}: o trecho não existe no ficheiro — relê o ficheiro primeiro",
+            }
+        if count > 1:
+            return None, {
+                "ok": False,
+                "error": "old_text_ambiguous",
+                "hint": (
+                    f"edição {i}: {count} ocorrências — inclui mais linhas de contexto "
+                    "no old_text para o tornar único"
+                ),
+            }
+        working = working.replace(old, new, 1)
+    return working, None
+
+
+def _edit_file_local(
+    workspace_path: str,
+    rel_path: str,
+    edits: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Edição cirúrgica em disco: lê, aplica edições únicas (atómico) e grava."""
+    try:
+        target = resolve_under_workspace(workspace_path, rel_path)
+    except (PathTraversalError, ValueError) as exc:
+        return {"ok": False, "error": str(exc)}
+    if not target.is_file():
+        return {"ok": False, "error": "not_a_file", "hint": "usa filesystem_write para criar"}
+    try:
+        if target.stat().st_size > MAX_READ_BYTES:
+            return {"ok": False, "error": "file_too_large"}
+        content = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    updated, err = apply_unique_edits(content, edits)
+    if err is not None:
+        return err
+    assert updated is not None
+    if len(updated.encode("utf-8")) > MAX_WRITE_BYTES:
+        return {"ok": False, "error": "content_too_large"}
+    try:
+        target.write_text(updated, encoding="utf-8")
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "output": f"{len(edits)} edição(ões) aplicada(s) em {rel_path}"}
+
+
 def _terminal_denied(command: str) -> bool:
     return any(p.search(command) for p in TERMINAL_DENY_PATTERNS)
 
@@ -258,6 +330,18 @@ def execute_tool_local(
         rel = str(args.get("rel_path") or args.get("path") or "")
         content = str(args.get("content") or "")
         return _write_file_local(wp, rel, content)
+    if name == "filesystem_edit":
+        rel = str(args.get("rel_path") or args.get("path") or "")
+        edit = {
+            "old_text": str(args.get("old_text") or ""),
+            "new_text": str(args.get("new_text") or ""),
+        }
+        return _edit_file_local(wp, rel, [edit])
+    if name == "filesystem_multi_edit":
+        rel = str(args.get("rel_path") or args.get("path") or "")
+        raw_edits = args.get("edits")
+        edits = [e for e in raw_edits if isinstance(e, dict)] if isinstance(raw_edits, list) else []
+        return _edit_file_local(wp, rel, edits)
     if name == "terminal_run":
         timeout_s = float(
             getattr(settings, "dev_workflow_terminal_timeout_s", 0) or TERMINAL_TIMEOUT_S,
@@ -310,6 +394,24 @@ class FsReadArgs(BaseModel):
 class FsWriteArgs(BaseModel):
     rel_path: str = Field(description="Caminho relativo do ficheiro")
     content: str = Field(description="Conteúdo UTF-8 a escrever")
+
+
+class FsEditArgs(BaseModel):
+    rel_path: str = Field(description="Caminho relativo do ficheiro existente")
+    old_text: str = Field(description="Trecho exacto a substituir (tem de ser único no ficheiro)")
+    new_text: str = Field(description="Novo trecho")
+
+
+class FsEditOp(BaseModel):
+    old_text: str = Field(description="Trecho exacto a substituir (único no ficheiro)")
+    new_text: str = Field(description="Novo trecho")
+
+
+class FsMultiEditArgs(BaseModel):
+    rel_path: str = Field(description="Caminho relativo do ficheiro existente")
+    edits: list[FsEditOp] = Field(
+        description="Edições aplicadas em ordem; se alguma falhar, nenhuma é aplicada"
+    )
 
 
 class TerminalRunArgs(BaseModel):
@@ -413,8 +515,35 @@ def desk_langchain_tools(settings: Settings | None = None) -> list[StructuredToo
                 content=content,
             ),
             name="filesystem_write",
-            description="Escreve conteúdo num ficheiro relativo ao workspace.",
+            description=(
+                "Cria um ficheiro novo ou reescreve-o por completo. Para alterar um "
+                "ficheiro existente prefere filesystem_edit (edição cirúrgica)."
+            ),
             args_schema=FsWriteArgs,
+        ),
+        StructuredTool.from_function(
+            func=lambda rel_path, old_text, new_text: _stub_tool(
+                "filesystem_edit", rel_path=rel_path, old_text=old_text, new_text=new_text
+            ),
+            name="filesystem_edit",
+            description=(
+                "Edição cirúrgica: substitui old_text por new_text num ficheiro existente. "
+                "old_text tem de ser único no ficheiro (erro se ambíguo — inclui mais contexto). "
+                "Preferido a filesystem_write para alterar ficheiros. Lê o ficheiro antes de editar."
+            ),
+            args_schema=FsEditArgs,
+        ),
+        StructuredTool.from_function(
+            func=lambda rel_path, edits: _stub_tool(
+                "filesystem_multi_edit", rel_path=rel_path, edits=edits
+            ),
+            name="filesystem_multi_edit",
+            description=(
+                "Aplica várias edições cirúrgicas ao mesmo ficheiro, em ordem e de forma "
+                "atómica: se alguma falhar, nenhuma é aplicada. Usa para mudanças em vários "
+                "pontos do mesmo ficheiro."
+            ),
+            args_schema=FsMultiEditArgs,
         ),
         StructuredTool.from_function(
             func=lambda command: _stub_tool("terminal_run", command=command),
