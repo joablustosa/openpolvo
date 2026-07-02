@@ -38,11 +38,12 @@ import { IsAuxiliaryWindowContext } from '../../../../workbench/common/contextke
 import { IAuthenticationAccessService } from '../../../../workbench/services/authentication/browser/authenticationAccessService.js';
 import { IAuthenticationUsageService } from '../../../../workbench/services/authentication/browser/authenticationUsageService.js';
 import { IAuthenticationService } from '../../../../workbench/services/authentication/common/authentication.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { CHAT_SETUP_ACTION_ID } from '../../../../workbench/contrib/chat/browser/actions/chatActions.js';
 import { ChatSetupStrategy } from '../../../../workbench/contrib/chat/browser/chatSetup/chatSetup.js';
 import { isOpenPolvoAuthEnabled } from '../../../../platform/agentHost/common/openpolvoConfiguration.js';
+import { IOpenPolvoSignInService } from '../../../../workbench/contrib/polvoModes/browser/openPolvoAuth.js';
 import { IChatDashboardService } from '../../../browser/chatDashboardService.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 
@@ -86,16 +87,19 @@ registerAction2(class extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const configurationService = accessor.get(IConfigurationService);
 		const commandService = accessor.get(ICommandService);
-		const defaultAccountService = accessor.get(IDefaultAccountService);
+		const signInService = accessor.get(IOpenPolvoSignInService);
 
 		if (isOpenPolvoAuthEnabled(configurationService)) {
-			await commandService.executeCommand(CHAT_SETUP_ACTION_ID, undefined, {
-				setupStrategy: ChatSetupStrategy.SetupWithOpenPolvo,
-				forceSignInDialog: true,
-			});
+			const ok = await signInService.ensureSignedIn();
+			if (!ok) {
+				await commandService.executeCommand(CHAT_SETUP_ACTION_ID, undefined, {
+					setupStrategy: ChatSetupStrategy.SetupWithOpenPolvo,
+				});
+			}
 			return;
 		}
 
+		const defaultAccountService = accessor.get(IDefaultAccountService);
 		await defaultAccountService.signIn();
 	}
 });
@@ -116,13 +120,19 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
+		const configurationService = accessor.get(IConfigurationService);
 		const defaultAccountService = accessor.get(IDefaultAccountService);
 		const dialogService = accessor.get(IDialogService);
 		const authenticationService = accessor.get(IAuthenticationService);
 		const authenticationUsageService = accessor.get(IAuthenticationUsageService);
 		const authenticationAccessService = accessor.get(IAuthenticationAccessService);
+		const signInService = accessor.get(IOpenPolvoSignInService);
+
 		const defaultAccount = await defaultAccountService.getDefaultAccount();
 		if (!defaultAccount) {
+			if (isOpenPolvoAuthEnabled(configurationService) && signInService.isSignedIn()) {
+				await configurationService.updateValue('openpolvo.api.token', '', ConfigurationTarget.USER);
+			}
 			return;
 		}
 
@@ -188,6 +198,7 @@ class TitleBarAccountWidget extends BaseActionViewItem {
 	constructor(
 		action: IAction,
 		options: IBaseActionViewItemOptions | undefined,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
 		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
 		@IMenuService private readonly menuService: IMenuService,
@@ -249,7 +260,7 @@ class TitleBarAccountWidget extends BaseActionViewItem {
 		this.isAccountLoading = true;
 		this.renderState();
 
-		const info = await resolveAccountInfo(this.defaultAccountService, this.authenticationService);
+		const info = await resolveAccountInfo(this.defaultAccountService, this.authenticationService, this.configurationService);
 		if (requestId !== this.accountRequestCounter || this._store.isDisposed) {
 			return;
 		}

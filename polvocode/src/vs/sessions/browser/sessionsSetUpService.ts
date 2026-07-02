@@ -36,12 +36,20 @@ import { MarkdownString } from '../../base/common/htmlContent.js';
 import { localize } from '../../nls.js';
 import { OpenPolvoAgentEnabledSettingId, OpenPolvoApiTokenSettingId } from '../../platform/agentHost/common/openpolvoConfiguration.js';
 import { ChatSetupStrategy } from '../../workbench/contrib/chat/browser/chatSetup/chatSetup.js';
+import { IOpenPolvoSignInService } from '../../workbench/contrib/polvoModes/browser/openPolvoAuth.js';
+import { applyOpenPolvoDeskSession } from '../../workbench/contrib/polvoModes/browser/openPolvoDeskSession.js';
 
 const AIDisabledConfig = 'chat.disableAIFeatures';
 
-function isOpenPolvoAuthenticated(configurationService: IConfigurationService): boolean {
+function isOpenPolvoAuthenticated(
+	configurationService: IConfigurationService,
+	signInService?: IOpenPolvoSignInService,
+): boolean {
 	if (configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId) === false) {
 		return false;
+	}
+	if (signInService?.isSignedIn()) {
+		return true;
 	}
 	const token = configurationService.getValue<string>(OpenPolvoApiTokenSettingId);
 	return typeof token === 'string' && token.length > 0;
@@ -98,12 +106,14 @@ class SessionsSetUpWidget extends Disposable {
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IHostService private readonly hostService: IHostService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
+		@IOpenPolvoSignInService private readonly openPolvoSignInService: IOpenPolvoSignInService,
+		@IChatEntitlementService private readonly chatEntitlementService: IChatEntitlementService,
 	) {
 		super();
-		this._start();
+		void this._start();
 	}
 
-	private _start(): void {
+	private async _start(): Promise<void> {
 		if (!this.productService.defaultChatAgent?.chatExtensionId) {
 			this.onCompleted();
 			return;
@@ -111,6 +121,17 @@ class SessionsSetUpWidget extends Disposable {
 
 		if (shouldSkipSessionsWelcome(this.environmentService)) {
 			this.onCompleted();
+			return;
+		}
+
+		if (this.configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId) !== false) {
+			const signedIn = await this.openPolvoSignInService.ensureSignedIn();
+			if (signedIn) {
+				applyOpenPolvoDeskSession(this.configurationService, this.chatEntitlementService, undefined, this.logService);
+			}
+		}
+
+		if (this._store.isDisposed) {
 			return;
 		}
 
@@ -168,7 +189,7 @@ class SessionsSetUpWidget extends Disposable {
 		if (this.dialogRef.value) {
 			return;
 		}
-		if (!initialAccount && !isOpenPolvoAuthenticated(this.configurationService)) {
+		if (!initialAccount && !isOpenPolvoAuthenticated(this.configurationService, this.openPolvoSignInService)) {
 			this._showWelcome(false);
 			return;
 		}
@@ -179,7 +200,7 @@ class SessionsSetUpWidget extends Disposable {
 
 	private _watchActiveState(signedIn: boolean): IDisposable {
 		const disposables = new DisposableStore();
-		let openPolvoSignedIn = isOpenPolvoAuthenticated(this.configurationService);
+		let openPolvoSignedIn = isOpenPolvoAuthenticated(this.configurationService, this.openPolvoSignInService);
 
 		disposables.add(this.defaultAccountService.onDidChangeDefaultAccount(account => {
 			const nowSignedIn = account !== null;
@@ -192,7 +213,7 @@ class SessionsSetUpWidget extends Disposable {
 
 		disposables.add(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(OpenPolvoApiTokenSettingId) || e.affectsConfiguration(OpenPolvoAgentEnabledSettingId)) {
-				const nowOpenPolvoSignedIn = isOpenPolvoAuthenticated(this.configurationService);
+				const nowOpenPolvoSignedIn = isOpenPolvoAuthenticated(this.configurationService, this.openPolvoSignInService);
 				if (openPolvoSignedIn && !nowOpenPolvoSignedIn && !signedIn) {
 					this.storageService.remove(WELCOME_COMPLETE_KEY, StorageScope.APPLICATION);
 					this._showWelcome(false);
@@ -283,7 +304,7 @@ class SessionsSetUpWidget extends Disposable {
 			overlay.element.classList.add('sessions-loading-dismissed');
 			this.dialogRef.value.add(disposableTimeout(() => overlay.element.remove(), 200));
 
-			if (account || isOpenPolvoAuthenticated(this.configurationService)) {
+			if (account || isOpenPolvoAuthenticated(this.configurationService, this.openPolvoSignInService)) {
 				const setupDone = await this.serviceWhenSetupDone();
 				if (this._store.isDisposed) {
 					return;
@@ -322,6 +343,17 @@ class SessionsSetUpWidget extends Disposable {
 		this.logService.info('[sessions welcome] Showing sign-in dialog');
 
 		const openPolvoEnabled = this.configurationService.getValue<boolean>(OpenPolvoAgentEnabledSettingId) !== false;
+		if (openPolvoEnabled) {
+			const signedIn = await this.openPolvoSignInService.ensureSignedIn();
+			if (signedIn) {
+				this.logService.info('[sessions welcome] OpenPolvo auto sign-in succeeded, skipping GitHub dialog');
+				applyOpenPolvoDeskSession(this.configurationService, this.chatEntitlementService, undefined, this.logService);
+				this.storageService.store(WELCOME_COMPLETE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
+				this.serviceMarkDone();
+				return;
+			}
+		}
+
 		const setupOptions = {
 			forceSignInDialog: true,
 			dialogIcon: Codicon.agent,

@@ -46,6 +46,9 @@
 ### Tools locais
 - Filesystem (path-traversal guard), terminal (denylist + timeout + confirmação no cliente),
   git local, code_executor, dependency, migration.
+- ✅ **Edição cirúrgica no agente Desk** (2026-07-02): `filesystem_edit` (old_text único)
+  e `filesystem_multi_edit` (atómico), nos dois lados do bridge (Intelligence local +
+  Electron `deskToolRunner`). Semântica Claude Code; write só p/ criar/reescrever.
 
 ### Multi-provider (llama local + keys)
 - OpenAI, Google, Anthropic, **Ollama** com fallback resiliente (`models.py`).

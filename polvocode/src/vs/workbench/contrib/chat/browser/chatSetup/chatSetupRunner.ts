@@ -122,8 +122,8 @@ export class ChatSetup {
 		} else if (options?.forceAnonymous === ChatSetupAnonymous.EnabledWithoutDialog) {
 			setupStrategy = ChatSetupStrategy.DefaultSetup; // anonymous setup without a dialog
 		} else if (isOpenPolvoAuthEnabled(this.configurationService)) {
-			// Desk local: login automático no arranque; não mostrar diálogo de sign-in.
-			setupStrategy = ChatSetupStrategy.DefaultSetup;
+			// Desk local: login automático OpenPolvo — sem GitHub/Copilot.
+			setupStrategy = ChatSetupStrategy.SetupWithOpenPolvo;
 		} else {
 			setupStrategy = await this.showDialog(options);
 		}
@@ -158,7 +158,7 @@ export class ChatSetup {
 					success = await this.controller.value.setupWithProvider({ useEnterpriseProvider: false, useSocialProvider: 'google', additionalScopes: options?.additionalScopes, forceAnonymous: options?.forceAnonymous });
 					break;
 				case ChatSetupStrategy.SetupWithOpenPolvo:
-					success = true;
+					success = await this.commandService.executeCommand<boolean>(OPENPOLVO_SIGN_IN_COMMAND_ID) ?? false;
 					break;
 				case ChatSetupStrategy.DefaultSetup:
 					success = await this.controller.value.setup({ ...options, forceAnonymous: options?.forceAnonymous });

@@ -208,6 +208,12 @@ export interface IChatEntitlementService {
 	markSetupCompleted(): void;
 
 	/**
+	 * Sessão local OpenPolvo (sem GitHub): marca setup concluído e entitlement Free
+	 * para que a UI de Agents não mostre "Sign In" / "Agents Signed Out".
+	 */
+	markOpenPolvoDeskReady(): void;
+
+	/**
 	 * Force the hidden state on or off, overriding the normal entitlement logic.
 	 * Used by the account policy gate to hide all AI features when the gate is
 	 * active and unsatisfied.
@@ -679,6 +685,16 @@ export class ChatEntitlementService extends Disposable implements IChatEntitleme
 
 	markSetupCompleted(): void {
 		this.context?.value.update({ completed: true });
+	}
+
+	markOpenPolvoDeskReady(): void {
+		void this.context?.value.update({ completed: true });
+		void this.context?.value.update({
+			entitlement: ChatEntitlement.Free,
+			organisations: undefined,
+			sku: undefined,
+			copilotTrackingId: undefined,
+		});
 	}
 
 	setForceHidden(hidden: boolean): void {

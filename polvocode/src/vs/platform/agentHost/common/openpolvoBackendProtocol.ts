@@ -33,7 +33,9 @@ export const OfficialRoutes = {
 	smtpTest: '/v1/me/smtp/test',
 	workflows: '/v1/workflows',
 	workflowsGenerate: '/v1/workflows/generate',
+	workflowsTemplates: '/v1/workflows/templates',
 	workflowRun: (id: string) => `/v1/workflows/${id}/run`,
+	workflowRuns: (id: string) => `/v1/workflows/${id}/runs`,
 } as const;
 
 // ── Tipos do contrato ────────────────────────────────────────────────────────

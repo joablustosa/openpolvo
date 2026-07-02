@@ -18,6 +18,7 @@ import { HiddenItemStrategy, MenuWorkbenchToolBar } from '../../../../platform/a
 import { IMenuService } from '../../../../platform/actions/common/actions.js';
 import { fillInActionBarActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IAuthenticationService } from '../../../../workbench/services/authentication/common/authentication.js';
 import { ISessionsService } from '../../../services/sessions/browser/sessionsService.js';
@@ -105,6 +106,7 @@ export class MobileTitlebarPart extends Disposable {
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
 		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IChatEntitlementService private readonly chatEntitlementService: ChatEntitlementService,
 		@IMenuService private readonly menuService: IMenuService,
 		@IChatDashboardService private readonly chatDashboardService: IChatDashboardService,
@@ -314,7 +316,7 @@ export class MobileTitlebarPart extends Disposable {
 		this.isAccountLoading = true;
 		this.renderAccountState();
 
-		const info = await resolveAccountInfo(this.defaultAccountService, this.authenticationService);
+		const info = await resolveAccountInfo(this.defaultAccountService, this.authenticationService, this.configurationService);
 		if (requestId !== this.accountRequestCounter || this._store.isDisposed) {
 			return;
 		}

@@ -9,6 +9,8 @@ import { localize } from '../../nls.js';
 import { ChatEntitlement, IChatSentiment, IQuotaSnapshot } from '../../workbench/services/chat/common/chatEntitlementService.js';
 import { IDefaultAccountService } from '../../platform/defaultAccount/common/defaultAccount.js';
 import { IAuthenticationService } from '../../workbench/services/authentication/common/authentication.js';
+import { IConfigurationService } from '../../platform/configuration/common/configuration.js';
+import { resolveOpenPolvoAccountInfo } from '../../workbench/contrib/polvoModes/browser/openPolvoDeskSession.js';
 
 export interface IResolvedAccountInfo {
 	readonly accountName: string;
@@ -25,6 +27,7 @@ export interface IResolvedAccountInfo {
 export async function resolveAccountInfo(
 	defaultAccountService: IDefaultAccountService,
 	authenticationService: IAuthenticationService,
+	configurationService?: IConfigurationService,
 ): Promise<IResolvedAccountInfo | undefined> {
 	const account = await defaultAccountService.getDefaultAccount();
 	if (account) {
@@ -33,6 +36,13 @@ export async function resolveAccountInfo(
 			accountProviderId: account.authenticationProvider.id,
 			accountProviderLabel: account.authenticationProvider.name,
 		};
+	}
+
+	if (configurationService) {
+		const openPolvo = resolveOpenPolvoAccountInfo(configurationService);
+		if (openPolvo) {
+			return openPolvo;
+		}
 	}
 
 	try {

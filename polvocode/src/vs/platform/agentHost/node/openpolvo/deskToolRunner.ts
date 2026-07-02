@@ -81,6 +81,40 @@ export async function runDeskTool(
 				await fs.writeFile(target, argString(args, 'content'), 'utf8');
 				return { ok: true };
 			}
+			case 'filesystem_edit':
+			case 'filesystem_multi_edit': {
+				const rel = argString(args, 'rel_path', 'path');
+				const target = safeResolve(wp, rel);
+				if (!target) {
+					return { ok: false, error: 'invalid_path' };
+				}
+				const edits: { old_text: string; new_text: string }[] = call.tool === 'filesystem_edit'
+					? [{ old_text: argString(args, 'old_text'), new_text: argString(args, 'new_text') }]
+					: (Array.isArray(args.edits) ? args.edits : [])
+						.filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
+						.map(e => ({ old_text: String(e.old_text ?? ''), new_text: String(e.new_text ?? '') }));
+				if (!edits.length) {
+					return { ok: false, error: 'empty_edits' };
+				}
+				let working = await fs.readFile(target, 'utf8');
+				// Todas-ou-nenhuma: cada old_text tem de ser único no conteúdo corrente.
+				for (let i = 0; i < edits.length; i++) {
+					const { old_text, new_text } = edits[i];
+					if (!old_text) {
+						return { ok: false, error: 'empty_old_text', hint: `edição ${i}` };
+					}
+					const first = working.indexOf(old_text);
+					if (first === -1) {
+						return { ok: false, error: 'old_text_not_found', hint: `edição ${i}: relê o ficheiro primeiro` };
+					}
+					if (working.indexOf(old_text, first + 1) !== -1) {
+						return { ok: false, error: 'old_text_ambiguous', hint: `edição ${i}: inclui mais contexto para tornar único` };
+					}
+					working = working.slice(0, first) + new_text + working.slice(first + old_text.length);
+				}
+				await fs.writeFile(target, working, 'utf8');
+				return { ok: true, output: `${edits.length} edição(ões) aplicada(s) em ${rel}` };
+			}
 			case 'terminal_run': {
 				const command = argString(args, 'command');
 				if (!command.trim()) {

@@ -57,6 +57,16 @@ type NodeData struct {
 	WhatsAppTo    string `json:"whatsapp_to,omitempty"`    // E.164 ou ID aceite pela API Meta
 	YoutubeFormat string `json:"youtube_format,omitempty"` // short | long
 	PostsPerDay   int    `json:"posts_per_day,omitempty"`  // metadado (UI); o cron define a cadência real
+	// Nó "http": pedido HTTP a uma API pública. Method (GET por omissão), Headers e Body.
+	// URL/Body/valores de Headers suportam {{previous}} e {{output:ID}}. A saída (corpo da
+	// resposta, truncada) é guardada para {{output:ID}} nos nós seguintes.
+	Method  string            `json:"method,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
+	// Retry por passo (nós de rede: http, web_search, send_email). Retries = nº de
+	// tentativas extra após a primeira falha; RetryDelayMs = espera entre tentativas.
+	Retries      int `json:"retries,omitempty"`
+	RetryDelayMs int `json:"retry_delay_ms,omitempty"`
 }
 
 type GraphEdge struct {

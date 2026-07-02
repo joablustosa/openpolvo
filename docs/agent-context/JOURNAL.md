@@ -3,6 +3,75 @@
 > Append-only. Uma entrada por melhoria/fix/integração/decisão. Mais recente no topo.
 > Formato: `## AAAA-MM-DD — Título` + o quê / porquê / arquivos / follow-ups.
 
+## 2026-07-02 — Fix tela preta no arranque do IDE (import em falta)
+
+**Sintoma:** Open Polvo abria com ecrã preto; workbench não carregava.
+
+**Causa:** `ReferenceError: IConfigurationService is not defined` em
+`openPolvoWorkbenchApiService.ts` — import de `ConfigurationTarget` sem
+`IConfigurationService` após alteração de auth.
+
+**Correção:** import conjunto `ConfigurationTarget, IConfigurationService`;
+`npm run transpile-client`.
+
+**Arquivos:** `polvocode/.../openPolvoWorkbenchApiService.ts`.
+
+## 2026-07-02 — UI Agents reconhece sessão OpenPolvo (sem Sign In GitHub)
+
+**Sintoma:** JWT OpenPolvo obtido mas UI continuava "Sign In" / "Agents Signed Out".
+
+**Causa:** login não actualizava `defaultAccountStatus`, `chatEntitlement` (Unknown)
+nem `resolveAccountInfo` — só GitHub conta como sessão.
+
+**Correções:** `markOpenPolvoDeskReady()` no entitlement; `openPolvoDeskSession.ts`
+força `defaultAccountStatus=available`; `resolveAccountInfo` devolve conta OpenPolvo;
+token persistido em `ConfigurationTarget.USER`; welcome/sessions salta GitHub após login.
+
+**Arquivos:** `openPolvoDeskSession.ts`, `chatEntitlementService.ts`, `accountTitleBarState.ts`,
+`openPolvoAuth.ts`, `sessionsSetUpService.ts`, `account.contribution.ts`.
+
+## 2026-07-02 — Fix login OpenPolvo: ordem auth, cache JWT, credenciais no Agent Host
+
+**Sintoma:** sign-in falhava ou pedia GitHub apesar do backend `/v1/auth/login` OK;
+logs `No token resolved for .../auth/me` mesmo com `Agent host token synced`.
+
+**Causa:** (1) `authenticateProtectedResources` tentava OAuth GitHub em recursos
+OpenPolvo (`authorization_servers: []`); (2) race — Agent Host autenticava antes do
+login; (3) credenciais `DEFAULT_ADMIN_*` não chegavam ao processo Agent Host;
+(4) `ensureAuth` não recarregava token da setting após `ensureSignedIn`.
+
+**Correções:** `ensureSignedIn` antes do sync; filtro de recursos OpenPolvo no
+passo OAuth; cache JWT actualizado no sync; `buildOpenPolvoEnv` propaga
+`OPENPOLVO_LOCAL_EMAIL/PASSWORD`; `code.bat` defaults alinhados ao backend `.env`.
+
+**Arquivos:** `openPolvoAgentHostAuth.ts`, `agentHostChatContribution.ts`,
+`openPolvoAuth.ts`, `openPolvoWorkbenchApiService.ts`, `openpolvoConfiguration.ts`,
+`sessionsSetUpService.ts`, `scripts/code.bat`.
+
+## 2026-07-02 — Auth OpenPolvo sem GitHub + fallback GPT quando Ollama offline
+
+**Sintoma:** ao criar aplicação / usar Agents, o IDE pedia sign-in GitHub/Copilot
+em vez da auth própria OpenPolvo com credenciais do `.env`.
+
+**Correções:**
+1. `chatSetupRunner.ts`: com OpenPolvo ativo usa `SetupWithOpenPolvo` e executa
+   login real via `workbench.action.openpolvo.signIn` (não `DefaultSetup` → GitHub).
+2. `openPolvoAuth.ts`: regista o comando de sign-in; auto-login em `BlockRestore`
+   (antes do welcome de sessions).
+3. `sessionsSetUpService.ts`: `ensureSignedIn()` antes do welcome; salta diálogo
+   GitHub quando login OpenPolvo OK.
+4. `openPolvoAgentHostAuth.ts`: `ensureSignedIn` em vez de `refreshSignedIn` no
+   fluxo interativo do Agent Host.
+5. `openpolvo.config.contribution.ts`: `chat.disableAIFeatures=false` por defeito.
+6. `dev-launch.ps1`: propaga `DEFAULT_ADMIN_*` do `openpolvobackend/.env` para
+   `OPENPOLVO_LOCAL_EMAIL/PASSWORD`.
+7. `models.py`: `resolve_desk_reply_provider("auto")` prefere Ollama quando
+   disponível; fallback OpenAI só quando Ollama inacessível.
+
+**Arquivos:** `polvocode/.../chatSetupRunner.ts`, `openPolvoAuth.ts`,
+`sessionsSetUpService.ts`, `openPolvoAgentHostAuth.ts`, `openpolvo.config.contribution.ts`,
+`scripts/dev-launch.ps1`, `openpolvointeligence/.../models.py`, testes.
+
 ## 2026-07-01 — Roteamento por aba: dev/agent/workflow cada uma no workflow certo
 
 **Sintoma:** mensagens da aba de desenvolvimento podiam ser "sequestradas" por
@@ -92,6 +161,79 @@ com LLM off: contexto em ~0s, erro claro no chat, done em 8,8s (antes: travava).
 **Follow-ups:** avaliar retry/fallback de provider nos agentes JSON (requirements/stack)
 em vez de falhar o workflow; `npm install` do dependency agent respeita o timeout de
 120s — projetos grandes dependem do post-setup do frontend (terminal real).
+
+## 2026-07-02 — Agente Geral: edição cirúrgica de ficheiros (edit / multi-edit)
+
+**O quê:** O agente Desk (aba Agent) ganhou `filesystem_edit` (substituição old→new com
+old_text **único** no ficheiro, semântica Claude Code) e `filesystem_multi_edit`
+(várias edições em ordem, **atómico**: se alguma falhar, nenhuma é aplicada). Antes só
+havia `filesystem_write` (reescrita total) — o LLM tinha de reenviar o ficheiro inteiro.
+
+**Implementação (dois lados do bridge):**
+- Intelligence (`desk_tool_logic.py`): helper puro `apply_unique_edits` + `_edit_file_local`
+  (sandbox `resolve_under_workspace`, guards de tamanho, erros acionáveis
+  `old_text_not_found`/`old_text_ambiguous` com hint) + schemas + StructuredTools +
+  cases em `execute_tool_local`. Prompt `desk_agent_system.md` orienta: edit p/ alterar,
+  write só p/ criar/reescrever.
+- Cliente Electron (`deskToolRunner.ts`): cases `filesystem_edit`/`filesystem_multi_edit`
+  com a mesma semântica (único + atómico), para o caminho bridge.
+
+**Mantido:** read/write/list e todas as outras tools intactas (aditivo).
+
+**Portão:** ruff OK; `tests/test_desk_fs_edit.py` = 11 testes (lógica pura, disco,
+atomicidade, traversal, registo). Suíte: 464 passed. ⚠️ **9 falhas pré-existentes** em
+`test_models_provider_resolution.py`/`test_provider_anthropic.py` vindas do commit
+`06f0be7b` da main (fix de quota mudou `resolve_chat_provider` sem atualizar os testes)
+— não relacionadas; a corrigir em separado.
+
+## 2026-07-01 — Automações P1 (parte 1): nó HTTP + retry por passo
+
+**O quê (engine Go, `internal/workflows`):**
+- **Nó HTTP (item 5):** novo tipo `http`/`http_request`. `NodeData` ganha `Method`,
+  `Headers`, `Body`. URL/body/valores de headers passam por `expandEmailTemplates`
+  (`{{previous}}`/`{{output:ID}}`). Guard SSRF `isSafePublicURL` (bloqueia loopback/privado/
+  metadata). Resposta (texto truncado) guardada em `outputs[id]`. Status ≥400 = erro.
+- **Retry por passo (item 11):** `NodeData.Retries`/`RetryDelayMs` + helper `withRetry`;
+  aplicado aos nós de rede `http`, `web_search`, `send_email`. Browser já tem timeout.
+- `doHTTPRequest` = guard + `httpRequest` (mecânica testável isolada do SSRF).
+
+**Mantido:** todos os outros nós e o executor linear intactos (mudanças aditivas; só o
+web_search/send_email ganharam o wrapper de retry, sem mudar semântica de sucesso).
+
+**Arquivos:** NOVO `engine/http_node.go` + `engine/http_node_test.go` (10 testes);
+`domain/graph.go` (campos); `engine/runner.go` (case http + wrappers de retry).
+
+**Portão:** `gofmt`/`go vet`/`go build ./...` OK; `go test ./internal/workflows/...` verde.
+
+**Falta P1 (parte 2):** condicional if/else (12) e aprovação humana (13) — arquiteturais:
+- Condicional exige **label nas arestas** (`GraphEdge.Label` "true"/"false") + skip-propagation
+  no executor (contrato do grafo muda → afeta canvas + geração NL). Cross-stack.
+- Aprovação exige **pausar/retomar** a run (hoje síncrona) → persistência de estado + endpoint
+  de retomada. Grande. Design a confirmar antes de implementar.
+
+## 2026-07-01 — Automações P0: run-now + histórico/logs + templates no frontend
+
+**O quê:** Expostas no frontend `polvoModes` capacidades que já existiam no backend.
+- **api service** (`openPolvoWorkbenchApiService.ts`): `runWorkflow`, `getWorkflowRuns`,
+  `getWorkflowTemplates`, `createWorkflowFromGraph` + DTOs (`IOpenPolvoWorkflowRun`,
+  `StepLog`, `Template`) + rotas em `OfficialRoutes` (`workflowRuns`, `workflowsTemplates`).
+- **nav view** (`polvoWorkflowNavView.ts`): menu do workflow ganha **"Executar agora"**
+  (POST /run, notifica sucesso/falha) e **"Ver execuções"** (GET /runs → quick-pick de
+  runs → passos com ok/erro/mensagem). Injetados `INotificationService`/`IQuickInputService`.
+- **Template determinístico (item 8):** o botão de exemplo passou a criar via
+  `getWorkflowTemplates` + `createWorkflowFromGraph` (grafo pronto do backend) em vez de NL.
+
+**Mantido:** composer NL, canvas, scheduler — tudo intacto (mudanças aditivas).
+
+**Escopo/limitação:** só frontend (backend já pronto); **não verificável por transpile**
+(fork VS Code sem node_modules). Símbolos-chave confirmados por inspeção
+(`loadFromBackend`, `IQuickPickItem`, notification `info/error`). `RunGraph` inicializa
+Playwright sempre → run do template sem browser falha com mensagem clara se sem Chromium.
+
+**Arquivos:** `platform/agentHost/common/openpolvoBackendProtocol.ts` (rotas),
+`polvoModes/browser/openPolvoWorkbenchApiService.ts`, `polvoModes/browser/polvoWorkflowNavView.ts`.
+
+**Follow-up:** próximo — nó HTTP (5) e retry por passo (11); depois condicional (12).
 
 ## 2026-07-01 — Streaming: front verificado (P1) + loop de dev (P2)
 

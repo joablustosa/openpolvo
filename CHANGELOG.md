@@ -27,6 +27,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Agente: edição cirúrgica de ficheiros** — o agente da aba Agent ganhou
+  `filesystem_edit` (substitui um trecho único do ficheiro) e `filesystem_multi_edit`
+  (várias edições atómicas — se uma falhar, nenhuma é aplicada), como no Claude Code.
+  Alterações deixam de exigir reescrita total do ficheiro; erros orientam o modelo
+  (trecho não encontrado / ambíguo). Funciona no serviço local e no cliente Electron.
+- **Automações: nó HTTP + tentativas (retry) por passo** — novo nó "http" para chamar
+  APIs (GET/POST/…, cabeçalhos e corpo, com substituição de `{{output:…}}` e proteção
+  contra SSRF). Passos de rede (http, pesquisa web, e-mail) podem repetir automaticamente
+  em caso de falha (campos `retries`/`retry_delay_ms` do nó).
+- **Automações: executar agora + histórico de execuções no app** — o painel de Automações
+  ganhou "Executar agora" (corre o workflow e mostra sucesso/falha) e "Ver execuções"
+  (histórico com logs por passo). O botão de exemplo passou a criar o template
+  determinístico "Pesquisa → E-mail" a partir do servidor. (Backend já existente; agora
+  exposto no frontend.)
 - **Resposta do agente em streaming token-a-token** — o agente Agent/Code Mode e o loop
   de desenvolvimento passam a enviar a resposta incrementalmente (evento `text_delta`),
   como no Claude/Cursor, com fallback automático para invocação normal quando o modelo/
