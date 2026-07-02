@@ -19,6 +19,8 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IPolvoWorkflowsService } from './polvoWorkflowsService.js';
 import { PolvoWorkflowEditorInput } from './polvoWorkflowEditorInput.js';
@@ -59,6 +61,8 @@ export class PolvoWorkflowNavView extends ViewPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IOpenPolvoWorkbenchApiService private readonly openPolvoApi: IOpenPolvoWorkbenchApiService,
 		@IOpenPolvoSignInService private readonly signInService: IOpenPolvoSignInService,
+		@INotificationService private readonly notificationService: INotificationService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 	}
@@ -247,6 +251,20 @@ export class PolvoWorkflowNavView extends ViewPane {
 					() => void this.openWorkflow(workflowId),
 				),
 				new Action(
+					'polvo.workflow.run',
+					localize('polvoRunWorkflow', "Executar agora"),
+					undefined,
+					true,
+					() => void this.runWorkflowNow(workflowId),
+				),
+				new Action(
+					'polvo.workflow.runs',
+					localize('polvoWorkflowRuns', "Ver execuções"),
+					undefined,
+					true,
+					() => void this.showWorkflowRuns(workflowId),
+				),
+				new Action(
 					'polvo.workflow.delete',
 					localize('polvoDeleteWorkflow', "Excluir"),
 					undefined,
@@ -255,6 +273,72 @@ export class PolvoWorkflowNavView extends ViewPane {
 				),
 			],
 		});
+	}
+
+	private async runWorkflowNow(workflowId: string): Promise<void> {
+		const backendId = this.workflowsService.getWorkflow(workflowId)?.backendId;
+		if (!backendId) {
+			this.notificationService.info(localize('polvoRunNeedsSync', "Guarde a automação no servidor antes de executar."));
+			return;
+		}
+		try {
+			const run = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.runWorkflow(backendId));
+			const failures = run.stepLog.filter(s => !s.ok);
+			if (run.status === 'success' && failures.length === 0) {
+				this.notificationService.info(localize('polvoRunOk', "Automação executada ({0} passos, tudo OK).", run.stepLog.length));
+			} else {
+				const detail = run.errorMessage ?? failures.map(f => `${f.type}: ${f.message ?? ''}`).join('; ');
+				this.notificationService.error(localize('polvoRunFail', "Falha na automação: {0}", detail || run.status));
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.notificationService.error(localize('polvoRunError', "Não foi possível executar: {0}", message));
+		}
+	}
+
+	private async showWorkflowRuns(workflowId: string): Promise<void> {
+		const backendId = this.workflowsService.getWorkflow(workflowId)?.backendId;
+		if (!backendId) {
+			this.notificationService.info(localize('polvoRunsNeedsSync', "Sem execuções: a automação ainda não está no servidor."));
+			return;
+		}
+		let runs;
+		try {
+			runs = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.getWorkflowRuns(backendId));
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.notificationService.error(localize('polvoRunsError', "Não foi possível carregar execuções: {0}", message));
+			return;
+		}
+		if (!runs.length) {
+			this.notificationService.info(localize('polvoRunsEmpty', "Ainda não há execuções desta automação."));
+			return;
+		}
+		const items: (IQuickPickItem & { runIndex: number })[] = runs.map((r, i) => {
+			const okCount = r.stepLog.filter(s => s.ok).length;
+			const icon = r.status === 'success' ? '$(pass)' : '$(error)';
+			return {
+				label: `${icon} ${r.status} — ${okCount}/${r.stepLog.length} passos`,
+				description: r.createdAt ?? '',
+				detail: r.errorMessage,
+				runIndex: i,
+			};
+		});
+		const picked = await this.quickInputService.pick(items, {
+			placeHolder: localize('polvoRunsPick', "Execuções (selecione para ver os passos)"),
+		});
+		if (!picked) {
+			return;
+		}
+		const run = runs[picked.runIndex];
+		const stepItems: IQuickPickItem[] = run.stepLog.map(s => ({
+			label: `${s.ok ? '$(pass)' : '$(error)'} ${s.type || s.nodeId}`,
+			detail: s.message,
+		}));
+		await this.quickInputService.pick(
+			stepItems.length ? stepItems : [{ label: localize('polvoRunNoSteps', "(sem passos registados)") }],
+			{ placeHolder: localize('polvoRunStepsPick', "Passos da execução") },
+		);
 	}
 
 	private async deleteWorkflow(workflowId: string): Promise<void> {
@@ -283,17 +367,29 @@ export class PolvoWorkflowNavView extends ViewPane {
 		await this.editorService.openEditor(new PolvoWorkflowEditorInput(workflow.resource), { pinned: true, revealIfOpened: true });
 	}
 
-	/** Preenche o composer com o prompt do exemplo Pesquisa → E-mail e cria a automação. */
+	/** Cria a automação-exemplo Pesquisa → E-mail a partir do template determinístico do backend. */
 	private async createResearchEmailExample(): Promise<void> {
-		if (!this.inputElement || this.isSending) {
+		if (this.isSending) {
 			return;
 		}
-		this.inputElement.value = localize(
-			'polvoWorkflowExamplePrompt',
-			"Todos os dias às 8h, pesquise na internet as principais notícias sobre inteligência artificial, resuma os resultados e envie um e-mail com o resumo para mim. (Ajuste o tema, o horário e o destinatário. Configure o SMTP em: OpenPolvo: Configurar SMTP.)"
-		);
-		this.autoResizeInput();
-		await this.createWorkflowFromPrompt();
+		this.setSending(true);
+		try {
+			const templates = await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.getWorkflowTemplates());
+			const tpl = templates.find(t => t.id === 'research_email') ?? templates[0];
+			if (!tpl) {
+				this.notificationService.info(localize('polvoNoTemplates', "Nenhum template disponível no servidor."));
+				return;
+			}
+			await withOpenPolvoApiAuth(this.signInService, () => this.openPolvoApi.createWorkflowFromGraph(tpl.title, tpl.graph));
+			await this.workflowsService.loadFromBackend();
+			this.notificationService.info(localize('polvoTemplateCreated', "Automação '{0}' criada. Configure o SMTP (OpenPolvo: Configurar SMTP) e o destinatário; depois use 'Executar agora'.", tpl.title));
+			this.renderList();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.notificationService.error(localize('polvoTemplateError', "Não foi possível criar o exemplo: {0}", message));
+		} finally {
+			this.setSending(false);
+		}
 	}
 
 	private async createWorkflowFromPrompt(): Promise<void> {

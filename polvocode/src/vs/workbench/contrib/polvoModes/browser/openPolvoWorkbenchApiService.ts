@@ -77,6 +77,33 @@ export interface IOpenPolvoWorkflowRecord {
 	readonly updatedAt?: string;
 }
 
+/** Log de um passo (nó) de uma execução. */
+export interface IOpenPolvoWorkflowStepLog {
+	readonly nodeId: string;
+	readonly type: string;
+	readonly ok: boolean;
+	readonly message?: string;
+}
+
+/** Execução de um workflow (DTO de `/v1/workflows/{id}/run` e `/runs`). */
+export interface IOpenPolvoWorkflowRun {
+	readonly id: string;
+	readonly workflowId: string;
+	readonly status: string;
+	readonly stepLog: IOpenPolvoWorkflowStepLog[];
+	readonly errorMessage?: string;
+	readonly createdAt?: string;
+	readonly finishedAt?: string;
+}
+
+/** Preset pronto (DTO de `/v1/workflows/templates`). */
+export interface IOpenPolvoWorkflowTemplate {
+	readonly id: string;
+	readonly title: string;
+	readonly description: string;
+	readonly graph: IOpenPolvoWorkflowGraph;
+}
+
 export interface IOpenPolvoLlmProfile {
 	readonly id: string;
 	readonly display_name: string;
@@ -163,6 +190,40 @@ function toWorkflowRecord(dto: IOfficialWorkflowDTO): IOpenPolvoWorkflowRecord {
 	};
 }
 
+interface IOfficialWorkflowStepLogDTO {
+	node_id?: string;
+	type?: string;
+	ok?: boolean;
+	message?: string;
+}
+
+interface IOfficialWorkflowRunDTO {
+	id: string;
+	workflow_id?: string;
+	status?: string;
+	step_log?: IOfficialWorkflowStepLogDTO[];
+	error_message?: string;
+	created_at?: string;
+	finished_at?: string;
+}
+
+function toWorkflowRun(dto: IOfficialWorkflowRunDTO): IOpenPolvoWorkflowRun {
+	return {
+		id: dto.id,
+		workflowId: dto.workflow_id ?? '',
+		status: dto.status ?? 'unknown',
+		stepLog: (dto.step_log ?? []).map(s => ({
+			nodeId: s.node_id ?? '',
+			type: s.type ?? '',
+			ok: Boolean(s.ok),
+			message: s.message,
+		})),
+		errorMessage: dto.error_message,
+		createdAt: dto.created_at,
+		finishedAt: dto.finished_at,
+	};
+}
+
 const BASE_MODELS: IOpenPolvoModel[] = [
 	{ id: 'auto', name: 'Automático', description: 'Routing automático (perfil/chave ou local)', provider: 'auto', configured: true },
 	{ id: 'openai', name: 'OpenAI', description: 'OpenAI (chave configurada no backend)', provider: 'openai' },
@@ -197,6 +258,10 @@ export interface IOpenPolvoWorkbenchApiService {
 	getWorkflow(id: string): Promise<IOpenPolvoWorkflowRecord | undefined>;
 	updateWorkflow(id: string, patch: { title?: string; graph?: IOpenPolvoWorkflowGraph }): Promise<IOpenPolvoWorkflowRecord>;
 	deleteWorkflow(id: string): Promise<void>;
+	createWorkflowFromGraph(title: string, graph: IOpenPolvoWorkflowGraph): Promise<IOpenPolvoWorkflowRecord>;
+	runWorkflow(id: string): Promise<IOpenPolvoWorkflowRun>;
+	getWorkflowRuns(id: string): Promise<IOpenPolvoWorkflowRun[]>;
+	getWorkflowTemplates(): Promise<IOpenPolvoWorkflowTemplate[]>;
 	listLlmProfiles(): Promise<IOpenPolvoLlmProfile[]>;
 	createLlmProfile(input: IOpenPolvoLlmProfileInput): Promise<IOpenPolvoLlmProfile>;
 	updateLlmProfile(id: string, patch: { model_id?: string; api_key?: string; display_name?: string }): Promise<IOpenPolvoLlmProfile>;
@@ -513,6 +578,66 @@ export class OpenPolvoWorkbenchApiService extends Disposable implements IOpenPol
 		if (context.res.statusCode && context.res.statusCode >= 400 && context.res.statusCode !== 404) {
 			throw new Error(`delete workflow failed (${context.res.statusCode})`);
 		}
+	}
+
+	async createWorkflowFromGraph(title: string, graph: IOpenPolvoWorkflowGraph): Promise<IOpenPolvoWorkflowRecord> {
+		const context = await this.requestAuthorized({
+			type: 'POST',
+			url: `${this.baseUrl}${OfficialRoutes.workflows}`,
+			headers: { 'Content-Type': 'application/json' },
+			data: JSON.stringify({ title, graph }),
+			callSite: 'openPolvoWorkbenchApiService.createWorkflowFromGraph',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`create workflow failed (${context.res.statusCode})`);
+		}
+		const body = await asJson<IOfficialWorkflowDTO>(context);
+		if (!body?.id) {
+			throw new Error('create workflow failed: missing id');
+		}
+		return toWorkflowRecord(body);
+	}
+
+	async runWorkflow(id: string): Promise<IOpenPolvoWorkflowRun> {
+		const context = await this.requestAuthorized({
+			type: 'POST',
+			url: `${this.baseUrl}${OfficialRoutes.workflowRun(id)}`,
+			callSite: 'openPolvoWorkbenchApiService.runWorkflow',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`run workflow failed (${context.res.statusCode})`);
+		}
+		const body = await asJson<IOfficialWorkflowRunDTO>(context);
+		if (!body?.id) {
+			throw new Error('run workflow failed: missing run');
+		}
+		return toWorkflowRun(body);
+	}
+
+	async getWorkflowRuns(id: string): Promise<IOpenPolvoWorkflowRun[]> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.workflowRuns(id)}`,
+			callSite: 'openPolvoWorkbenchApiService.getWorkflowRuns',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`list runs failed (${context.res.statusCode})`);
+		}
+		const body = (await asJson<IOfficialWorkflowRunDTO[]>(context)) ?? [];
+		return body.filter(r => r?.id).map(toWorkflowRun);
+	}
+
+	async getWorkflowTemplates(): Promise<IOpenPolvoWorkflowTemplate[]> {
+		const context = await this.requestAuthorized({
+			type: 'GET',
+			url: `${this.baseUrl}${OfficialRoutes.workflowsTemplates}`,
+			callSite: 'openPolvoWorkbenchApiService.getWorkflowTemplates',
+		});
+		if (context.res.statusCode && context.res.statusCode >= 400) {
+			throw new Error(`list templates failed (${context.res.statusCode})`);
+		}
+		const body = (await asJson<IOpenPolvoWorkflowTemplate[]>(context)) ?? [];
+		return body.filter(t => t?.id && t.graph);
 	}
 
 	async listLlmProfiles(): Promise<IOpenPolvoLlmProfile[]> {

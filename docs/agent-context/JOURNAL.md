@@ -93,6 +93,30 @@ com LLM off: contexto em ~0s, erro claro no chat, done em 8,8s (antes: travava).
 em vez de falhar o workflow; `npm install` do dependency agent respeita o timeout de
 120s — projetos grandes dependem do post-setup do frontend (terminal real).
 
+## 2026-07-01 — Automações P0: run-now + histórico/logs + templates no frontend
+
+**O quê:** Expostas no frontend `polvoModes` capacidades que já existiam no backend.
+- **api service** (`openPolvoWorkbenchApiService.ts`): `runWorkflow`, `getWorkflowRuns`,
+  `getWorkflowTemplates`, `createWorkflowFromGraph` + DTOs (`IOpenPolvoWorkflowRun`,
+  `StepLog`, `Template`) + rotas em `OfficialRoutes` (`workflowRuns`, `workflowsTemplates`).
+- **nav view** (`polvoWorkflowNavView.ts`): menu do workflow ganha **"Executar agora"**
+  (POST /run, notifica sucesso/falha) e **"Ver execuções"** (GET /runs → quick-pick de
+  runs → passos com ok/erro/mensagem). Injetados `INotificationService`/`IQuickInputService`.
+- **Template determinístico (item 8):** o botão de exemplo passou a criar via
+  `getWorkflowTemplates` + `createWorkflowFromGraph` (grafo pronto do backend) em vez de NL.
+
+**Mantido:** composer NL, canvas, scheduler — tudo intacto (mudanças aditivas).
+
+**Escopo/limitação:** só frontend (backend já pronto); **não verificável por transpile**
+(fork VS Code sem node_modules). Símbolos-chave confirmados por inspeção
+(`loadFromBackend`, `IQuickPickItem`, notification `info/error`). `RunGraph` inicializa
+Playwright sempre → run do template sem browser falha com mensagem clara se sem Chromium.
+
+**Arquivos:** `platform/agentHost/common/openpolvoBackendProtocol.ts` (rotas),
+`polvoModes/browser/openPolvoWorkbenchApiService.ts`, `polvoModes/browser/polvoWorkflowNavView.ts`.
+
+**Follow-up:** próximo — nó HTTP (5) e retry por passo (11); depois condicional (12).
+
 ## 2026-07-01 — Streaming: front verificado (P1) + loop de dev (P2)
 
 **P1 — Render do `delta` no frontend (verificado por inspeção, sem mudança):**

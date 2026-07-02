@@ -27,6 +27,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Automações: executar agora + histórico de execuções no app** — o painel de Automações
+  ganhou "Executar agora" (corre o workflow e mostra sucesso/falha) e "Ver execuções"
+  (histórico com logs por passo). O botão de exemplo passou a criar o template
+  determinístico "Pesquisa → E-mail" a partir do servidor. (Backend já existente; agora
+  exposto no frontend.)
 - **Resposta do agente em streaming token-a-token** — o agente Agent/Code Mode e o loop
   de desenvolvimento passam a enviar a resposta incrementalmente (evento `text_delta`),
   como no Claude/Cursor, com fallback automático para invocação normal quando o modelo/
