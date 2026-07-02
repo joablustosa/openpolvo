@@ -13,9 +13,10 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { BrowserViewCommandId } from '../../../../platform/browserView/common/browserView.js';
 import {
 	normalizeDevRelativePath,
+	normalizeProjectRoot,
 	prefixDevRelativePath,
+	PROJECTS_PARENT_DIR,
 	readProjectRootFromMetadata,
-	slugifyProjectTitle,
 } from '../../../../platform/agentHost/common/openPolvoDevProject.js';
 import { IExplorerService } from '../../files/browser/files.js';
 import { IWorkspaceEditingService } from '../../../services/workspaces/common/workspaceEditing.js';
@@ -81,17 +82,24 @@ export async function ensureUniquePolvoProjectRoot(
 	workspaceFolderUri: URI,
 	requestedRoot: string,
 ): Promise<string | undefined> {
-	const slug = slugifyProjectTitle(normalizeDevRelativePath(requestedRoot));
-	if (!slug) {
+	const base = normalizeProjectRoot(requestedRoot);
+	if (!base) {
 		return undefined;
 	}
-	let candidate = slug;
+	const segments = base.split('/').filter(Boolean);
+	const slug = segments[segments.length - 1] ?? 'openpolvo-app';
+	const parent = segments.length > 1 ? segments.slice(0, -1).join('/') : PROJECTS_PARENT_DIR;
+	let candidate = base;
 	let suffix = 0;
 	while (await pathExists(fileService, URI.joinPath(workspaceFolderUri, ...candidate.split('/')))) {
 		suffix += 1;
-		candidate = `${slug}-${suffix}`;
+		candidate = `${parent}/${slug}-${suffix}`;
 	}
-	await fileService.createFolder(URI.joinPath(workspaceFolderUri, ...candidate.split('/')));
+	let abs = workspaceFolderUri;
+	for (const seg of candidate.split('/').filter(Boolean)) {
+		abs = URI.joinPath(abs, seg);
+		await fileService.createFolder(abs);
+	}
 	return candidate;
 }
 

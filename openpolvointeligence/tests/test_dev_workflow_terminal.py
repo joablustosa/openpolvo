@@ -36,7 +36,7 @@ def test_early_project_root_progress_new_app():
     }
     ev, root = _early_project_root_progress(state, "/tmp/ws")
     assert ev is not None
-    assert root
+    assert root == "projects/criar-app-de-tarefas" or root.startswith("projects/")
     assert ev["step"] == "dev_project_root"
 
 

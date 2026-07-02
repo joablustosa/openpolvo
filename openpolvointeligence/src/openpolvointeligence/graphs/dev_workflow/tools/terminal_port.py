@@ -209,12 +209,23 @@ def build_terminal_port(
     bridge_wait: Callable[[str, str, dict[str, Any], float], Awaitable[dict[str, Any]]] | None,
     emit: ToolEventEmitter | None,
 ) -> DevTerminalPort:
+    from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_request_kind import (
+        create_project_for_kind,
+    )
+    from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+        resolve_effective_workspace_path,
+    )
+
     wp = str(state.get("workspace_path") or state.get("workspace_id") or "").strip()
+    kind = str(state.get("request_kind") or "")
+    has_ws = bool(wp) or bool(state.get("project_files"))
+    create = create_project_for_kind(kind, has_workspace=has_ws) if kind else False
+    effective_wp = resolve_effective_workspace_path(state, create_project=create) or wp
     cid = str(state.get("conversation_id") or "").strip() or None
-    mode = resolve_terminal_mode(settings, workspace_path=wp or None, conversation_id=cid)
+    mode = resolve_terminal_mode(settings, workspace_path=effective_wp or None, conversation_id=cid)
     return DevTerminalPort(
         settings=settings,
-        workspace_path=wp,
+        workspace_path=effective_wp,
         conversation_id=cid,
         project_files=dict(state.get("project_files") or {}),
         bridge_wait=bridge_wait,

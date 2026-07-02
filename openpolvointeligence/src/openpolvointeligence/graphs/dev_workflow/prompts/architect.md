@@ -133,6 +133,8 @@ Scaffold do estúdio (default): **React (Vite) + Go hexagonal** em monorepo `fro
 
 ## Stack padrão para projecto novo (`create_project: true`)
 
+Com workspace aberto, o projecto vive em **`projects/<slug>/`** (ex.: `projects/festas-kids/frontend/...`). Nunca na raiz do workspace.
+
 Quando o pedido cria um **app/site novo** e o utilizador **não** define stack explicitamente, usa **`stack: "fullstack-react-go"`**:
 
 - O runtime gera **automaticamente**: `frontend/` (Vite + React + shadcn) + `backend/` (Go hexagonal) + `Makefile`. **Não listes** ficheiros de scaffold.

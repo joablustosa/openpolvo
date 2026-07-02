@@ -72,6 +72,45 @@ em vez da auth própria OpenPolvo com credenciais do `.env`.
 `sessionsSetUpService.ts`, `openPolvoAgentHostAuth.ts`, `openpolvo.config.contribution.ts`,
 `scripts/dev-launch.ps1`, `openpolvointeligence/.../models.py`, testes.
 
+## 2026-07-02 — Padronização `projects/<slug>/` no dev workflow (new_app)
+
+**Sintoma:** novas apps criavam ficheiros na raiz do workspace ou fora da hierarquia
+esperada; terminal/git corriam no cwd errado.
+
+**Correção:** raiz padrão `projects/<slug>/` em `project_root_ops.py`; terminal e
+context_loader usam cwd efectivo do projecto; frontend alinha paths (`openPolvoDevProject.ts`,
+`openPolvoAgent`, `openPolvoDevWorkspaceFiles`); prompts `workflow_protocols.md` e
+`architect.md`.
+
+**Arquivos:** `project_root_ops.py`, `terminal_port.py`, `context_loader.py`,
+`openPolvoDevProject.ts`, `openPolvoAgent.ts`, `openPolvoDevWorkspaceFiles.ts`,
+`tests/test_project_root_ops.py`.
+
+## 2026-07-02 — Fix 502/401 no chat dev (chave interna Go ≠ Python)
+
+**Sintoma:** chat desenvolvedor falhava com `502 polvointel: stream 401 unauthorized`.
+
+**Causa:** `POLVO_INTERNAL_KEY` no Intelligence (`.env.example` default) diferente de
+`POLVO_INTELLIGENCE_INTERNAL_KEY` no backend Go.
+
+**Correção:** `scripts/sync-dev-env.ps1` alinha as chaves; chamado em `dev-launch.ps1`
+e `setup-dev.ps1`. Agent Host faz auto-login no arranque (`openPolvoAgent.ensureAuth`).
+
+**Arquivos:** `scripts/sync-dev-env.ps1`, `scripts/start-dev-services.ps1`,
+`openPolvoAgent.ts`, `openpolvoConfiguration.ts`, `polvocode/scripts/dev-launch.ps1`.
+
+## 2026-07-02 — Fix ícones UI (codicon.ttf em falta no dev Windows)
+
+**Sintoma:** ícones da interface (toolbar, sidebar, etc.) não renderizavam no Open Polvo.
+
+**Causa:** `codicon.ttf` não copiado para `src/` e `out/` — `npm ci --ignore-scripts`
+não executa `copy-codicons`; ficheiro está no `.gitignore`.
+
+**Correção:** script `scripts/ensure-codicons.ps1`; chamado em `dev-launch.ps1` e
+`setup-dev.ps1` antes do arranque/transpile.
+
+**Arquivos:** `polvocode/scripts/ensure-codicons.ps1`, `dev-launch.ps1`, `setup-dev.ps1`.
+
 ## 2026-07-01 — Roteamento por aba: dev/agent/workflow cada uma no workflow certo
 
 **Sintoma:** mensagens da aba de desenvolvimento podiam ser "sequestradas" por

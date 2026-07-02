@@ -16,6 +16,10 @@ from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_state import (
     DevWorkflowState,
     ProjectContext,
 )
+from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+    resolve_effective_workspace_path,
+    resolve_existing_project_root,
+)
 from openpolvointeligence.graphs.dev_workflow.tools.filesystem import grep_in_memory, read_file
 from openpolvointeligence.graphs.dev_workflow.tools.node_env import has_local_package
 from openpolvointeligence.graphs.dev_workflow.tools.terminal_port import (
@@ -237,7 +241,13 @@ async def load_project_context(
         return ctx
 
     if p.mode == "sandbox" and p.workspace_path and Path(p.workspace_path).is_dir():
-        ctx = await asyncio.to_thread(_build_context_from_disk, state, files, p.workspace_path)
+        kind = str(state.get("request_kind") or "")
+        create = create_project_for_kind(kind, has_workspace=_has_workspace(state)) if kind else False
+        disk_root = resolve_existing_project_root(dict(state), create_project=create)
+        disk_path = p.workspace_path
+        if disk_root and not create:
+            disk_path = resolve_effective_workspace_path(dict(state), create_project=False)
+        ctx = await asyncio.to_thread(_build_context_from_disk, state, files, disk_path)
         await _optional_terminal_enrichment(p, ctx, files)
         return ctx
 

@@ -38,7 +38,9 @@ import {
 import { toToolCall, type INormalizedStreamEvent } from '../../common/openpolvoBackendProtocol.js';
 import {
 	normalizeDevRelativePath,
+	normalizeProjectRoot,
 	prefixDevRelativePath,
+	PROJECTS_PARENT_DIR,
 	readProjectRootFromMetadata,
 	readProjectRootFromProgressPayload,
 	slugifyProjectTitle,
@@ -105,6 +107,9 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		@IFileService private readonly _fileService: IFileService,
 	) {
 		super();
+		void this._api.ensureAuth().catch(err => {
+			this._logService.warn(`[OpenPolvo] Auto-login inicial no agent host: ${err instanceof Error ? err.message : String(err)}`);
+		});
 		void this._refreshModels();
 	}
 
@@ -337,7 +342,16 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 	async changeAgent(_session: URI, _agent: AgentSelection | undefined): Promise<void> { }
 
 	async authenticate(_resource: string, token: string): Promise<boolean> {
-		this._api.setToken(token);
+		if (token?.trim()) {
+			this._api.setToken(token.trim());
+		} else {
+			try {
+				await this._api.ensureAuth();
+			} catch (err) {
+				this._logService.error(`[OpenPolvo] Agent authenticate failed: ${err instanceof Error ? err.message : String(err)}`);
+				return false;
+			}
+		}
 		void this._refreshModels();
 		return true;
 	}
@@ -542,13 +556,16 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		if (state.projectRootResolved && state.projectRootRel) {
 			return state.projectRootRel;
 		}
+		const base = normalizeProjectRoot(requestedRoot);
 		if (!state.workingDirectory) {
-			state.projectRootRel = normalizeDevRelativePath(requestedRoot);
+			state.projectRootRel = base;
 			state.projectRootResolved = true;
 			return state.projectRootRel;
 		}
-		const slug = slugifyProjectTitle(requestedRoot) || normalizeDevRelativePath(requestedRoot);
-		let candidate = slug;
+		const segments = base.split('/').filter(Boolean);
+		const slug = segments[segments.length - 1] ?? 'openpolvo-app';
+		const parent = segments.length > 1 ? segments.slice(0, -1).join('/') : PROJECTS_PARENT_DIR;
+		let candidate = base;
 		let suffix = 0;
 		while (await this._pathExists(path.join(state.workingDirectory, candidate))) {
 			const pkgPath = path.join(state.workingDirectory, candidate, 'package.json');
@@ -557,17 +574,20 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 				break;
 			}
 			suffix += 1;
-			candidate = `${slug}-${suffix}`;
+			candidate = `${parent}/${slug}-${suffix}`;
 		}
 		state.projectRootRel = candidate;
 		state.projectRootResolved = true;
-		const absRoot = path.join(state.workingDirectory, candidate);
-		try {
-			await this._fileService.createFolder(URI.file(absRoot));
-		} catch (err) {
-			this._logService.warn(
-				`[OpenPolvo] failed to create project root ${candidate}: ${err instanceof Error ? err.message : String(err)}`,
-			);
+		let abs = state.workingDirectory;
+		for (const seg of candidate.split('/').filter(Boolean)) {
+			abs = path.join(abs, seg);
+			try {
+				await this._fileService.createFolder(URI.file(abs));
+			} catch (err) {
+				this._logService.warn(
+					`[OpenPolvo] failed to create project root ${candidate}: ${err instanceof Error ? err.message : String(err)}`,
+				);
+			}
 		}
 		return candidate;
 	}
@@ -588,10 +608,23 @@ export class OpenPolvoAgent extends Disposable implements IAgent {
 		let normalized = normalizeDevRelativePath(relPath);
 		const segments = normalized.split('/').filter(Boolean);
 		const firstSeg = segments[0];
+		const secondSeg = segments[1];
 		const reservedRoots = new Set(['src', 'server', 'public', 'package.json']);
-		const looksPrefixed = segments.length > 1 && firstSeg && !reservedRoots.has(firstSeg);
+		const looksPrefixed =
+			segments.length > 1
+			&& firstSeg === PROJECTS_PARENT_DIR
+			&& secondSeg
+			&& !reservedRoots.has(secondSeg);
+		const looksSlugPrefixed =
+			segments.length > 1 && firstSeg && !reservedRoots.has(firstSeg) && firstSeg !== PROJECTS_PARENT_DIR;
 
 		if (!state.projectRootResolved && looksPrefixed) {
+			const rootPath = `${firstSeg}/${secondSeg}`;
+			const unique = await this._ensureProjectRoot(state, rootPath);
+			if (unique !== rootPath) {
+				normalized = normalized.replace(rootPath, unique);
+			}
+		} else if (!state.projectRootResolved && looksSlugPrefixed) {
 			const unique = await this._ensureProjectRoot(state, firstSeg);
 			if (unique !== firstSeg) {
 				normalized = [unique, ...segments.slice(1)].join('/');

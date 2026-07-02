@@ -45,6 +45,8 @@ export interface IOpenPolvoStarterSettings {
 	readonly token?: string;
 	readonly enabled?: boolean;
 	readonly devWorkflowEnabled?: boolean;
+	readonly localEmail?: string;
+	readonly localPassword?: string;
 }
 
 export function buildOpenPolvoEnv(

@@ -3,6 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+/** Pasta padrão para novas apps geradas dentro de um workspace aberto. */
+export const PROJECTS_PARENT_DIR = 'projects';
+
 const DEFAULT_PROJECT_ROOT = 'openpolvo-app';
 
 export function slugifyProjectTitle(title: string | undefined): string {
@@ -16,6 +19,37 @@ export function slugifyProjectTitle(title: string | undefined): string {
 
 export function normalizeDevRelativePath(path: string): string {
 	return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+/** Raiz relativa padrão: `projects/<slug>/`. */
+export function buildProjectRootPath(slugOrTitle: string): string {
+	const norm = normalizeDevRelativePath(slugOrTitle);
+	if (!norm) {
+		return `${PROJECTS_PARENT_DIR}/${DEFAULT_PROJECT_ROOT}`;
+	}
+	if (norm.startsWith(`${PROJECTS_PARENT_DIR}/`)) {
+		const parts = norm.split('/').filter(Boolean);
+		if (parts.length >= 2) {
+			parts[parts.length - 1] = slugifyProjectTitle(parts[parts.length - 1]);
+			return parts.join('/');
+		}
+	}
+	const slug = norm.includes('/') ? slugifyProjectTitle(norm.split('/').pop()!) : slugifyProjectTitle(norm);
+	return `${PROJECTS_PARENT_DIR}/${slug}`;
+}
+
+export function normalizeProjectRoot(requested: string | undefined): string {
+	if (!requested?.trim()) {
+		return buildProjectRootPath(DEFAULT_PROJECT_ROOT);
+	}
+	const norm = normalizeDevRelativePath(requested);
+	if (norm.startsWith(`${PROJECTS_PARENT_DIR}/`)) {
+		return norm;
+	}
+	if (norm.includes('/')) {
+		return buildProjectRootPath(norm);
+	}
+	return buildProjectRootPath(slugifyProjectTitle(norm));
 }
 
 export function prefixDevRelativePath(projectRoot: string, relPath: string): string {
@@ -44,7 +78,7 @@ export function readProjectRootFromMetadata(metadata: Record<string, unknown> | 
 	const title = typeof metadata.polvo_code_project_title === 'string'
 		? metadata.polvo_code_project_title
 		: undefined;
-	return slugifyProjectTitle(title);
+	return buildProjectRootPath(slugifyProjectTitle(title));
 }
 
 export function readProjectRootFromProgressPayload(payload: Record<string, unknown> | undefined): string | undefined {
