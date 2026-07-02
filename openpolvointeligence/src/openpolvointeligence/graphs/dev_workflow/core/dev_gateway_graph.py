@@ -41,7 +41,7 @@ from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     validate_polvo_code_operations,
 )
 from openpolvointeligence.graphs.message_utils import last_user_text
-from openpolvointeligence.graphs.models import effective_provider, get_chat_model
+from openpolvointeligence.graphs.models import effective_provider, get_chat_model, resolve_dev_workflow_provider
 from openpolvointeligence.graphs.preview_console_context import merge_preview_console_block
 from openpolvointeligence.graphs.dev_workflow.tools.terminal_port import (
     build_terminal_port,
@@ -1030,6 +1030,8 @@ async def run_dev_workflow_stream(
     get_or_create_session(str(conversation_id or "anonymous"), project_id=stable_pid or "")
     state_in["thread_id"] = thread_id
     state_in["conversation_id"] = conversation_id
+    dc = dev_studio_context if isinstance(dev_studio_context, dict) else {}
+    state_in["model_provider"] = resolve_dev_workflow_provider(model_provider, settings, dc)
 
     merged: dict[str, Any] = dict(state_in)
     emitted_files: set[str] = set()
@@ -1248,12 +1250,47 @@ async def run_dev_workflow_stream(
         if exec_error.get("detail") and not (
             isinstance(meta, dict) and meta.get("polvo_code_ops")
         ):
-            detail = exec_error["detail"]
-            text = (
-                (text + "\n\n") if text.strip() else ""
-            ) + f"⚠️ O workflow de desenvolvimento falhou antes de gerar ficheiros: {detail}"
-            if isinstance(meta, dict):
-                meta["error_kind"] = "dev_workflow_execution_failed"
+            from openpolvointeligence.graphs.dev_workflow.core.llm_resilience import (
+                format_dev_workflow_llm_error,
+                is_llm_retriable_error,
+            )
+            from openpolvointeligence.graphs.dev_workflow.core.scaffold_fallback import (
+                build_scaffold_fallback_patch,
+                can_scaffold_fallback,
+            )
+
+            raw_detail = exec_error["detail"]
+            used_scaffold = False
+            if is_llm_retriable_error(Exception(raw_detail)) and can_scaffold_fallback(merged):
+                fallback = build_scaffold_fallback_patch(settings, merged, llm_error=raw_detail)
+                merged.update(fallback)
+                text, meta = await _finalize_metadata(
+                    settings,
+                    merged,
+                    model_provider=merged.get("model_provider") or model_provider,
+                    workspace_id=workspace_id,
+                    project_files=project_files,
+                    project_file_tree=project_file_tree,
+                    dev_studio_context=dev_studio_context,
+                    stable_pid=stable_pid,
+                    preview_block=preview_block,
+                    compile_log=compile_log,
+                    messages=messages,
+                )
+                used_scaffold = True
+                exec_error.clear()
+
+            if not used_scaffold:
+                detail = format_dev_workflow_llm_error(
+                    raw_detail,
+                    str(merged.get("model_provider") or model_provider),
+                    settings,
+                )
+                text = (
+                    (text + "\n\n") if text.strip() else ""
+                ) + f"⚠️ O workflow de desenvolvimento falhou antes de gerar ficheiros: {detail}"
+                if isinstance(meta, dict):
+                    meta["error_kind"] = "dev_workflow_execution_failed"
         ops = meta.get("polvo_code_ops") if isinstance(meta, dict) else None
         if isinstance(ops, list):
             for ev in _file_events_from_ops(ops):
@@ -1264,10 +1301,19 @@ async def run_dev_workflow_stream(
         yield {"type": "done", "assistant_text": text, "metadata": meta}
     except Exception as exc:
         _logger.exception("dev_workflow stream failed")
+        from openpolvointeligence.graphs.dev_workflow.core.llm_resilience import (
+            format_dev_workflow_llm_error,
+        )
+
+        friendly = format_dev_workflow_llm_error(
+            str(exc),
+            str(model_provider or ""),
+            settings,
+        )
         yield {
             "type": "done",
             "assistant_text": (
-                f"Não foi possível concluir o fluxo de desenvolvimento. Detalhe: {str(exc)[:300]}"
+                f"Não foi possível concluir o fluxo de desenvolvimento. {friendly}"
             ),
             "metadata": {
                 "intent": "polvo_code_builder",

@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from openpolvointeligence.core.config import Settings
 from openpolvointeligence.graphs.dev_workflow.core.dev_agent_prompts import inject_agent_prompt
 from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_state import truncate_trace
-from openpolvointeligence.graphs.models import get_chat_model
 
 MAX_RETRIES = 3
 
@@ -60,17 +59,25 @@ async def invoke_json_agent(
     )
 
     provider = resolve_model_for_node(state.get("model_provider"), agent_name)
-    chat = get_chat_model(settings, provider, json_mode=True)
+    from openpolvointeligence.graphs.dev_workflow.core.llm_resilience import ainvoke_chat
+
     timeout_s = float(getattr(settings, "agent_llm_timeout_s", 120.0) or 120.0)
     try:
-        resp = await asyncio.wait_for(
-            chat.ainvoke([SystemMessage(content=sys), HumanMessage(content=human_with_ctx)]),
+        resp, used_provider = await asyncio.wait_for(
+            ainvoke_chat(
+                settings,
+                provider,
+                [SystemMessage(content=sys), HumanMessage(content=human_with_ctx)],
+                json_mode=True,
+            ),
             timeout=timeout_s,
         )
     except asyncio.TimeoutError as exc:
         raise TimeoutError(
             f"agente '{agent_name}' excedeu {timeout_s:.0f}s à espera do LLM ({provider})"
         ) from exc
+    if used_provider != provider:
+        state["model_provider"] = used_provider
     return parse_json_object(str(resp.content))
 
 

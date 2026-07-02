@@ -123,37 +123,67 @@ class ModelBridge:
 
         Só streama em modo nativo — em modo JSON a saída é uma ação JSON, não prosa.
         Fallback para ``ainvoke`` (sem duplicar texto) se o stream falhar.
+        Tenta outros providers se quota/auth/rede falhar.
         """
+        from openpolvointeligence.graphs.dev_workflow.core.llm_resilience import (
+            ainvoke_chat,
+            is_llm_retriable_error,
+        )
+
         stream = (
             self.native
             and emit is not None
             and bool(getattr(self.settings, "dev_workflow_stream_tokens", True))
         )
-        if not stream:
-            return await self.chat.ainvoke(messages)
-        full: AIMessageChunk | None = None
-        emitted = False
+        if stream:
+            full: AIMessageChunk | None = None
+            emitted = False
+            try:
+                async for chunk in self.chat.astream(messages):
+                    full = chunk if full is None else full + chunk
+                    piece = _chunk_text(chunk)
+                    if piece:
+                        emitted = True
+                        try:
+                            await emit("text_delta", {"delta": piece})
+                        except Exception:  # noqa: BLE001 — emit nunca deve quebrar o loop
+                            pass
+            except Exception as exc:  # noqa: BLE001 — stream instável cai para ainvoke
+                _logger.info("agent_loop astream falhou; a usar ainvoke", exc_info=True)
+                if is_llm_retriable_error(exc):
+                    resp, used = await ainvoke_chat(self.settings, self.provider, messages)
+                    self.provider = used
+                    return resp
+                if full is None and not emitted:
+                    return await self._invoke_fallback(messages)
+            if full is None:
+                return await self._invoke_fallback(messages)
+            return AIMessage(
+                content=full.content,
+                tool_calls=list(getattr(full, "tool_calls", []) or []),
+                additional_kwargs=dict(getattr(full, "additional_kwargs", {}) or {}),
+            )
+
         try:
-            async for chunk in self.chat.astream(messages):
-                full = chunk if full is None else full + chunk
-                piece = _chunk_text(chunk)
-                if piece:
-                    emitted = True
-                    try:
-                        await emit("text_delta", {"delta": piece})
-                    except Exception:  # noqa: BLE001 — emit nunca deve quebrar o loop
-                        pass
-        except Exception:  # noqa: BLE001 — stream instável cai para ainvoke
-            _logger.info("agent_loop astream falhou; a usar ainvoke", exc_info=True)
-            if full is None and not emitted:
-                return await self.chat.ainvoke(messages)
-        if full is None:
             return await self.chat.ainvoke(messages)
-        return AIMessage(
-            content=full.content,
-            tool_calls=list(getattr(full, "tool_calls", []) or []),
-            additional_kwargs=dict(getattr(full, "additional_kwargs", {}) or {}),
+        except Exception as exc:
+            if is_llm_retriable_error(exc):
+                return await self._invoke_fallback(messages)
+            raise
+
+    async def _invoke_fallback(self, messages: list[BaseMessage]) -> BaseMessage:
+        from openpolvointeligence.graphs.dev_workflow.core.llm_resilience import ainvoke_chat
+
+        resp, used = await ainvoke_chat(
+            self.settings,
+            self.provider,
+            messages,
+            json_mode=not self.native,
         )
+        self.provider = used
+        if self.native and not supports_native_tools(self.settings, used):
+            self.native = False
+        return resp
 
     def _decide_native(self, resp: BaseMessage) -> LoopDecision:
         tool_calls = list(getattr(resp, "tool_calls", None) or [])

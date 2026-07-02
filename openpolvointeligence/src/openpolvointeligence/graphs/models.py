@@ -126,6 +126,15 @@ def desk_effective_provider(p: str | None, settings: Settings) -> str:
     return str(settings.desk_default_provider or "ollama").strip().lower() or "ollama"
 
 
+def resolve_dev_workflow_provider(
+    model_provider: str | None,
+    settings: Settings,
+    desk_context: dict[str, Any] | None = None,
+) -> ModelProvider:
+    """Provider do dev workflow — mesma resolução resiliente do Desk (Ollama/auto/cloud)."""
+    return resolve_desk_reply_provider(model_provider, desk_context, settings)  # type: ignore[return-value]
+
+
 def resolve_desk_reply_provider(
     model_provider: str | None,
     desk_context: dict[str, Any] | None,
