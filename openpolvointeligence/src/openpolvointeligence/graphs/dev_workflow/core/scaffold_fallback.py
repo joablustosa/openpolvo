@@ -9,6 +9,7 @@ from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
     validate_polvo_code_operations,
 )
+from openpolvointeligence.graphs.dev_workflow.project_root_ops import has_existing_app_in_state
 from openpolvointeligence.graphs.dev_workflow.scaffold_ops import merge_scaffold_operations
 
 
@@ -43,27 +44,12 @@ def _stack_for_fallback(state: dict[str, Any]) -> str:
 
 
 def can_scaffold_fallback(state: dict[str, Any]) -> bool:
-    kind = str(state.get("request_kind") or "")
-    if kind not in ("new_app", "feature"):
+    if has_existing_app_in_state(state):
         return False
-    prompt = _prompt_text(state).lower()
-    if kind == "new_app":
-        return True
-    return any(
-        k in prompt
-        for k in (
-            "landing",
-            "leadpage",
-            "lead page",
-            "página",
-            "pagina",
-            "site",
-            "app",
-            "sistema",
-            "criar",
-            "cria",
-        )
-    )
+    kind = str(state.get("request_kind") or "")
+    if kind != "new_app":
+        return False
+    return True
 
 
 def build_scaffold_fallback_patch(

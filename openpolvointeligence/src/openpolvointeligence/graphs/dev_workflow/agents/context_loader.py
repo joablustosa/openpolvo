@@ -17,6 +17,7 @@ from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_state import (
     ProjectContext,
 )
 from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+    has_existing_app_in_state,
     resolve_effective_workspace_path,
     resolve_existing_project_root,
 )
@@ -55,6 +56,8 @@ def _has_workspace(state: DevWorkflowState) -> bool:
 def _is_greenfield_new_app(state: DevWorkflowState, files: dict[str, str]) -> bool:
     kind = str(state.get("request_kind") or "")
     if kind != "new_app":
+        return False
+    if has_existing_app_in_state(dict(state)):
         return False
     if not _has_workspace(state):
         return True

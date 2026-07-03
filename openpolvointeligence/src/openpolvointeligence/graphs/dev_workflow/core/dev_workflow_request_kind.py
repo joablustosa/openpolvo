@@ -182,6 +182,22 @@ _STRONG_NEW_APP_PHRASES = (
     "landing page",
 )
 
+# Com app já existente: só frases que pedem projecto/pasta nova — não landing/página isolada.
+_STRONG_NEW_APP_WHEN_EXISTING = (
+    "do zero",
+    "novo projeto",
+    "novo projecto",
+    "novo sistema",
+    "cria um sistema",
+    "criar um sistema",
+    "crie um sistema",
+    "cria uma app",
+    "criar uma app",
+    "cria um app",
+    "scaffold",
+    "monta uma app",
+)
+
 _REFACTOR_KEYWORDS = (
     "refatora",
     "refatorar",
@@ -329,14 +345,16 @@ def _count_hits(prompt: str, keywords: tuple[str, ...]) -> int:
     return sum(1 for k in keywords if k in prompt)
 
 
-def _has_strong_new_app_intent(prompt: str) -> bool:
-    return any(phrase in prompt for phrase in _STRONG_NEW_APP_PHRASES)
+def _has_strong_new_app_intent(prompt: str, *, has_existing_app: bool = False) -> bool:
+    phrases = _STRONG_NEW_APP_WHEN_EXISTING if has_existing_app else _STRONG_NEW_APP_PHRASES
+    return any(phrase in prompt for phrase in phrases)
 
 
 def classify_request_kind(
     user_prompt: str,
     *,
     has_project: bool,
+    has_existing_app: bool = False,
     has_build_errors: bool = False,
     llm_hint: str | None = None,
 ) -> RequestKind:
@@ -392,7 +410,13 @@ def classify_request_kind(
         return "refactor"
 
     # Workspace aberto: pedidos de sistema/app novo → new_app (pasta própria), não feature.
-    if _has_strong_new_app_intent(p) or (new_app_score > feature_score and new_app_score > 0):
+    # Com app já existente, só new_app se intenção explícita de projecto novo (subpasta).
+    strong_new = _has_strong_new_app_intent(p, has_existing_app=has_existing_app)
+    if strong_new or (
+        new_app_score > feature_score
+        and new_app_score > 0
+        and not (has_existing_app and not strong_new)
+    ):
         return "new_app"
 
     if bug_score and not feature_score:
@@ -416,7 +440,11 @@ def classify_request_kind(
         "abort",
     ):
         return hint
-    if new_app_score and feature_score == 0:
+    if (
+        new_app_score
+        and feature_score == 0
+        and not (has_existing_app and not _has_strong_new_app_intent(p, has_existing_app=has_existing_app))
+    ):
         return "new_app"
     return "feature"
 

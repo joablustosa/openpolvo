@@ -24,7 +24,9 @@ from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_request_kind imp
     route_for_request_kind,
 )
 from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+    has_existing_app_in_state,
     prefix_polvo_code_operations,
+    resolve_existing_project_root,
     resolve_project_root_for_new_app,
 )
 from openpolvointeligence.graphs.dev_workflow.scaffold_ops import merge_scaffold_operations
@@ -457,6 +459,11 @@ def _prepare_ops_for_stream(
         operations=cumulative or patch_ops,
     )
     emit_ops = cumulative if cumulative else patch_ops
+    if not create:
+        existing_root = resolve_existing_project_root(state, create_project=False)
+        if existing_root:
+            return prefix_polvo_code_operations(emit_ops, existing_root), existing_root
+        return emit_ops, None
     if not root:
         return emit_ops, None
     return prefix_polvo_code_operations(emit_ops, root), root
@@ -687,6 +694,7 @@ def _make_gateway_nodes(
         trace = truncate_trace(list(state.get("trace") or []))
         user_prompt = str(state.get("user_prompt") or last_user_text(state.get("messages") or []))
         has_proj = _has_project(state)
+        has_existing = has_existing_app_in_state(dict(state))
         has_build_errors = bool(
             (state.get("preview_console_block") or "").strip()
             or (state.get("compile_log") or "").strip()
@@ -694,6 +702,7 @@ def _make_gateway_nodes(
         kind = classify_request_kind(
             user_prompt,
             has_project=has_proj,
+            has_existing_app=has_existing,
             has_build_errors=has_build_errors,
         )
         route = route_for_request_kind(
@@ -702,7 +711,7 @@ def _make_gateway_nodes(
             has_project=has_proj,
         )
         wf_id = workflow_id_for_kind(kind)
-        return {
+        patch: dict[str, Any] = {
             "user_prompt": user_prompt or state.get("user_prompt"),
             "request_kind": kind,
             "workflow_id": wf_id,
@@ -711,6 +720,12 @@ def _make_gateway_nodes(
             "route_reason": f"gateway:classify:{kind}",
             "trace": trace + [f"gateway:classify:{kind}:{wf_id}"],
         }
+        if has_existing and kind != "new_app":
+            existing_root = resolve_existing_project_root(dict(state), create_project=False)
+            if existing_root:
+                patch["polvo_code_project_root"] = existing_root
+            patch["has_existing_app"] = True
+        return patch
 
     async def node_workflow_plan(state: DevWorkflowState) -> dict[str, Any]:
         trace = truncate_trace(list(state.get("trace") or []))

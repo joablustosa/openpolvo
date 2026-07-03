@@ -408,12 +408,15 @@ async def run_context_manager(
         classify_request_kind,
         prefers_diff_mode,
     )
+    from openpolvointeligence.graphs.dev_workflow.project_root_ops import has_existing_app_in_state
 
     has_project = bool(project_files) or bool(file_tree)
+    has_existing = has_existing_app_in_state({"project_files": project_files or {}})
     has_build_errors = bool((preview_console_block or "").strip())
     prelim_kind = classify_request_kind(
         prompt_text,
         has_project=has_project,
+        has_existing_app=has_existing,
         has_build_errors=has_build_errors,
     )
     # Nova app reconstrói (sem diff); bug_fix/feature pequena preferem patch incremental.

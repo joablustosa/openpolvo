@@ -40,7 +40,7 @@ def test_fallback_chain_includes_ollama_when_openai_primary():
     assert "ollama" in chain
 
 
-def test_scaffold_fallback_new_app():
+def test_scaffold_fallback_new_app_greenfield():
     state = {
         "request_kind": "new_app",
         "user_prompt": "cria uma landing page de leads",
@@ -54,3 +54,13 @@ def test_scaffold_fallback_new_app():
     paths = {o["path"] for o in patch["polvo_code_ops"] if o.get("op") == "write"}
     assert any(p.endswith("package.json") for p in paths)
     assert any("/src/" in p or p.endswith("src/App.tsx") for p in paths)
+
+
+def test_scaffold_fallback_blocked_when_existing_app():
+    state = {
+        "request_kind": "new_app",
+        "user_prompt": "cria uma landing page de leads",
+        "workspace_id": "/tmp/ws",
+        "project_files": {"package.json": "{}", "src/App.tsx": "x"},
+    }
+    assert not can_scaffold_fallback(state)

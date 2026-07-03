@@ -4,7 +4,10 @@ from openpolvointeligence.graphs.dev_workflow.polvo_code_metadata import (
     build_polvo_code_ops_metadata,
 )
 from openpolvointeligence.graphs.dev_workflow.project_root_ops import (
+    _detect_project_root_on_disk,
     build_project_root_path,
+    has_existing_app_in_state,
+    has_existing_app_on_disk,
     prefix_polvo_code_operations,
     resolve_existing_project_root,
     resolve_project_root_for_new_app,
@@ -83,3 +86,39 @@ def test_resolve_existing_project_root_from_files() -> None:
         create_project=False,
     )
     assert root == "projects/foo"
+
+
+def test_has_existing_app_from_project_files_at_workspace_root() -> None:
+    assert has_existing_app_in_state(
+        {"project_files": {"package.json": "{}", "src/App.tsx": "x"}}
+    )
+
+
+def test_has_existing_app_on_disk(tmp_path) -> None:
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    assert has_existing_app_on_disk(str(tmp_path))
+    assert _detect_project_root_on_disk(str(tmp_path)) is None
+
+
+def test_has_existing_app_in_projects_subfolder(tmp_path) -> None:
+    proj = tmp_path / "projects" / "my-app"
+    proj.mkdir(parents=True)
+    (proj / "package.json").write_text("{}", encoding="utf-8")
+    assert has_existing_app_on_disk(str(tmp_path))
+    assert resolve_existing_project_root(
+        {"workspace_path": str(tmp_path), "project_files": {}},
+        create_project=False,
+    ) == "projects/my-app"
+
+
+def test_classify_existing_app_landing_is_feature_not_new_app() -> None:
+    from openpolvointeligence.graphs.dev_workflow.core.dev_workflow_request_kind import (
+        classify_request_kind,
+    )
+
+    kind = classify_request_kind(
+        "cria uma landing page para captar leads",
+        has_project=True,
+        has_existing_app=True,
+    )
+    assert kind == "feature"

@@ -58,6 +58,15 @@ def _looks_like_project_root(prefix: str) -> bool:
     return bool(tail) and tail not in {"src", "server", "public", "frontend", "backend"}
 
 
+def _is_project_marker(path: Path) -> bool:
+    return (
+        (path / "package.json").is_file()
+        or (path / "go.mod").is_file()
+        or (path / "pyproject.toml").is_file()
+        or (path / "Cargo.toml").is_file()
+    )
+
+
 def _detect_projects_dir_on_disk(workspace_path: str | None) -> str | None:
     if not workspace_path:
         return None
@@ -70,13 +79,76 @@ def _detect_projects_dir_on_disk(workspace_path: str | None) -> str | None:
             if not child.is_dir() or child.name.startswith("."):
                 continue
             rel = f"{PROJECTS_PARENT_DIR}/{child.name}"
-            if (child / "package.json").is_file() or (child / "go.mod").is_file():
+            if _is_project_marker(child):
                 candidates.append(rel)
     except OSError:
         return None
     if len(candidates) == 1:
         return candidates[0]
     return None
+
+
+def _detect_project_root_on_disk(workspace_path: str | None) -> str | None:
+    """Subpasta relativa do projecto (`projects/foo`) ou None se raiz do workspace / não encontrado."""
+    if not workspace_path:
+        return None
+    wp = Path(workspace_path)
+    try:
+        if _is_project_marker(wp):
+            return None
+        if (wp / "frontend").is_dir() and _is_project_marker(wp / "frontend"):
+            return "frontend"
+    except OSError:
+        return None
+    return _detect_projects_dir_on_disk(workspace_path)
+
+
+def has_existing_app_on_disk(workspace_path: str | None) -> bool:
+    if not workspace_path:
+        return False
+    wp = Path(workspace_path)
+    try:
+        if _is_project_marker(wp):
+            return True
+        if (wp / "frontend").is_dir() and _is_project_marker(wp / "frontend"):
+            return True
+    except OSError:
+        return False
+    return _detect_projects_dir_on_disk(workspace_path) is not None
+
+
+def _project_files_indicate_app(files: dict[str, str]) -> bool:
+    for raw in files:
+        p = _norm_path(raw)
+        if not p:
+            continue
+        if p == "package.json" or p.endswith("/package.json"):
+            return True
+        if p == "go.mod" or p.endswith("/go.mod"):
+            return True
+        if p == "pyproject.toml" or p.endswith("/pyproject.toml"):
+            return True
+    return False
+
+
+def has_existing_app_in_state(state: dict[str, Any]) -> bool:
+    """True quando o workspace já contém uma app (disco, ficheiros em memória ou raiz explícita)."""
+    explicit = _norm_path(str(state.get("polvo_code_project_root") or ""))
+    if explicit:
+        return True
+    files = state.get("project_files") or {}
+    if isinstance(files, dict) and files and _project_files_indicate_app(files):
+        return True
+    wp = str(state.get("workspace_path") or state.get("workspace_id") or "").strip()
+    return has_existing_app_on_disk(wp or None)
+
+
+def detect_existing_app_context(state: dict[str, Any]) -> tuple[bool, str | None]:
+    """(tem_app, subpasta_para_prefixo) — None na subpasta = projecto na raiz do workspace."""
+    if not has_existing_app_in_state(state):
+        return False, None
+    root = resolve_existing_project_root(state, create_project=False)
+    return True, root
 
 
 def resolve_existing_project_root(
@@ -95,9 +167,15 @@ def resolve_existing_project_root(
         prefix = _common_path_prefix(list(files.keys()))
         if prefix and _looks_like_project_root(prefix):
             return prefix.rstrip("/")
-    return _detect_projects_dir_on_disk(
-        str(state.get("workspace_path") or state.get("workspace_id") or "").strip() or None
-    )
+    wp = str(state.get("workspace_path") or state.get("workspace_id") or "").strip() or None
+    disk_sub = _detect_project_root_on_disk(wp)
+    if disk_sub:
+        return disk_sub.rstrip("/")
+    if wp and has_existing_app_on_disk(wp):
+        prefix = _common_path_prefix(list(files.keys())) if isinstance(files, dict) and files else ""
+        if prefix and _looks_like_project_root(prefix):
+            return prefix.rstrip("/")
+    return None
 
 
 def resolve_effective_workspace_path(state: dict[str, Any], *, create_project: bool = False) -> str:
